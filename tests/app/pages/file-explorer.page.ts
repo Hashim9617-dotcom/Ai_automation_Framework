@@ -241,9 +241,19 @@ export class FileExplorerPage extends AppPage {
     await this.menuItem(name).click();
   }
 
-  /** Closes an open menu without triggering any of its actions. */
+  /**
+   * Closes an open menu without triggering any of its actions.
+   *
+   * Not `Escape` — confirmed live that this app's menu never responds to it
+   * (still visible after a 2.5s wait, tried in isolation, no other action in
+   * between). This menu has no dedicated backdrop element either; it closes
+   * via a global outside-click listener instead, so a click on a neutral
+   * point does what a backdrop click would elsewhere. (5, 5) is a safe,
+   * empty, non-interactive `<div>` on this app's shell — confirmed it does
+   * not navigate or trigger anything else.
+   */
   async dismissMenu(): Promise<void> {
-    await this.page.keyboard.press('Escape');
+    await this.page.mouse.click(5, 5);
   }
 
   async menuItemNames(): Promise<string[]> {

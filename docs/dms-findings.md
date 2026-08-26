@@ -388,6 +388,52 @@ Not implemented. Flagging for review before writing any code against
 
 ## Finding 8 — root cause #3 (upload wizard "Next" stays disabled): not a scoping bug, and clicking the workspace tile has no observable effect
 
+**Update — tested against the Finding 11 hypothesis directly, not the same
+mechanism, and now with stronger evidence it's a genuine app bug.** Finding
+11 (tree rows) raised a real possibility worth checking before this gets
+called an app defect again: what if the workspace tile is also a
+container-plus-inner-control, and the click is landing on a wrapper instead
+of the real target? Tested exactly as Finding 11's naming bug was tested —
+CDP `Accessibility.getFullAXTree`, plus the tile's raw `outerHTML` — not
+inferred from the naming pattern.
+
+**Result: ruled out.** The tile is a single atomic `<button type="button"
+class="syn-select-grid-card">` — there is no nested interactive element
+inside it. Its icon, label, and checkmark are all `aria-hidden`/plain
+`<div>`/`<i>` markup with no role of their own; `workspaceOption()` already
+resolves to the one and only clickable node. This is a structurally
+different shape from the tree rows (which nested two *other buttons* — real
+interactive elements — inside the parent), so Finding 11's mechanism does
+not transfer here.
+
+**New evidence the click does register — just not visibly.** Instrumented a
+live click (`page.on('request', ...)`, `page.on('console', ...)`) rather
+than only watching pixels this time. Clicking the tile fires three real
+network calls, one of them scoped to the specific workspace's GUID
+(`GET /api/Folder/GetPermittedFolderListByWorkspaceId/<workspace-id>`,
+alongside a re-fetch of `GetPermittedWorkspaceList` and
+`DocumentTemplate/GetAll`) — proof the click reaches the app's selection
+handler and it does real work for that specific workspace, not a no-op.
+Zero console errors, zero `pageerror` events. And yet, 2 seconds later: the
+checkmark wrapper's class and computed color are byte-for-byte identical to
+before the click (`text-transparent` / `rgba(0,0,0,0)`), and `Next` is still
+reported `disabled`. A follow-up query against the same tile's `.ti-check`
+element then timed out entirely — the workspace grid re-renders at some
+point after the fetches resolve, in a way that invalidates the earlier DOM
+reference, independent of anything the test does.
+
+**Conclusion, sharper than before.** This is not "the click does nothing" —
+it is "the click triggers a real, workspace-scoped data fetch but the
+component's own selected-state (checkmark, `Next` enablement) never gets
+set from it," which then compounds with an unrelated re-render that makes
+the tile's subtree unstable shortly after. That is a frontend state-binding
+bug, not a rendering-timing gap and not a test-side locator problem — a
+page-object change cannot make a component update state it isn't wired to
+update. Per instruction, **not being reported to the DMS team yet** — held
+here pending a decision on that, given Finding 6's retraction history.
+
+**Original investigation, still accurate below:**
+
 **Hypothesis going in.** `UploadFilesPage.option(name)` —
 `this.page.getByRole('button', { name }).first()` — has no container scope,
 so the working theory was that `.first()` matches a same-named button
@@ -600,3 +646,65 @@ unrelated to this locator, and passed on retry).
 **Not an app defect.** Concatenating nested-control names into a tree row's
 accessible name is unusual but not nonconformant ARIA — the fix belongs in
 the test's locator, which is where it was made.
+
+## Finding 12 — three flaky/failing tests root-caused and fixed: a test-design data race, a wrong dismiss key, and a too-tight one-shot locator timeout
+
+Three separate issues, previously showing up as 2 flaky-recovered tests plus
+1 outright failure. Diagnosed individually, per instruction, rather than
+patched generically — "flaky" was masking three unrelated causes.
+
+**1. `file-explorer.spec.ts` "cancelling leaves the tree untouched" — test
+design, not app or locator.** Asserted `workspaceCount() === before` after
+opening-then-cancelling the create-workspace dialog. Observed directly: the
+count drifted 24 → 25 mid-test with `ALLOW_WRITES` unset and no write test
+running — this is a shared, live environment, and another user's concurrent
+workspace change moves the total independent of anything this test does. An
+exact-count assertion here was chasing a moving target that has nothing to
+do with whether Cancel worked. Fixed to assert the one thing Cancel actually
+promises and that no other actor can produce false-positive-or-negative on:
+the specific workspace we typed into the dialog does not exist afterward
+(`expect(explorer.treeNode(name)).not.toBeVisible()`).
+
+**2. `file-explorer.spec.ts` "a workspace menu offers its documented
+actions" — wrong dismiss mechanism, not app flakiness.** `dismissMenu()`
+pressed `Escape`. Tested live, in isolation: the menu is still visible a
+full 2.5s after `Escape`, every time — not a timing race, `Escape` simply
+does not close this menu. This app also has no dedicated backdrop element
+behind an open menu (checked the DOM directly); it closes via a global
+outside-click listener instead. Fixed `dismissMenu()` to click a confirmed-
+safe, empty, non-interactive point on the page shell instead of pressing
+`Escape`.
+
+**3. Intermittent `LocatorResolutionError` on single-candidate nav locators
+(`nav.fileExplorer`, `nav.upload`) at the very start of a run — a genuine
+missing-wait, in the same family as Finding 5's timing lesson but a
+different mechanism.** `SmartLocator.resolve()` gives a candidate exactly
+one `waitFor({ state: 'attached' })` window (`candidateTimeout`, 2s by
+default) and throws hard the instant it's exceeded — no polling, no second
+chance. That budget is sized for steady-state resolution, not a page's
+literal first render under real concurrency: four workers each opening a
+fresh page the instant a shared auth session becomes available. Observed
+live through two different call paths — `expectShellVisible` on
+`nav.fileExplorer`, and `expandNavSection`'s `click()` on `nav.upload` —
+both only in the first few seconds of a run, both always recovering on the
+framework's own whole-test retry, with telemetry showing sub-100ms
+resolution once contention eases moments later. That pattern (recovers
+reliably with more time, only under contention, never mid-run) is Finding
+7's "not yet rendered" state, not "never going to be there."
+
+**Fix.** `BasePage` (`packages/execution-engine/src/pages/base.page.ts`)
+now retries resolution itself, through a `resolveWithGrace()` wrapper used
+by every action helper (`click`, `type`, `selectOption`, `textOf`,
+`isVisible`, `expectVisible`) — not just the one that happened to surface
+first. It retries only `LocatorResolutionError`, against its own
+`env.timeouts.expect` budget, separate from the `toBeVisible` budget so one
+can't starve the other. Deliberately retries by calling `this.find(spec)`
+(virtual dispatch) rather than `this.smart.resolve()` directly, so
+`AppPage.find`'s sign-in check (`SessionExpiredError`, Finding 3) re-runs on
+every attempt — a session that dies mid-retry still fails fast and
+distinctly, rather than silently retrying a doomed resolution for the whole
+budget and surfacing as a misleading generic `LocatorResolutionError`.
+
+**Confirmed.** Two consecutive full-suite runs after the fix: **40 passed /
+3 failed / 0 flaky / 3 skipped**, identical both times — the 3 failures are
+only Finding 8's upload-wizard tests. Up from 36/5/2/3 before this finding.

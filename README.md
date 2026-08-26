@@ -10,6 +10,45 @@ root cause analysis on failures — has shipped.
 
 ---
 
+## Current state of the DmsSynergy suite (`tests/app/`)
+
+This suite is a **shakedown in progress against a live, shared application**
+(`dmsuiv3.aitalkx.com`), not a green baseline. Latest full run, repeated
+twice back-to-back with identical results:
+
+**40 passed / 3 failed / 0 flaky / 3 skipped** (46 total, `chromium`,
+`ALLOW_WRITES` unset). Full history and evidence for every item below — CDP
+accessibility-tree dumps, network logs, retraction notes — lives in
+[`docs/dms-findings.md`](docs/dms-findings.md); read it before assuming a
+red test is a bug in this repo.
+
+Known-remaining failures — all 3 are the same issue:
+
+- **3× `upload.spec.ts`** — clicking a workspace tile in the upload wizard
+  fires a real, workspace-scoped API call (confirmed via network logs) but
+  never updates the tile's selected state or enables `Next`. Confirmed via
+  CDP that the tile is a single atomic `<button>`, not a wrapper-vs-inner-
+  control locator bug (that hypothesis was tested directly and ruled out).
+  Suspected app defect, **not yet reported to the DMS team** (see Finding
+  8's history of retracted "app bug" claims before escalating another one).
+
+Fixed since the previous baseline (36/5/2/3) — all test-side, not app bugs:
+an exact-count assertion racing a live environment other users can change
+concurrently (now asserts the specific workspace is absent instead), this
+app's menu never responding to `Escape` (now dismisses via an outside
+click, confirmed live), and a one-shot locator-resolution timeout too tight
+for a page's first render under real worker concurrency (now retries
+resolution with its own grace budget, only for genuine "not yet rendered"
+errors — a dead session still fails immediately, not silently). See
+Findings 8, 11, and the entries following them in `dms-findings.md` for the
+live evidence behind each.
+
+If you're picking this up fresh: read `docs/dms-findings.md` end to end
+before touching `tests/app/pages/` — several "obvious" locator fixes in
+there have already been tried, and retracted, once.
+
+---
+
 ## Quick start
 
 ```bash

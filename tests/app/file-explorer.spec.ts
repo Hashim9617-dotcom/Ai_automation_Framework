@@ -150,15 +150,22 @@ test.describe('Create workspace', { tag: ['@regression', '@files'] }, () => {
     const explorer = makePage(FileExplorerPage);
     await explorer.open();
     await explorer.expectLoaded();
-    const before = await explorer.workspaceCount();
 
+    // Not an exact `workspaceCount()` comparison — confirmed live that this
+    // is a shared environment: the tree's total count drifted (24 -> 25)
+    // mid-test with ALLOW_WRITES off and no write test running, so someone
+    // else's concurrent workspace change can move the total in either
+    // direction independent of anything this test does. A count assertion
+    // therefore chases a moving target that has nothing to do with whether
+    // Cancel worked. What Cancel actually promises — the one thing this
+    // test can assert without racing live data — is that the specific
+    // workspace we were about to create does not exist.
+    const name = data.unique('cancelled-ws');
     await explorer.openCreateWorkspace();
-    await explorer.fillWorkspaceName(data.unique('cancelled-ws'));
+    await explorer.fillWorkspaceName(name);
     await explorer.cancelDialog();
 
-    await expect
-      .poll(() => explorer.workspaceCount(), { message: 'cancel must not create anything' })
-      .toBe(before);
+    await expect(explorer.treeNode(name)).not.toBeVisible();
   });
 
   test('creates a workspace', { tag: '@write' }, async ({ makePage, data, log }) => {
