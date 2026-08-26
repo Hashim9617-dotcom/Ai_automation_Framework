@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "//": "rootDir is the repo root (workspace packages compile in), so emitted main lives at dist/apps/api/src/main.js",
+  "sourceRoot": ".",
+  "entryFile": "apps/api/src/main",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "tsConfigPath": "tsconfig.json"
+  }
+}

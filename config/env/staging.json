@@ -1,0 +1,33 @@
+{
+  "name": "staging",
+  "baseUrl": "${BASE_URL}",
+  "apiBaseUrl": "${API_BASE_URL}",
+  "timeouts": {
+    "action": 20000,
+    "navigation": 40000,
+    "expect": 15000,
+    "test": 120000
+  },
+  "retries": 2,
+  "workers": 6,
+  "users": {
+    "admin": {
+      "username": "${STAGING_ADMIN_USER}",
+      "password": "${STAGING_ADMIN_PASSWORD}",
+      "role": "admin"
+    }
+  },
+  "database": {
+    "host": "${STAGING_DB_HOST}",
+    "port": 5432,
+    "name": "${STAGING_DB_NAME}",
+    "user": "${STAGING_DB_USER}",
+    "password": "${STAGING_DB_PASSWORD}"
+  },
+  "features": {
+    "selfHealing": true,
+    "aiRootCause": true,
+    "video": true,
+    "trace": true
+  }
+}

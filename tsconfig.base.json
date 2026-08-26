@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM"],
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@aitp/shared": ["packages/shared/src/index.ts"],
+      "@aitp/shared/*": ["packages/shared/src/*"],
+      "@aitp/execution-engine": ["packages/execution-engine/src/index.ts"],
+      "@aitp/execution-engine/*": ["packages/execution-engine/src/*"],
+      "@aitp/ai-engine": ["packages/ai-engine/src/index.ts"],
+      "@aitp/ai-engine/*": ["packages/ai-engine/src/*"],
+      "@aitp/reporting-engine": ["packages/reporting-engine/src/index.ts"],
+      "@aitp/reporting-engine/*": ["packages/reporting-engine/src/*"]
+    }
+  }
+}

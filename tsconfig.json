@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "packages/**/src/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.ts",
+    "playwright.config.ts",
+    "eslint.config.mjs"
+  ],
+  "exclude": ["node_modules", "**/dist", "artifacts", "apps/api"]
+}

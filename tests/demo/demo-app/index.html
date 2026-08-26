@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme HR — Demo</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #18181b; }
+      header { background: #1f2937; color: #fff; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
+      main { max-width: 880px; margin: 32px auto; padding: 0 20px; }
+      .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; padding: 24px; margin-bottom: 20px; }
+      label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+      input, select { width: 100%; padding: 8px 10px; border: 1px solid #d4d4d8; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+      button { margin-top: 16px; padding: 9px 18px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+      button.secondary { background: #6b7280; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+      th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e4e4e7; font-size: 14px; }
+      .alert { padding: 10px 14px; border-radius: 6px; margin-top: 14px; font-size: 14px; }
+      .alert.error { background: #fee2e2; color: #991b1b; }
+      .alert.success { background: #dcfce7; color: #14532d; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Acme HR</strong>
+      <div>
+        <span id="current-user" data-testid="current-user"></span>
+        <button id="logout" data-testid="logout-button" class="secondary hidden">Log out</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- Login -->
+      <section id="login-view" class="card">
+        <h1>Sign in</h1>
+        <label for="username">Username</label>
+        <input id="username" data-testid="login-username" name="username" placeholder="Enter username" autocomplete="off" />
+        <label for="password">Password</label>
+        <input id="password" data-testid="login-password" name="password" type="password" placeholder="Enter password" />
+        <button id="login-submit" data-testid="login-submit">Login</button>
+        <div id="login-error" class="alert error hidden" data-testid="login-error"></div>
+      </section>
+
+      <!-- Employees -->
+      <section id="employees-view" class="card hidden">
+        <h1>Register employee</h1>
+        <form id="employee-form">
+          <div class="grid">
+            <div>
+              <label for="firstName">First name</label>
+              <input id="firstName" data-testid="employee-first-name" name="firstName" placeholder="First name" />
+            </div>
+            <div>
+              <label for="lastName">Last name</label>
+              <!-- intentionally no data-testid: exercises the locator fallback chain -->
+              <input id="lastName" name="lastName" placeholder="Last name" />
+            </div>
+            <div>
+              <label for="employeeId">Employee ID</label>
+              <input id="employeeId" data-testid="employee-id" name="employeeId" placeholder="EMP00000" />
+            </div>
+            <div>
+              <label for="email">Work email</label>
+              <input id="email" data-testid="employee-email" name="email" type="email" placeholder="name@acme.com" />
+            </div>
+            <div>
+              <label for="department">Department</label>
+              <select id="department" data-testid="employee-department" name="department">
+                <option value="">Select department</option>
+                <option value="Engineering">Engineering</option>
+                <option value="Finance">Finance</option>
+                <option value="Operations">Operations</option>
+              </select>
+            </div>
+            <div>
+              <label for="hireDate">Hire date</label>
+              <input id="hireDate" data-testid="employee-hire-date" name="hireDate" type="date" />
+            </div>
+          </div>
+          <button id="employee-save" data-testid="employee-save" type="submit">Save employee</button>
+        </form>
+        <div id="form-message" class="alert hidden" data-testid="form-message"></div>
+
+        <h2 style="margin-top: 28px">Employee directory</h2>
+        <table data-testid="employee-table">
+          <thead>
+            <tr><th>Employee ID</th><th>Name</th><th>Department</th><th>Email</th></tr>
+          </thead>
+          <tbody id="employee-rows"></tbody>
+        </table>
+        <p id="empty-state" data-testid="empty-state">No employees registered yet.</p>
+      </section>
+    </main>
+
+    <script>
+      const VALID = { username: 'hr.admin', password: 'Passw0rd!' };
+      const employees = [];
+      const $ = (id) => document.getElementById(id);
+
+      function show(view) {
+        $('login-view').classList.toggle('hidden', view !== 'login');
+        $('employees-view').classList.toggle('hidden', view !== 'employees');
+        $('logout').classList.toggle('hidden', view !== 'employees');
+        history.replaceState({}, '', view === 'login' ? '/login' : '/employees');
+      }
+
+      $('login-submit').addEventListener('click', () => {
+        const user = $('username').value.trim();
+        const pass = $('password').value;
+        if (user === VALID.username && pass === VALID.password) {
+          $('login-error').classList.add('hidden');
+          $('current-user').textContent = user;
+          show('employees');
+        } else {
+          $('login-error').textContent = 'Invalid credentials. Please try again.';
+          $('login-error').classList.remove('hidden');
+        }
+      });
+
+      $('logout').addEventListener('click', () => {
+        $('username').value = '';
+        $('password').value = '';
+        $('current-user').textContent = '';
+        show('login');
+      });
+
+      $('employee-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        const record = {
+          firstName: $('firstName').value.trim(),
+          lastName: $('lastName').value.trim(),
+          employeeId: $('employeeId').value.trim(),
+          email: $('email').value.trim(),
+          department: $('department').value,
+          hireDate: $('hireDate').value,
+        };
+        const message = $('form-message');
+
+        const missing = ['firstName', 'lastName', 'employeeId', 'department'].filter((k) => !record[k]);
+        if (missing.length) {
+          message.textContent = 'Please complete all required fields.';
+          message.className = 'alert error';
+          return;
+        }
+        if (employees.some((e) => e.employeeId === record.employeeId)) {
+          message.textContent = 'Employee ID already exists.';
+          message.className = 'alert error';
+          return;
+        }
+
+        employees.push(record);
+        message.textContent = 'Employee saved successfully.';
+        message.className = 'alert success';
+        $('employee-form').reset();
+        render();
+      });
+
+      function render() {
+        $('employee-rows').innerHTML = employees
+          .map(
+            (e) =>
+              `<tr data-testid="employee-row"><td>${e.employeeId}</td><td>${e.firstName} ${e.lastName}</td><td>${e.department}</td><td>${e.email}</td></tr>`,
+          )
+          .join('');
+        $('empty-state').classList.toggle('hidden', employees.length > 0);
+      }
+
+      // No session persistence in the demo: every load starts unauthenticated,
+      // which is also what makes each test independent.
+      show('login');
+      render();
+    </script>
+  </body>
+</html>

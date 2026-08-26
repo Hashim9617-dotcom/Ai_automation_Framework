@@ -1,0 +1,26 @@
+# Test-execution image. Playwright's official base already ships the browsers
+# and every OS library they need, which is why we pin it rather than installing
+# browsers into a plain node image.
+FROM mcr.microsoft.com/playwright:v1.50.0-noble
+
+WORKDIR /app
+ENV CI=true \
+    PNPM_HOME=/usr/local/bin \
+    NODE_ENV=production
+
+RUN corepack enable && corepack prepare pnpm@10.28.0 --activate
+
+# Dependency layer first so code changes do not re-install node_modules.
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/execution-engine/package.json ./packages/execution-engine/
+COPY packages/ai-engine/package.json ./packages/ai-engine/
+COPY packages/reporting-engine/package.json ./packages/reporting-engine/
+RUN pnpm install --frozen-lockfile || pnpm install
+
+COPY . .
+
+# One container per job (architecture decision: Docker-per-job isolation).
+ENTRYPOINT ["pnpm", "exec", "playwright", "test"]
+CMD ["--project=chromium"]

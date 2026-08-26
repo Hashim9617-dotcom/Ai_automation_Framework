@@ -1,0 +1,12 @@
+{
+  "name": "@aitp/ai-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LLM gateway, prompt rendering, root cause analysis and the Phase 2 sockets for test generation and self-healing.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@aitp/shared": "workspace:*",
+    "zod": "^3.24.1"
+  }
+}

@@ -1,0 +1,99 @@
+// Phase 2 persistence. Checked in now so the shape of the data is settled while
+// the in-memory repository is still the active implementation:
+//   apps/api/src/modules/runs/run.repository.ts
+//
+// To activate:
+//   pnpm add -D prisma && pnpm add @prisma/client   (in apps/api)
+//   pnpm exec prisma migrate dev --schema infra/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Run {
+  id          String    @id
+  status      String
+  environment String
+  command     String?
+  grep        String?
+  browsers    String[]
+  metadata    Json      @default("{}")
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  total       Int       @default(0)
+  passed      Int       @default(0)
+  failed      Int       @default(0)
+  skipped     Int       @default(0)
+  flaky       Int       @default(0)
+  durationMs  Int       @default(0)
+  passRate    Float     @default(0)
+  artifacts   Json      @default("{}")
+  error       String?
+  results     TestRun[]
+
+  @@index([createdAt])
+  @@index([environment, status])
+}
+
+model TestRun {
+  id         String   @id @default(uuid())
+  run        Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runId      String
+  title      String
+  file       String
+  project    String
+  tags       String[]
+  outcome    String
+  durationMs Int
+  retry      Int      @default(0)
+  errorMsg   String?
+  errorStack String?
+  /// Filled by the Phase 2 root-cause analyzer.
+  rootCause  String?
+  steps      Json     @default("[]")
+  attachments Json    @default("[]")
+
+  @@index([runId])
+  @@index([title, outcome])
+}
+
+/// Healing history: which locator candidates rot, and what the AI replaced them with.
+/// This is the training signal for the self-healing engine.
+model LocatorEvent {
+  id           String   @id @default(uuid())
+  key          String
+  runId        String
+  strategy     String
+  candidateIdx Int
+  healed       Boolean  @default(false)
+  attempts     Int      @default(1)
+  durationMs   Int      @default(0)
+  url          String?
+  createdAt    DateTime @default(now())
+
+  @@index([key, createdAt])
+}
+
+/// Test cases produced by the AI generator, kept so a command can be replayed
+/// and so generated cases can be reviewed and promoted into the repo.
+model GeneratedTestCase {
+  id            String   @id @default(uuid())
+  sourceCommand String
+  title         String
+  feature       String
+  priority      String   @default("medium")
+  tags          String[]
+  spec          Json
+  generatedBy   String
+  specFilePath  String?
+  approved      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([sourceCommand])
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@aitp/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NestJS orchestration API: run scheduling, execution, live events and (Phase 2) the AI Command Box.",
+  "main": "dist/apps/api/src/main.js",
+  "scripts": {
+    "build": "nest build && tsc-alias -p tsconfig.json",
+    "start": "nest start",
+    "start:dev": "pnpm build && node dist/apps/api/src/main.js",
+    "//start:prod": "rootDir is the repo root (packages are compiled in), so output is nested",
+    "start:prod": "node dist/apps/api/src/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "//start:dev": "nest start --watch skips tsc-alias, so @aitp/* aliases survive into the emitted JS and Node resolves them to TS sources"
+  },
+  "dependencies": {
+    "@aitp/ai-engine": "workspace:*",
+    "@aitp/execution-engine": "workspace:*",
+    "@aitp/reporting-engine": "workspace:*",
+    "@aitp/shared": "workspace:*",
+    "@nestjs/common": "^10.4.15",
+    "@nestjs/config": "^3.3.0",
+    "@nestjs/core": "^10.4.15",
+    "@nestjs/platform-express": "^10.4.15",
+    "@nestjs/swagger": "^8.1.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.4.9",
+    "@nestjs/schematics": "^10.2.3",
+    "@types/express": "^5.0.0",
+    "tsc-alias": "^1.8.10",
+    "typescript": "^5.7.3"
+  }
+}

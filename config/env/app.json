@@ -1,0 +1,32 @@
+{
+  "name": "app",
+  "//": "Point the platform at ANY application by editing .env only — never this file.",
+  "baseUrl": "${BASE_URL}",
+  "apiBaseUrl": "${API_BASE_URL:-${BASE_URL}}",
+  "timeouts": {
+    "action": 20000,
+    "navigation": 45000,
+    "expect": 15000,
+    "test": 120000
+  },
+  "retries": 1,
+  "workers": 4,
+  "users": {
+    "admin": {
+      "username": "${APP_USERNAME:-}",
+      "password": "${APP_PASSWORD:-}",
+      "role": "admin"
+    },
+    "user": {
+      "username": "${APP_USER2_USERNAME:-}",
+      "password": "${APP_USER2_PASSWORD:-}",
+      "role": "user"
+    }
+  },
+  "features": {
+    "selfHealing": false,
+    "aiRootCause": true,
+    "video": true,
+    "trace": true
+  }
+}

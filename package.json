@@ -1,0 +1,50 @@
+{
+  "name": "ai-testing-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered test automation platform \u2014 Playwright execution engine with an AI layer for test generation, self-healing, DOM understanding and root cause analysis.",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
+    "test:smoke": "playwright test --grep @smoke",
+    "test:regression": "playwright test --grep @regression",
+    "test:api": "playwright test --project=api",
+    "test:unit": "playwright test --project=unit",
+    "test:report": "playwright show-report artifacts/reports/html",
+    "rca": "tsx scripts/analyze-failures.ts",
+    "inspect": "tsx scripts/inspect-app.ts",
+    "auth": "tsx scripts/auth-setup.ts",
+    "test:trace": "playwright show-trace",
+    "api:dev": "pnpm --filter @aitp/api start:dev",
+    "api:build": "pnpm --filter @aitp/api build",
+    "api:start": "pnpm --filter @aitp/api start:prod",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,md,yml,yaml}\"",
+    "clean": "rimraf artifacts dist **/dist **/tsconfig.tsbuildinfo",
+    "prepare:browsers": "playwright install --with-deps chromium",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:smoke",
+    "docker:up": "docker compose -f infra/docker/docker-compose.yml up -d",
+    "docker:down": "docker compose -f infra/docker/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@playwright/test": "^1.50.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^10.0.0",
+    "prettier": "^3.4.2",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0"
+  }
+}

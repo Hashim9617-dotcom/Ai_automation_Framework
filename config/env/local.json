@@ -1,0 +1,26 @@
+{
+  "name": "local",
+  "baseUrl": "http://127.0.0.1:4173",
+  "apiBaseUrl": "http://127.0.0.1:4173",
+  "timeouts": {
+    "action": 10000,
+    "navigation": 20000,
+    "expect": 8000,
+    "test": 60000
+  },
+  "retries": 0,
+  "workers": 4,
+  "users": {
+    "admin": {
+      "username": "hr.admin",
+      "password": "Passw0rd!",
+      "role": "admin"
+    }
+  },
+  "features": {
+    "selfHealing": false,
+    "aiRootCause": false,
+    "video": false,
+    "trace": true
+  }
+}

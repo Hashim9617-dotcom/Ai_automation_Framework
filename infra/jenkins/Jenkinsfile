@@ -1,0 +1,81 @@
+// Nightly + on-demand regression pipeline.
+// Runs inside the Playwright image so no agent needs browsers installed.
+pipeline {
+  agent {
+    docker {
+      image 'mcr.microsoft.com/playwright:v1.50.0-noble'
+      args '-u root:root'
+    }
+  }
+
+  parameters {
+    choice(name: 'TEST_ENV', choices: ['qa', 'staging'], description: 'Target environment')
+    string(name: 'GREP', defaultValue: '@regression', description: 'Playwright --grep expression')
+    choice(name: 'BROWSER', choices: ['chromium', 'firefox', 'webkit'], description: 'Browser project')
+    string(name: 'WORKERS', defaultValue: '4', description: 'Parallel workers')
+  }
+
+  environment {
+    CI = 'true'
+    TEST_ENV = "${params.TEST_ENV}"
+    // Credentials come from Jenkins, never from the repo.
+    QA_ADMIN_USER = credentials('aitp-qa-admin-user')
+    QA_ADMIN_PASSWORD = credentials('aitp-qa-admin-password')
+  }
+
+  options {
+    timeout(time: 60, unit: 'MINUTES')
+    buildDiscarder(logRotator(numToKeepStr: '30'))
+    timestamps()
+  }
+
+  triggers {
+    cron('H 2 * * *')
+  }
+
+  stages {
+    stage('Install') {
+      steps {
+        sh 'corepack enable && corepack prepare pnpm@10.28.0 --activate'
+        sh 'pnpm install --frozen-lockfile'
+      }
+    }
+
+    stage('Static checks') {
+      parallel {
+        stage('Lint') { steps { sh 'pnpm lint' } }
+        stage('Typecheck') { steps { sh 'pnpm typecheck' } }
+      }
+    }
+
+    stage('Test') {
+      steps {
+        sh """
+          pnpm exec playwright test \
+            --project=${params.BROWSER} \
+            --grep='${params.GREP}' \
+            --workers=${params.WORKERS}
+        """
+      }
+    }
+  }
+
+  post {
+    always {
+      junit allowEmptyResults: true, testResults: 'artifacts/reports/junit.xml'
+      archiveArtifacts artifacts: 'artifacts/reports/**', allowEmptyArchive: true, fingerprint: true
+      publishHTML(target: [
+        reportDir: 'artifacts/reports/html',
+        reportFiles: 'index.html',
+        reportName: 'Playwright Report',
+        keepAll: true,
+        alwaysLinkToLastBuild: true,
+        allowMissing: true
+      ])
+    }
+    failure {
+      // Phase 4 swaps this for the Slack/Teams/Jira integrations.
+      echo "Run failed on ${params.TEST_ENV}. See artifacts/reports/summary.html"
+    }
+  }
+}

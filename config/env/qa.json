@@ -1,0 +1,26 @@
+{
+  "name": "qa",
+  "baseUrl": "${BASE_URL:-http://127.0.0.1:4173}",
+  "apiBaseUrl": "${API_BASE_URL:-http://127.0.0.1:4173}",
+  "timeouts": {
+    "action": 15000,
+    "navigation": 30000,
+    "expect": 10000,
+    "test": 90000
+  },
+  "retries": 1,
+  "workers": 4,
+  "users": {
+    "admin": {
+      "username": "${QA_ADMIN_USER:-hr.admin}",
+      "password": "${QA_ADMIN_PASSWORD:-Passw0rd!}",
+      "role": "admin"
+    }
+  },
+  "features": {
+    "selfHealing": false,
+    "aiRootCause": false,
+    "video": true,
+    "trace": true
+  }
+}
