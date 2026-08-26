@@ -14,47 +14,53 @@ root cause analysis on failures — has shipped.
 
 This suite is a **shakedown in progress against a live, shared application**
 (`dmsuiv3.aitalkx.com`), not a green baseline. Latest full run, repeated
-three times back-to-back with identical results:
+twice back-to-back with identical results:
 
-**40 passed / 3 failed / 0 flaky / 3 skipped** (46 total, `chromium`,
-`ALLOW_WRITES` unset). Full history and evidence for every item below — CDP
-accessibility-tree dumps, network logs, retraction notes — lives in
+**42 passed / 0 failed / 0 flaky / 4 skipped** (46 total, `chromium`,
+`ALLOW_WRITES` unset — 3 of the 4 skips are `@write` tests gated on that
+flag; the 4th is a deliberate `test.fixme`, see Finding 14 below). Full
+history and evidence for every item below — CDP accessibility-tree dumps,
+network logs, retraction notes — lives in
 [`docs/dms-findings.md`](docs/dms-findings.md); read it before assuming a
-red test is a bug in this repo, and before assuming a "fix" here stayed
-fixed — one below didn't.
+red (or green) test reflects a real bug (or its absence) in this repo — two
+different "app bug" claims here were fully retracted after more scrutiny,
+and one "fix" was reverted for the same reason.
 
-Known-remaining failures — all 3 are the same issue:
+**The upload-wizard "Next stays disabled" claim (Finding 8) was wrong and is
+fully retracted.** It was never an app defect: clicking a workspace tile
+correctly advances the wizard to the Folder step immediately (confirmed via
+the wizard's own `aria-selected` tab state) — there is no separate manual
+"Next" click on that step. The actual bug was in the test/page-object's
+model of the flow: it called an extra, unnecessary `goNext()` after
+selecting a workspace, which hung clicking the *next* step's own
+(correctly) disabled `Next` button. Fixed in `tests/app/upload.spec.ts`.
 
-- **3× `upload.spec.ts`** — clicking a workspace tile in the upload wizard
-  fires a real, workspace-scoped API call (confirmed via network logs) but
-  never updates the tile's selected state or enables `Next`. Confirmed via
-  CDP that the tile is a single atomic `<button>`, not a wrapper-vs-inner-
-  control locator bug (that hypothesis was tested directly and ruled out).
-  Suspected app defect, **not yet reported to the DMS team** (see Finding
-  8's history of retracted "app bug" claims before escalating another one).
+**Genuinely fixed, both confirmed live before being called fixed, neither an
+app bug:** an exact-count assertion racing a live environment other users
+can change concurrently (now asserts the specific workspace is absent
+instead), and this app's context menu not responding to `Escape` (now
+dismisses via an outside click — see Finding 13 for why the app's `Escape`
+behavior is also a genuine, low-severity finding in its own right).
 
-Fixed since the previous baseline (36/5/2/3), both test-side, not app bugs,
-both confirmed live before being called fixed: an exact-count assertion
-racing a live environment other users can change concurrently (now asserts
-the specific workspace is absent instead), and this app's context menu not
-responding to `Escape` (now dismisses via an outside click — see Finding 13
-below for why the app's `Escape` behavior is also a genuine, low-severity
-finding in its own right, not purely a test problem).
+**Reverted, not fixed:** a locator-resolution retry wrapper added to address
+two intermittent nav-locator failures was reverted — it was never verified
+that the element was actually slow to render rather than something else
+going on, and a base-class retry risks turning real intermittent failures
+into silent passes suite-wide. See Finding 12, item 3. The runs above show
+0 flaky without it.
 
-**Reverted, not fixed:** a third change wrapped locator resolution in a
-base-class retry to address two intermittent nav-locator failures. That
-"fix" was reverted — it was never verified that the element was actually
-slow to render rather than something else going on, and a base-class retry
-risks turning real intermittent failures into silent passes suite-wide,
-which is the opposite of what this log exists to prevent. See Finding 12,
-item 3, for the full reasoning. The three runs above show 0 flaky *without*
-any retry logic — the two fixes that were properly verified account for the
-whole improvement.
+**One genuinely open item, deliberately not resolved either way:** selecting
+a folder on the wizard's Folder step behaves inconsistently (stays put and
+disabled; loses its highlight; in one run, reset the whole wizard back to
+step 1) — see **Finding 14**. Not called a test bug or an app bug yet,
+because it hasn't been traced to a mechanism the way everything above was.
+The one test that exercises it is marked `test.fixme`, not forced to pass
+or left silently red.
 
 If you're picking this up fresh: read `docs/dms-findings.md` end to end
 before touching `tests/app/pages/` or `packages/execution-engine/` — several
-"obvious" fixes in there have already been tried, and reverted or retracted,
-more than once.
+"obvious" fixes and "confirmed" app bugs in there have already been tried,
+and reverted or retracted, more than once.
 
 ---
 

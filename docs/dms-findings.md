@@ -386,51 +386,80 @@ inspect`). This trace's group-picker failure would now correctly come back
 Not implemented. Flagging for review before writing any code against
 `packages/execution-engine/src/locators/smart-locator.ts`.
 
-## Finding 8 — root cause #3 (upload wizard "Next" stays disabled): not a scoping bug, and clicking the workspace tile has no observable effect
+## Finding 8 — RETRACTED (fully): the workspace tile was never broken; the wizard auto-advances and the test/page-object model was wrong
 
-**Update — tested against the Finding 11 hypothesis directly, not the same
-mechanism, and now with stronger evidence it's a genuine app bug.** Finding
-11 (tree rows) raised a real possibility worth checking before this gets
-called an app defect again: what if the workspace tile is also a
-container-plus-inner-control, and the click is landing on a wrapper instead
-of the real target? Tested exactly as Finding 11's naming bug was tested —
-CDP `Accessibility.getFullAXTree`, plus the tile's raw `outerHTML` — not
-inferred from the naming pattern.
+**This finding is retracted in full, following two more rounds of scrutiny.**
+Everything in this entry's history — the original "clicking does nothing"
+claim, and the "click registers but state-binding is broken" update that
+followed it — was wrong about the mechanism. Kept below for the record, in
+the same spirit as Finding 5/6/9's retraction history.
 
-**Result: ruled out.** The tile is a single atomic `<button type="button"
-class="syn-select-grid-card">` — there is no nested interactive element
-inside it. Its icon, label, and checkmark are all `aria-hidden`/plain
-`<div>`/`<i>` markup with no role of their own; `workspaceOption()` already
-resolves to the one and only clickable node. This is a structurally
-different shape from the tree rows (which nested two *other buttons* — real
-interactive elements — inside the parent), so Finding 11's mechanism does
-not transfer here.
+**What actually happens, confirmed live, cleanly, reproducibly.** Clicking
+the workspace tile with a normal `locator.click()` (no raw mouse events, no
+special handling) makes the wizard **immediately advance to the Folder
+step** — not "select the workspace and wait for a manual Next." Confirmed
+three independent ways in one session:
 
-**New evidence the click does register — just not visibly.** Instrumented a
-live click (`page.on('request', ...)`, `page.on('console', ...)`) rather
-than only watching pixels this time. Clicking the tile fires three real
-network calls, one of them scoped to the specific workspace's GUID
-(`GET /api/Folder/GetPermittedFolderListByWorkspaceId/<workspace-id>`,
-alongside a re-fetch of `GetPermittedWorkspaceList` and
-`DocumentTemplate/GetAll`) — proof the click reaches the app's selection
-handler and it does real work for that specific workspace, not a no-op.
-Zero console errors, zero `pageerror` events. And yet, 2 seconds later: the
-checkmark wrapper's class and computed color are byte-for-byte identical to
-before the click (`text-transparent` / `rgba(0,0,0,0)`), and `Next` is still
-reported `disabled`. A follow-up query against the same tile's `.ti-check`
-element then timed out entirely — the workspace grid re-renders at some
-point after the fetches resolve, in a way that invalidates the earlier DOM
-reference, independent of anything the test does.
+1. The wizard's own tab state: `getByRole('tab', { name: 'Workspace' })`'s
+   `aria-selected` flips from `"true"` to `"false"`, and `Folder`'s flips to
+   `"true"`, within ~1.5s of the click.
+2. The page itself: `getByText('Select destination folder')` (the Folder
+   step's own heading) becomes visible.
+3. A full-page screenshot after the click, showing the wizard's breadcrumb
+   at step 2 ("Folder"), with a folder list ("ABCD (root)", "auto Test 123")
+   already rendered.
 
-**Conclusion, sharper than before.** This is not "the click does nothing" —
-it is "the click triggers a real, workspace-scoped data fetch but the
-component's own selected-state (checkmark, `Next` enablement) never gets
-set from it," which then compounds with an unrelated re-render that makes
-the tile's subtree unstable shortly after. That is a frontend state-binding
-bug, not a rendering-timing gap and not a test-side locator problem — a
-page-object change cannot make a component update state it isn't wired to
-update. Per instruction, **not being reported to the DMS team yet** — held
-here pending a decision on that, given Finding 6's retraction history.
+**Why every earlier round missed this.** Both the original investigation
+and the "state-binding bug" update stared exclusively at the tile's own
+checkmark and the page's *first* `Next` button — never at which step the
+wizard was actually on. Once the workspace step auto-advances, `.ti-check`
+inside the old (now-departed) workspace grid genuinely does become
+unqueryable — not because of a state-binding failure, but because that
+whole grid is gone, replaced by the Folder step's UI. And `Next` staying
+"disabled" after the click was real, but it was the **Folder step's** Next
+(correctly disabled, no folder chosen yet) being re-queried by a generic
+`getByRole('button', { name: 'Next', exact: true })` locator that has no
+way to know the step changed underneath it. Every symptom in both earlier
+write-ups is explained by this, with no state-binding defect required.
+
+**What was actually broken: the test's model of the flow, not the app.**
+`upload.spec.ts`'s three failing tests all called `chooseWorkspace()`
+*and then* `goNext()` (or asserted `expectNextEnabled()` on what they
+assumed was still the workspace step) — an extra, unnecessary advance that
+either hung for the full action timeout clicking a legitimately-disabled
+Folder-step Next, or asserted the wrong step's button state entirely.
+**Fixed** in `upload.spec.ts`: the redundant `goNext()`/`expectNextEnabled()`
+calls immediately after `chooseWorkspace()` are removed, and the "will not
+advance" test now asserts the real contract — `Next` stays disabled with no
+workspace chosen, and choosing one advances the wizard to the Folder step
+(`step('Folder')`'s `aria-selected` becomes `"true"`) — rather than
+asserting a same-step `Next` enablement that was never the actual UX.
+
+**Confirmed.** Two of the three previously-failing `upload.spec.ts` tests
+now pass reliably (2 repeats, both clean): "will not advance until a
+workspace is chosen, and auto-advances once one is", and "Back returns to
+the previous step". See Finding 14 for the third.
+
+**Not reported to the DMS team — because there is no longer a claim to
+report.** This is now a fixed test, not an app defect.
+
+**Original entries, both wrong about the mechanism, kept for the record:**
+
+*Original claim ("clicking the workspace tile has no observable effect"):*
+The scoping hypothesis (`option()`'s unscoped `.first()`) was tested and
+ruled out — one correct, unambiguous match every time. Clicking it, tried
+three ways, "succeeded" with no error but produced no observable change in
+the checkmark or `Next`'s disabled state over a 10-second poll.
+
+*First update ("the click registers but state-binding is broken"):* Tested
+against Finding 11's wrapper-vs-inner-control hypothesis via CDP and ruled
+it out (the tile is a single atomic `<button>`, no nested control). Then
+instrumented the click and found it fires a real, workspace-scoped network
+request — interpreted as "the handler runs but never updates UI state."
+Both the ruling-out of Finding 11's mechanism and the network-request
+observation were correct and are still true; the interpretation built on
+top of them (a state-binding defect) was not — the missing piece both times
+was checking which step the wizard was actually on.
 
 **Original investigation, still accurate below:**
 
@@ -745,3 +774,44 @@ gap.
 works around it on the test side by clicking outside instead of pressing
 `Escape`, which is why this is filed as a low-severity note rather than a
 blocking one.
+
+## Finding 14 — OPEN, not yet root-caused: folder-step selection is inconsistent after the workspace auto-advance
+
+**Status: observed, not explained. Deliberately not called an app bug or a
+test bug yet** — this needs the same trace/CDP-level rigor that got Finding
+8 retracted twice, not a third guess.
+
+**What was observed**, investigating the one `upload.spec.ts` test Finding
+8's fix didn't resolve ("reaches the upload step and refuses to submit an
+empty upload," now marked `test.fixme` rather than left failing or forced
+green):
+
+- Landing on the Folder step (via the now-understood workspace auto-advance,
+  Finding 8), `Next` starts disabled — expected, matches this app's own
+  "root is preselected on some workspaces" behavior needing a click first.
+- Clicking the already-highlighted "ABCD (root)" row: polled `Next`'s
+  disabled state for up to 8 seconds afterward. Still disabled the whole
+  time. The row's highlight, present before the click, was gone afterward.
+- Clicking a different, non-highlighted row ("auto Test 123") in a separate
+  run: fired `GetFoldersAndDocumentsByFolderId` for that folder, then —
+  roughly 9 seconds later — `GetPermittedWorkspaceList` and
+  `DocumentTemplate/GetAll` fired again, the same two calls seen on the
+  *initial* landing on the Workspace step. The wizard's tab state afterward
+  confirmed it: `Workspace` was `aria-selected="true"` again — the wizard
+  had returned to step 1, not advanced to step 3.
+
+**Why this isn't a finding yet.** Three different things happened across
+three attempts (stays put and disabled; row un-highlights; wizard resets to
+step 1) and none were followed to a network/console/DOM explanation the way
+Finding 11's tree-row bug or Finding 8's actual mechanism were. It's
+consistent with several different real explanations — a genuine app defect
+in folder selection, a race between the two auto-refetches also seen here
+and whatever renders the folder list, or a test-side timing/selector issue
+in how "auto Test 123" or "root" get clicked — and asserting any one of
+those without evidence would repeat exactly what happened to Finding 8
+twice already.
+
+**Next step, if picked up again:** a trace (`pnpm exec playwright
+show-trace`) of one reproduced failure, read the way Finding 7's trace was
+— network timeline, screencast frames, and the AX tree at the moment
+`Next` should have enabled — before drawing any conclusion.

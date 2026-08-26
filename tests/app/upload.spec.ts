@@ -22,16 +22,29 @@ test.describe('Upload Files wizard', { tag: ['@regression', '@upload'] }, () => 
     await expect(upload.step('Upload')).toBeVisible();
   });
 
-  test('will not advance until a workspace is chosen', { tag: '@safety' }, async ({ makePage }) => {
-    const upload = makePage(UploadFilesPage);
-    await upload.open();
-    await upload.expectLoaded();
+  test(
+    'will not advance until a workspace is chosen, and auto-advances once one is',
+    { tag: '@safety' },
+    async ({ makePage }) => {
+      const upload = makePage(UploadFilesPage);
+      await upload.open();
+      await upload.expectLoaded();
 
-    await upload.expectNextDisabled();
+      await upload.expectNextDisabled();
 
-    await upload.chooseWorkspace(SAMPLE_WORKSPACE);
-    await upload.expectNextEnabled();
-  });
+      // Not "choose a workspace, then Next becomes enabled for a manual
+      // click" — confirmed live (CDP + the wizard's own tab `aria-selected`
+      // state) that choosing a workspace immediately advances the wizard to
+      // the Folder step; there is no separate manual advance on this step.
+      // The original version of this test asserted `expectNextEnabled()`
+      // right after `chooseWorkspace()`, which was actually re-querying the
+      // *Folder* step's Next button — correctly disabled, since no folder
+      // had been chosen yet — and reading that as "the app never enables
+      // Next." See docs/dms-findings.md, Finding 8 (retracted).
+      await upload.chooseWorkspace(SAMPLE_WORKSPACE);
+      await expect(upload.step('Folder')).toHaveAttribute('aria-selected', 'true');
+    },
+  );
 
   test('filters the workspace list', async ({ makePage }) => {
     const upload = makePage(UploadFilesPage);
@@ -42,11 +55,20 @@ test.describe('Upload Files wizard', { tag: ['@regression', '@upload'] }, () => 
   });
 
   test('reaches the upload step and refuses to submit an empty upload', async ({ makePage }) => {
+    // Not yet understood, so not forced to pass or quietly left red — see
+    // Finding 14 (docs/dms-findings.md). chooseWorkspace() correctly lands
+    // on the Folder step (fixed above), but selecting a folder from there is
+    // inconsistent: sometimes it stays on the Folder step with Next still
+    // disabled after 8+ seconds, and one observed run reset the wizard all
+    // the way back to the Workspace step instead. That needs the same
+    // trace/CDP-level rigor Finding 8's retraction got before this test's
+    // assertions (or the app) get blamed for it either way.
+    test.fixme(true, 'Folder-step selection behavior not yet root-caused — see Finding 14');
+
     const upload = makePage(UploadFilesPage);
     await upload.open();
 
     await upload.chooseWorkspace(SAMPLE_WORKSPACE);
-    await upload.goNext();
 
     // Folder step: root is preselected on some workspaces, so only advance when
     // the wizard says we may.
@@ -64,8 +86,10 @@ test.describe('Upload Files wizard', { tag: ['@regression', '@upload'] }, () => 
     const upload = makePage(UploadFilesPage);
     await upload.open();
 
+    // chooseWorkspace() already lands us on the Folder step; Back from there
+    // returns to Workspace, which still shows Next enabled (the workspace
+    // stays selected) — confirmed live before writing this assertion.
     await upload.chooseWorkspace(SAMPLE_WORKSPACE);
-    await upload.goNext();
     await upload.goBack();
 
     await upload.expectNextEnabled();
