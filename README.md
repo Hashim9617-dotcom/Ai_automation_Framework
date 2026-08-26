@@ -14,13 +14,14 @@ root cause analysis on failures — has shipped.
 
 This suite is a **shakedown in progress against a live, shared application**
 (`dmsuiv3.aitalkx.com`), not a green baseline. Latest full run, repeated
-twice back-to-back with identical results:
+three times back-to-back with identical results:
 
 **40 passed / 3 failed / 0 flaky / 3 skipped** (46 total, `chromium`,
 `ALLOW_WRITES` unset). Full history and evidence for every item below — CDP
 accessibility-tree dumps, network logs, retraction notes — lives in
 [`docs/dms-findings.md`](docs/dms-findings.md); read it before assuming a
-red test is a bug in this repo.
+red test is a bug in this repo, and before assuming a "fix" here stayed
+fixed — one below didn't.
 
 Known-remaining failures — all 3 are the same issue:
 
@@ -32,20 +33,28 @@ Known-remaining failures — all 3 are the same issue:
   Suspected app defect, **not yet reported to the DMS team** (see Finding
   8's history of retracted "app bug" claims before escalating another one).
 
-Fixed since the previous baseline (36/5/2/3) — all test-side, not app bugs:
-an exact-count assertion racing a live environment other users can change
-concurrently (now asserts the specific workspace is absent instead), this
-app's menu never responding to `Escape` (now dismisses via an outside
-click, confirmed live), and a one-shot locator-resolution timeout too tight
-for a page's first render under real worker concurrency (now retries
-resolution with its own grace budget, only for genuine "not yet rendered"
-errors — a dead session still fails immediately, not silently). See
-Findings 8, 11, and the entries following them in `dms-findings.md` for the
-live evidence behind each.
+Fixed since the previous baseline (36/5/2/3), both test-side, not app bugs,
+both confirmed live before being called fixed: an exact-count assertion
+racing a live environment other users can change concurrently (now asserts
+the specific workspace is absent instead), and this app's context menu not
+responding to `Escape` (now dismisses via an outside click — see Finding 13
+below for why the app's `Escape` behavior is also a genuine, low-severity
+finding in its own right, not purely a test problem).
+
+**Reverted, not fixed:** a third change wrapped locator resolution in a
+base-class retry to address two intermittent nav-locator failures. That
+"fix" was reverted — it was never verified that the element was actually
+slow to render rather than something else going on, and a base-class retry
+risks turning real intermittent failures into silent passes suite-wide,
+which is the opposite of what this log exists to prevent. See Finding 12,
+item 3, for the full reasoning. The three runs above show 0 flaky *without*
+any retry logic — the two fixes that were properly verified account for the
+whole improvement.
 
 If you're picking this up fresh: read `docs/dms-findings.md` end to end
-before touching `tests/app/pages/` — several "obvious" locator fixes in
-there have already been tried, and retracted, once.
+before touching `tests/app/pages/` or `packages/execution-engine/` — several
+"obvious" fixes in there have already been tried, and reverted or retracted,
+more than once.
 
 ---
 

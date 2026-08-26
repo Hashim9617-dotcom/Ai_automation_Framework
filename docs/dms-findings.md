@@ -647,64 +647,101 @@ unrelated to this locator, and passed on retry).
 accessible name is unusual but not nonconformant ARIA — the fix belongs in
 the test's locator, which is where it was made.
 
-## Finding 12 — three flaky/failing tests root-caused and fixed: a test-design data race, a wrong dismiss key, and a too-tight one-shot locator timeout
+## Finding 12 — two of three flaky/failing tests root-caused and fixed; the third fix was reverted for insufficient evidence
 
 Three separate issues, previously showing up as 2 flaky-recovered tests plus
-1 outright failure. Diagnosed individually, per instruction, rather than
-patched generically — "flaky" was masking three unrelated causes.
+1 outright failure. Diagnosed individually rather than patched generically —
+"flaky" was masking unrelated causes, and one of them turned out to need
+more evidence than it got on the first pass.
 
 **1. `file-explorer.spec.ts` "cancelling leaves the tree untouched" — test
-design, not app or locator.** Asserted `workspaceCount() === before` after
-opening-then-cancelling the create-workspace dialog. Observed directly: the
-count drifted 24 → 25 mid-test with `ALLOW_WRITES` unset and no write test
-running — this is a shared, live environment, and another user's concurrent
-workspace change moves the total independent of anything this test does. An
-exact-count assertion here was chasing a moving target that has nothing to
-do with whether Cancel worked. Fixed to assert the one thing Cancel actually
-promises and that no other actor can produce false-positive-or-negative on:
-the specific workspace we typed into the dialog does not exist afterward
-(`expect(explorer.treeNode(name)).not.toBeVisible()`).
+design, not app or locator. Fixed.** Asserted `workspaceCount() === before`
+after opening-then-cancelling the create-workspace dialog. Observed
+directly: the count drifted 24 → 25 mid-test with `ALLOW_WRITES` unset and
+no write test running — this is a shared, live environment, and another
+user's concurrent workspace change moves the total independent of anything
+this test does. An exact-count assertion here was chasing a moving target
+that has nothing to do with whether Cancel worked. Fixed to assert the one
+thing Cancel actually promises and that no other actor can produce a false
+positive or negative on: the specific workspace we typed into the dialog
+does not exist afterward (`expect(explorer.treeNode(name)).not.toBeVisible()`).
 
 **2. `file-explorer.spec.ts` "a workspace menu offers its documented
-actions" — wrong dismiss mechanism, not app flakiness.** `dismissMenu()`
-pressed `Escape`. Tested live, in isolation: the menu is still visible a
-full 2.5s after `Escape`, every time — not a timing race, `Escape` simply
-does not close this menu. This app also has no dedicated backdrop element
-behind an open menu (checked the DOM directly); it closes via a global
-outside-click listener instead. Fixed `dismissMenu()` to click a confirmed-
-safe, empty, non-interactive point on the page shell instead of pressing
-`Escape`.
+actions" — wrong dismiss mechanism in the test, AND a real (minor) app gap.
+Both recorded; the test is fixed.** `dismissMenu()` pressed `Escape`.
+Tested live, in isolation: the menu is still visible a full 2.5s after
+`Escape`, every time — not a timing race, `Escape` simply does not close
+this menu. It also has no dedicated backdrop element behind it (checked the
+DOM directly); it closes via a global outside-click listener instead. Fixed
+`dismissMenu()` to click a confirmed-safe, empty, non-interactive point on
+the page shell instead of pressing `Escape`. Separately — see Finding 13 —
+the app itself not responding to `Escape` on a `role="menu"` widget is a
+genuine, if low-severity, WAI-ARIA gap, not purely a test problem.
 
 **3. Intermittent `LocatorResolutionError` on single-candidate nav locators
-(`nav.fileExplorer`, `nav.upload`) at the very start of a run — a genuine
-missing-wait, in the same family as Finding 5's timing lesson but a
-different mechanism.** `SmartLocator.resolve()` gives a candidate exactly
-one `waitFor({ state: 'attached' })` window (`candidateTimeout`, 2s by
-default) and throws hard the instant it's exceeded — no polling, no second
-chance. That budget is sized for steady-state resolution, not a page's
-literal first render under real concurrency: four workers each opening a
-fresh page the instant a shared auth session becomes available. Observed
-live through two different call paths — `expectShellVisible` on
-`nav.fileExplorer`, and `expandNavSection`'s `click()` on `nav.upload` —
-both only in the first few seconds of a run, both always recovering on the
-framework's own whole-test retry, with telemetry showing sub-100ms
-resolution once contention eases moments later. That pattern (recovers
-reliably with more time, only under contention, never mid-run) is Finding
-7's "not yet rendered" state, not "never going to be there."
+(`nav.fileExplorer`, `nav.upload`) at the very start of a run — diagnosed,
+"fixed" with a base-class retry, then reverted.** The fix that shipped in
+the previous commit wrapped every `BasePage` action helper
+(`click`/`type`/`selectOption`/`textOf`/`isVisible`/`expectVisible`) in a
+retry around locator *resolution* specifically, reasoning that
+`SmartLocator.resolve()`'s single `candidateTimeout` window (2s) was too
+tight for a page's first render under real 4-worker concurrency at run
+start. That reasoning was never actually verified and does not hold up:
 
-**Fix.** `BasePage` (`packages/execution-engine/src/pages/base.page.ts`)
-now retries resolution itself, through a `resolveWithGrace()` wrapper used
-by every action helper (`click`, `type`, `selectOption`, `textOf`,
-`isVisible`, `expectVisible`) — not just the one that happened to surface
-first. It retries only `LocatorResolutionError`, against its own
-`env.timeouts.expect` budget, separate from the `toBeVisible` budget so one
-can't starve the other. Deliberately retries by calling `this.find(spec)`
-(virtual dispatch) rather than `this.smart.resolve()` directly, so
-`AppPage.find`'s sign-in check (`SessionExpiredError`, Finding 3) re-runs on
-every attempt — a session that dies mid-retry still fails fast and
-distinctly, rather than silently retrying a doomed resolution for the whole
-budget and surfacing as a misleading generic `LocatorResolutionError`.
+- The only evidence was indirect — the failures recovered on Playwright's
+  own whole-*test* retry (a fresh page navigation from scratch), which is
+  not evidence that waiting longer *at the same point in the same attempt*
+  would have worked. No trace or CDP snapshot was captured to check whether
+  the element was genuinely still-rendering at the moment of failure, the
+  way Finding 5's trace investigation or Finding 11's CDP dump did before
+  either of those was called fixed.
+- `expect(locator).toBeVisible()` already retries internally (a Playwright
+  web-first assertion polls up to its own timeout) — the added retry
+  wrapped `find()`'s attach-wait instead, which is a different, redundant
+  layer, not a fix to the thing that already retries.
+- Structurally, a base-class change is the wrong altitude for a fix that
+  isn't even confirmed yet: it silently changes resolution behavior for
+  *every* locator in the suite, which converts intermittent failures into
+  passes suite-wide — exactly the effect this findings log has spent three
+  days working against, since a red test misclassified as flaky (and then
+  quietly retried away) is worse than a red test left red.
 
-**Confirmed.** Two consecutive full-suite runs after the fix: **40 passed /
-3 failed / 0 flaky / 3 skipped**, identical both times — the 3 failures are
-only Finding 8's upload-wizard tests. Up from 36/5/2/3 before this finding.
+**Reverted.** `packages/execution-engine/src/pages/base.page.ts` is back to
+its original, pre-session state — no retry wrapper, `find()` and every
+action helper unchanged. This root cause is **open, not fixed.** The
+correct next step, if it recurs, is the same method used for Finding 11:
+capture a trace or CDP snapshot of a live failure and check directly
+whether `nav.fileExplorer`/`nav.upload` is present-but-slow or genuinely
+absent at the moment `LocatorResolutionError` fires, then fix at the
+narrowest correct altitude (the specific locator or call site) — not the
+shared base class — once that's known.
+
+## Finding 13 — the File Explorer's context menu does not close on Escape (WAI-ARIA menu pattern gap)
+
+**Severity: low.** A real, if minor, app-side accessibility issue — not a
+test bug, and not a locator problem. Recorded here rather than only fixed
+in test code because, unlike most findings in this document, this one is
+about the app's own behavior, not this suite's.
+
+**Observed.** Opened a workspace's context menu (`role="menu"`) on
+`/files`, then pressed `Escape` in isolation — no other action in between.
+The menu was still visible, unchanged, a full 2.5 seconds later. Confirmed
+this isn't a timing issue: clicking anywhere outside the menu closes it
+immediately (it has no dedicated backdrop element; it closes via a global
+outside-click listener), so the menu *can* be dismissed programmatically —
+`Escape` specifically is simply never wired to do it.
+
+**Why this matters.** The [WAI-ARIA Menu Button
+pattern](https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/) specifies
+`Escape` as the standard way to close an open menu and return focus to its
+trigger, for keyboard-only and screen-reader users who may not have an easy
+"click elsewhere" gesture available. A `role="menu"` widget that only
+responds to a mouse-driven outside click, not the keyboard convention every
+other ARIA menu implementation honors, is a real (if narrow) accessibility
+gap.
+
+**Not fixed** — this lives in the application's menu component, not in
+`tests/app/`. `FileExplorerPage.dismissMenu()` (Finding 12, item 2) already
+works around it on the test side by clicking outside instead of pressing
+`Escape`, which is why this is filed as a low-severity note rather than a
+blocking one.
