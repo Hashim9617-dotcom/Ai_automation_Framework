@@ -228,11 +228,15 @@ function readFailureContext(result: PwTestResult): FailureContext | undefined {
   }>('diagnostics.json');
   const domSnapshot = read<FailureContext['domSnapshot']>('dom-snapshot.json');
   const locatorTelemetry = read<FailureContext['locatorTelemetry']>('locator-telemetry.json');
+  const healingGate = read<FailureContext['healingGate']>('healing-gate.json');
+  const healingContext = read<FailureContext['healingContext']>('healing-context.json');
 
   const context: FailureContext = {
     ...(diagnostics ?? {}),
     ...(domSnapshot ? { domSnapshot } : {}),
     ...(locatorTelemetry ? { locatorTelemetry } : {}),
+    ...(healingGate ? { healingGate } : {}),
+    ...(healingContext ? { healingContext } : {}),
   };
 
   return Object.keys(context).length > 0 ? context : undefined;

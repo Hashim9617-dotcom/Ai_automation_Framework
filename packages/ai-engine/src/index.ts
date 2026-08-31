@@ -7,4 +7,7 @@ export * from './dom/render';
 export * from './rca/prompts';
 export * from './rca/analyzer';
 export * from './rca/enrich';
+export * from './healing/prompts';
+export * from './healing/engine';
+export * from './healing/enrich';
 export * from './phase2/pending';

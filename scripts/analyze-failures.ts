@@ -19,12 +19,20 @@ import {
   createLlmGateway,
   enrichRunWithRca,
 } from '@aitp/ai-engine';
+import { loadEnvironment } from '@aitp/execution-engine';
 import { renderRunSummaryHtml } from '@aitp/reporting-engine';
 import { findRepoRoot, rootLogger, type Run } from '@aitp/shared';
 
 const log = rootLogger.child('rca-cli');
 
 async function main(): Promise<void> {
+  // createLlmGateway() reads process.env directly, and nothing loads .env
+  // into it unless something calls loadEnvironment() (or its internal
+  // ensureDotenv()) first — without this, ANTHROPIC_API_KEY sitting in .env
+  // was silently invisible here regardless of how correctly it was set,
+  // and every run fell back to "no key configured" with no indication why.
+  loadEnvironment();
+
   const reportsDir = path.join(findRepoRoot(__dirname), 'artifacts', 'reports');
   const runJson = path.join(reportsDir, 'run.json');
 

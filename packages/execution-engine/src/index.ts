@@ -6,5 +6,6 @@ export * from './pages/base.component';
 export * from './api/api-client';
 export * from './data/factory';
 export * from './dom/snapshot';
+export * from './dom/accessibility-snapshot';
 export * from './fixtures/core';
 export * from './fixtures';

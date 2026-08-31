@@ -39,10 +39,18 @@ export interface SmartLocatorOptions {
    * already fixes at the point of matching, not by demoting the timeout.)
    */
   fallbackCandidateTimeout?: number;
-  /** Phase 2 hook: called only after every pre-generated candidate has failed. */
-  onHealRequested?: (spec: LocatorSpec) => Promise<LocatorCandidate | null>;
   /** Called for every resolution so the dashboard/healer can learn which candidates rot. */
   onResolved?: (resolution: LocatorResolution) => void;
+  /**
+   * Called once, right before `resolve()` throws — i.e. once every candidate
+   * has failed. This is how the healing gate (docs/phase-2-healing.md) learns
+   * about a failure without re-parsing Playwright's own serialized
+   * `TestInfo.error`, which does not preserve `instanceof` or custom error
+   * properties like `details.durationMs`. Purely an observation hook: nothing
+   * reads a return value, and nothing here can change what `resolve()` does
+   * next — it always throws immediately after.
+   */
+  onResolutionFailed?: (spec: LocatorSpec, error: LocatorResolutionError) => void;
 }
 
 /**
@@ -122,9 +130,14 @@ function build(scope: LocatorScope, candidate: LocatorCandidate): Locator {
 
 /**
  * Resolves a LocatorSpec to a live Playwright Locator by walking its ordered
- * candidate list. This is the seam the self-healing engine plugs into: Phase 1
- * uses pre-generated fallbacks only, Phase 2 supplies `onHealRequested` to ask
- * the LLM for a new candidate when the whole list is stale.
+ * candidate list. Self-healing (`docs/phase-2-healing.md`) deliberately does
+ * NOT plug in here: healing v1 only ever *proposes* a candidate for human
+ * review, out of band, after this has already thrown. A hook that fed a
+ * live-resolved candidate straight back into a running test — the
+ * `onHealRequested` option this class used to accept — would let the healer
+ * silently rewrite what a test does, mid-run, with no human involved. That is
+ * exactly the failure mode the design exists to prevent, so the socket was
+ * removed rather than left unwired.
  */
 export class SmartLocator {
   constructor(
@@ -139,12 +152,14 @@ export class SmartLocator {
     const finalTimeout = this.options.candidateTimeout ?? 3_000;
     const fallbackTimeout = this.options.fallbackCandidateTimeout ?? Math.min(1_000, finalTimeout);
     let attempts = 0;
+    let expectedBudgetMs = 0;
 
     for (const [index, candidate] of spec.candidates.entries()) {
       attempts += 1;
       const isPrimaryCandidate = index === 0;
       const isLastCandidate = index === spec.candidates.length - 1;
       const timeout = isPrimaryCandidate || isLastCandidate ? finalTimeout : fallbackTimeout;
+      expectedBudgetMs += timeout;
       const locator = build(this.scope, candidate).first();
       try {
         await locator.waitFor({ state: 'attached', timeout });
@@ -173,30 +188,16 @@ export class SmartLocator {
       }
     }
 
-    if (this.options.onHealRequested) {
-      const healed = await this.options.onHealRequested(spec);
-      if (healed) {
-        attempts += 1;
-        const locator = build(this.scope, healed).first();
-        // Last resort — no further fallback exists, so it gets the full budget.
-        await locator.waitFor({ state: 'attached', timeout: finalTimeout });
-        this.report({
-          key: spec.key,
-          usedCandidateIndex: -1,
-          candidate: healed,
-          healed: true,
-          attempts,
-          durationMs: Date.now() - startedAt,
-        });
-        log.warn('Locator healed at runtime', { key: spec.key, strategy: healed.strategy });
-        return locator;
-      }
-    }
-
-    throw new LocatorResolutionError(spec.key, attempts, {
+    const failure = new LocatorResolutionError(spec.key, attempts, {
       description: spec.description,
       url: this.page.url(),
+      // See LocatorResolutionErrorDetails — the self-healing gate (rule 5)
+      // compares these two, not either one against a fixed constant.
+      durationMs: Date.now() - startedAt,
+      expectedBudgetMs,
     });
+    this.options.onResolutionFailed?.(spec, failure);
+    throw failure;
   }
 
   private report(resolution: LocatorResolution): void {

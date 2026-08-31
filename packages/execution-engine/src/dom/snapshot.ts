@@ -126,12 +126,17 @@ export async function captureDomSnapshot(
     { limit: maxElements, onlyVisible: visibleOnly },
   );
 
+  const typedElements = elements as DomSnapshot['elements'];
   return {
     // Credentials and tokens routinely ride in the URL; strip them before this
     // is persisted into run.json and streamed to the dashboard.
     url: sanitizeUrl(page.url()),
     title: await page.title(),
     capturedAt: new Date().toISOString(),
-    elements: elements as DomSnapshot['elements'],
+    // The in-page loop breaks the instant it hits `limit`, so reaching the
+    // cap exactly is the only signal available here that elements past it
+    // were never even considered — not that the page only had this many.
+    truncated: typedElements.length >= maxElements,
+    elements: typedElements,
   };
 }

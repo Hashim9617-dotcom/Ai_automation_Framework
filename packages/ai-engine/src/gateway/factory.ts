@@ -29,14 +29,20 @@ export function createLlmGateway(options: GatewayFactoryOptions = {}): LlmGatewa
   }
 
   const cacheDir = options.cacheDir ?? path.join(process.cwd(), 'artifacts', '.llm-cache');
+  const models = {
+    reasoning: process.env.LLM_MODEL_REASONING ?? 'claude-sonnet-4-5',
+    fast: process.env.LLM_MODEL_FAST ?? 'claude-haiku-4-5',
+  };
+
+  // The mock-fallback path above logs a warning; this is the corresponding
+  // confirmation for the real path, so "which gateway is actually in use"
+  // is never a matter of inferring it from the absence of that warning.
+  log.info('Using the real LLM gateway.', { provider, models });
 
   return new HttpLlmGateway({
     provider,
     apiKey,
-    models: {
-      reasoning: process.env.LLM_MODEL_REASONING ?? 'claude-sonnet-4-5',
-      fast: process.env.LLM_MODEL_FAST ?? 'claude-haiku-4-5',
-    },
+    models,
     cache:
       process.env.LLM_CACHE === 'memory'
         ? new MemoryCompletionCache()

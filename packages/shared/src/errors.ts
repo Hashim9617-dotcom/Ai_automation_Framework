@@ -16,8 +16,32 @@ export class ConfigError extends PlatformError {
   }
 }
 
+export interface LocatorResolutionErrorDetails extends Record<string, unknown> {
+  description?: string;
+  url?: string;
+  /** Wall-clock time spent walking the candidate chain before giving up. */
+  durationMs?: number;
+  /**
+   * Sum of every candidate's own timeout budget (`candidateTimeout` for the
+   * primary/last, `fallbackCandidateTimeout` for demoted middle ones) —
+   * i.e. what `durationMs` should be, at most, if every candidate genuinely
+   * never attaches and nothing outside the chain adds latency. A single
+   * absent candidate normally costs close to its full timeout on its own —
+   * `waitFor({ state: 'attached' })` polls until the deadline, it does not
+   * detect "this will never happen" early — so `durationMs` landing near
+   * `expectedBudgetMs` is the ordinary case, not a red flag. What the gate
+   * (docs/phase-2-healing.md, rule 5) actually watches for is `durationMs`
+   * *exceeding* this budget: extra latency the chain's own timeouts don't
+   * explain, e.g. from a page still settling or a stacked earlier
+   * resolution against the same key (the specific pattern that made
+   * Finding 5 look like session instability before the per-candidate
+   * timeout split existed).
+   */
+  expectedBudgetMs?: number;
+}
+
 export class LocatorResolutionError extends PlatformError {
-  constructor(key: string, attempts: number, details?: Record<string, unknown>) {
+  constructor(key: string, attempts: number, details?: LocatorResolutionErrorDetails) {
     super(
       `Could not resolve locator "${key}" after ${attempts} candidate(s).`,
       'LOCATOR_UNRESOLVED',

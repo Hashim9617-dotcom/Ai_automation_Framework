@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { DomSnapshot } from './ai';
+import type { AccessibilityTreeSnapshot, DomSnapshot, HealingGateVerdict, HealingProposal } from './ai';
 import type { LocatorResolution } from './locator';
 
 /** Lifecycle of a single execution request (one "run" = one suite invocation). */
@@ -78,6 +78,10 @@ export interface FailureContext {
   failedRequests?: string[];
   domSnapshot?: DomSnapshot;
   locatorTelemetry?: LocatorResolution[];
+  /** One entry per exhausted-chain locator failure in this test — see docs/phase-2-healing.md. */
+  healingGate?: HealingGateVerdict[];
+  /** Present only if at least one entry above was eligible — the shared evidence `propose()` needs. */
+  healingContext?: AccessibilityTreeSnapshot;
 }
 
 export interface TestStepResult {
@@ -129,6 +133,13 @@ export interface Run {
   /** Relative paths under artifacts/ for html report, trace, video, log. */
   artifacts: Record<string, string>;
   error?: string;
+  /**
+   * Filled by an out-of-band pass (`pnpm heal`, docs/phase-2-healing.md),
+   * never by the run itself — a failing test's outcome never depends on
+   * this. `pnpm heal:review` reads and mutates this in place, same pattern
+   * `pnpm rca` already uses for `TestResult.error.rca`.
+   */
+  healingProposals?: HealingProposal[];
 }
 
 export function emptySummary(): RunSummary {

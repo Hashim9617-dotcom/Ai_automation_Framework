@@ -1,8 +1,15 @@
 import { expect, type Page } from '@playwright/test';
-import { sanitizeUrl, type LocatorResolution } from '@aitp/shared';
+import {
+  checkHealingEligibility,
+  sanitizeUrl,
+  type LocatorResolution,
+  type LocatorResolutionError,
+  type LocatorSpec,
+} from '@aitp/shared';
 import type { EnvironmentConfig } from '../config/schema';
 import type { SmartLocatorOptions } from '../locators/smart-locator';
 import { captureDomSnapshot } from '../dom/snapshot';
+import { captureAccessibilityTree } from '../dom/accessibility-snapshot';
 import { coreTest, type CoreFixtures } from './core';
 
 export interface Diagnostics {
@@ -11,9 +18,16 @@ export interface Diagnostics {
   failedRequests: string[];
 }
 
+export interface LocatorFailure {
+  spec: LocatorSpec;
+  error: LocatorResolutionError;
+}
+
 export interface UiFixtures {
   /** Every locator resolution in this test — feeds the healing history and the dashboard. */
   locatorTelemetry: LocatorResolution[];
+  /** Every exhausted-chain failure in this test — input to the healing gate at teardown. */
+  locatorFailures: LocatorFailure[];
   /** Locator options handed to every page object: telemetry plus the Phase 2 healing hook. */
   smartLocatorOptions: SmartLocatorOptions;
   /** Console/page/network problems captured automatically; attached on failure for RCA. */
@@ -45,7 +59,12 @@ export const test = coreTest.extend<UiFixtures>({
     }
   },
 
-  smartLocatorOptions: async ({ locatorTelemetry, env }, use) => {
+  // eslint-disable-next-line no-empty-pattern
+  locatorFailures: async ({}, use) => {
+    await use([]);
+  },
+
+  smartLocatorOptions: async ({ locatorTelemetry, locatorFailures, env }, use) => {
     await use({
       // Only the primary and last candidate in a chain need this — see fallbackCandidateTimeout.
       candidateTimeout: Math.min(env.timeouts.action, Number(process.env.LOCATOR_CANDIDATE_TIMEOUT ?? 2_000)),
@@ -55,13 +74,14 @@ export const test = coreTest.extend<UiFixtures>({
       // primary candidate.
       fallbackCandidateTimeout: Number(process.env.LOCATOR_FALLBACK_TIMEOUT_MS ?? 750),
       onResolved: (resolution) => locatorTelemetry.push(resolution),
-      // Phase 2: wire the self-healing engine in here — no page object changes needed.
-      // onHealRequested: (spec) => aiEngine.healing.heal({ spec, snapshot }),
+      // Self-healing (docs/phase-2-healing.md) never resolves a locator live —
+      // this only records the failure for the gate to evaluate at teardown.
+      onResolutionFailed: (spec, error) => locatorFailures.push({ spec, error }),
     });
   },
 
   diagnostics: [
-    async ({ page }, use, testInfo) => {
+    async ({ page, locatorTelemetry, locatorFailures }, use, testInfo) => {
       const diagnostics: Diagnostics = { consoleErrors: [], pageErrors: [], failedRequests: [] };
 
       // A page in a retry loop against a broken endpoint can emit thousands of
@@ -117,8 +137,9 @@ export const test = coreTest.extend<UiFixtures>({
       // renderer is wedged, page.evaluate never settles and never rejects, and an
       // unguarded await here would hang the worker until Playwright kills it,
       // taking the other attachments with it.
+      let snapshot;
       try {
-        const snapshot = await Promise.race([
+        snapshot = await Promise.race([
           captureDomSnapshot(page, { maxElements: 120 }),
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error('DOM snapshot timed out')), 5_000),
@@ -130,6 +151,65 @@ export const test = coreTest.extend<UiFixtures>({
         });
       } catch {
         // Page closed, navigated away, crashed, or wedged — nothing to capture.
+      }
+
+      // Self-healing gate (docs/phase-2-healing.md) — pure, synchronous, zero
+      // LLM calls. Runs for every exhausted-chain failure in this test, and
+      // records why, whether eligible or not; the reason list is attached
+      // regardless of the verdict, since "why nothing is heal-eligible" is
+      // itself useful output. Only for failures the snapshot above actually
+      // succeeded for — without a snapshot, rule 4 can't be evaluated anyway.
+      if (snapshot && locatorFailures.length > 0) {
+        const verdicts = locatorFailures.map(({ spec, error }) => {
+          const eligibility = checkHealingEligibility({
+            spec,
+            error,
+            telemetry: locatorTelemetry,
+            snapshot,
+            pageUrl: page.url(),
+          });
+          return {
+            key: spec.key,
+            ...eligibility,
+            // The full spec, not just the key — `pnpm heal`'s out-of-band
+            // pass needs `description` and `candidates` to call `propose()`
+            // at all, and re-deriving them from page-object source later
+            // would mean re-parsing TypeScript for data sitting right here.
+            // Only worth the extra bytes when eligible; a refused failure's
+            // spec is never going to be read again.
+            spec: eligibility.eligible ? spec : undefined,
+          };
+        });
+        try {
+          await testInfo.attach('healing-gate.json', {
+            body: JSON.stringify(verdicts, null, 2),
+            contentType: 'application/json',
+          });
+        } catch {
+          // Test already torn down; nothing to attach to.
+        }
+
+        // The rich CDP capture only happens for failures that already cleared
+        // every free check — bounding its cost to the minority that can
+        // actually use it. One capture per test covers every eligible
+        // failure in it (a stale accessibility tree a few ms apart is not
+        // the risk here; a CDP session per failure is the cost being avoided).
+        if (verdicts.some((v) => v.eligible)) {
+          try {
+            const axSnapshot = await Promise.race([
+              captureAccessibilityTree(page),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Accessibility snapshot timed out')), 5_000),
+              ),
+            ]);
+            await testInfo.attach('healing-context.json', {
+              body: JSON.stringify(axSnapshot),
+              contentType: 'application/json',
+            });
+          } catch {
+            // Page closed, navigated away, crashed, or wedged — nothing to capture.
+          }
+        }
       }
     },
     { auto: true },

@@ -1,12 +1,14 @@
 import { PlatformError } from '@aitp/shared';
-import type { ScriptGenerator, SelfHealingEngine, TestCaseGenerator } from '@aitp/shared';
+import type { ScriptGenerator, TestCaseGenerator } from '@aitp/shared';
 
 /**
  * Phase 2, still pending.
  *
- * Root cause analysis has shipped — see ./rca/analyzer. These remain: replacing a
- * class below with a working implementation requires no change at any call site,
- * which is the whole point of having defined the contracts in Phase 1.
+ * Root cause analysis has shipped — see ./rca/analyzer. Self-healing has
+ * shipped too — see ./healing/engine (docs/phase-2-healing.md for the
+ * design). These two remain: replacing a class below with a working
+ * implementation requires no change at any call site, which is the whole
+ * point of having defined the contracts in Phase 1.
  */
 export class NotImplementedYetError extends PlatformError {
   constructor(capability: string) {
@@ -27,12 +29,5 @@ export class PendingTestCaseGenerator implements TestCaseGenerator {
 export class PendingScriptGenerator implements ScriptGenerator {
   compile(): never {
     throw new NotImplementedYetError('AI Playwright-script generation');
-  }
-}
-
-export class PendingSelfHealingEngine implements SelfHealingEngine {
-  /** Returning null makes the SmartLocator fall through to a normal failure. */
-  async heal(): Promise<null> {
-    return null;
   }
 }
