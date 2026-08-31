@@ -3,7 +3,8 @@
 **Status: implemented, including `pnpm heal` (the out-of-band pass over a
 real `run.json`), gate unit tests, and a 7th eval scenario. The eval set
 passes 7/7 against a real model** (`claude-sonnet-4-5`, confirmed live, cold
-cache, $0.02/4575 tokens for the whole run). **Still not wired into the real
+cache, 4561 real tokens for the whole run — see the cost-reporting caveat in
+`docs/WHERE-WE-ARE.md` before quoting a dollar figure for this). **Still not wired into the real
 DmsSynergy suite** — `env.features.selfHealing` stays off. `pnpm heal` has
 been verified against one real (synthetic, temporary) failure end to end,
 including through `fixtures/index.ts`'s teardown wiring and the reporter,
@@ -609,10 +610,19 @@ for a genuine cold measurement.
 | (a)–(f) | Same as the six-scenario run above — all still PASS, (c)'s proposal came back at confidence 0.95 this time rather than 0.85 (same correct `role:link, name:"Login"` answer both times; temperature 0 is not byte-identical across separate API calls, which is expected and not a concern) |
 | (g) icon swap | Locator **resolved successfully** — `"resolution succeeded — normalizeAccessibleName handled the PUA glyph automatically; the gate/healer were never reached"`. **PASS** |
 
-**7/7, cold cache. Real cost: 5 LLM calls (a–e; f and g needed none), 4029
-prompt + 546 completion tokens = 4575 tokens total, $0.0203.** No rule was
-loosened to get here — every gate and verification path is identical to the
-six-scenario run.
+**7/7, cold cache. Real usage: 5 LLM calls (a–e; f and g needed none), 4029
+prompt + 546 completion tokens = 4575 tokens total.** (Dollar cost
+deliberately not quoted — `HttpLlmGateway` prices every call at one fixed
+rate regardless of model, so the derived `costUsd` is not accurate; the
+token counts above are the real measurement. Full explanation in
+`docs/WHERE-WE-ARE.md`, "Known issue: LLM cost reporting is not
+model-aware.") No rule was loosened to get here — every gate and
+verification path is identical to the six-scenario run.
+
+**Re-run again with a fresh API key, cold cache, one day later**: 7/7
+again, 5 calls, 4029 prompt + 532 completion tokens = 4561 tokens total —
+consistent with the run above within the ordinary token-count variance of
+a non-deterministic model response at `temperature: 0`.
 
 ### Two real bugs found getting a real model wired up — neither was in the healer itself
 
