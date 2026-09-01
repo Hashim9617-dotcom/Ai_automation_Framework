@@ -15,6 +15,21 @@ things that looked like app bugs were retracted after more scrutiny turned
 out to be our own test code, and that retraction discipline is why this
 number can be trusted.
 
+**Known intermittent flake, unresolved:** a prior session's regression run
+saw 3 flaky results on `nav.fileExplorer`/`admin.new` (single-candidate
+`LocatorResolutionError`, always recovering on retry). Investigated
+2026-09-01: the per-candidate timeout budget logic is confirmed correct
+(single-candidate specs get the full timeout, not the demoted fallback one —
+verified both by reading `smart-locator.ts` and by an empirical runtime
+test). A targeted 4-way-concurrency reproduction (24 attempts) and 3
+required full-suite runs (0 flaky each) both failed to reproduce it, and no
+trace.zip survived from the original occurrence (Playwright's `outputDir` is
+wiped every run). Bottom line: root cause still unknown, no fix applied —
+deliberately, since the earlier base-class-retry "fix" for this same shape
+of problem was wrong and got rejected. If it recurs, the trace is captured
+automatically (`trace: 'retain-on-failure'`); inspect it before touching any
+locator code.
+
 **How to run it:**
 
 ```powershell
@@ -82,10 +97,23 @@ just add a feature.
   against the bundled demo app, see below
 
 **Not implemented / not done:**
-- `env.features.selfHealing` is `false` for DmsSynergy. Still off.
-- No real DmsSynergy failure has gone through `pnpm heal` → `pnpm heal:review`
-  yet — only the eval set (synthetic, demo-app) and one temporary,
-  hand-constructed real integration test have exercised the full pipeline.
+- `env.features.selfHealing` is `true` for DmsSynergy as of 2026-09-01. Note
+  it's currently declarative only — logged at startup
+  (`tests/support/global-setup.ts`) but not read by `fixtures/index.ts` (the
+  gate check and evidence capture already run unconditionally on any locator
+  failure) or by `pnpm heal`/`pnpm heal:review` (both run whenever invoked,
+  regardless of this flag). Flipping it is safe for exactly that reason —
+  propose-mode has nothing left to gate behind a flag yet.
+- A real DmsSynergy failure has now gone through `pnpm heal` →
+  `pnpm heal:review` end to end (2026-09-01): a deliberately mutated
+  `admin.refresh` locator (typo'd label) produced a real LLM proposal at
+  0.98 confidence, correctly diagnosing the typo; `heal:review` refused it
+  while the source file was dirty, then on a clean tree appended the healed
+  candidate with provenance; re-breaking only the original candidate and
+  re-running confirmed the appended fallback (not luck) is what resolves it.
+  Reverted immediately after — synthetic, not committed. The eval set
+  (synthetic, demo-app) remains the repeatable regression check; this was a
+  one-off confirmation that the pipeline also works against the real app.
 - The eval set says the *pipeline* works; it doesn't say the healer will
   produce equally good proposals against DmsSynergy's actual component
   quirks (the tree-row name-concatenation pattern from Finding 11, for

@@ -24,7 +24,7 @@
     }
   },
   "features": {
-    "selfHealing": false,
+    "selfHealing": true,
     "aiRootCause": true,
     "video": true,
     "trace": true
