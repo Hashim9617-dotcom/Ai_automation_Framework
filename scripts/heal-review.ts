@@ -168,7 +168,8 @@ async function reviewOne(
   const relFile = path.relative(repoRoot, located.file);
   if (hasUncommittedChanges(located.file)) {
     console.log(
-      `  REFUSING: ${relFile} has uncommitted changes — commit or stash them before reviewing proposals against this file.`,
+      `  REFUSING: ${relFile} has uncommitted changes — commit or stash them before reviewing proposals against this file.\n` +
+        `    e.g. git stash push -- ${relFile}   (then git stash pop once you're done reviewing)`,
     );
     const answer = await ask(rl, `  [s]kip  [q]uit  > `);
     if (answer === 'q') throw new QuitSignal();

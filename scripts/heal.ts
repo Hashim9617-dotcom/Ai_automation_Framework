@@ -34,7 +34,16 @@ async function main(): Promise<void> {
   // it unless something calls loadEnvironment() first. See the identical
   // fix in scripts/analyze-failures.ts and scripts/eval-healing.ts for why
   // this line is load-bearing, not decorative.
-  loadEnvironment();
+  const env = loadEnvironment();
+
+  if (!env.features.selfHealing) {
+    log.error(
+      `env.features.selfHealing is false for "${env.name}" — refusing to run. ` +
+        `Set it to true in config/env/${env.name}.json to enable proposal generation.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
 
   const reportsDir = path.join(findRepoRoot(__dirname), 'artifacts', 'reports');
   const runJson = path.join(reportsDir, 'run.json');

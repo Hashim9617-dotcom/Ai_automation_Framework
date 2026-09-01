@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type {
   FullConfig,
@@ -15,6 +15,7 @@ import {
   rootLogger,
   summarize,
   type FailureContext,
+  type Logger,
   type Run,
   type TestResult,
 } from '@aitp/shared';
@@ -156,6 +157,8 @@ export default class AitpReporter implements Reporter {
     writeFileSync(jsonPath, JSON.stringify(this.run, null, 2), 'utf8');
     writeFileSync(htmlPath, renderRunSummaryHtml(this.run), 'utf8');
 
+    archiveIfNotClean(this.run, this.outputDir, this.log);
+
     this.log.info('Run finished', {
       runId: this.run.id,
       status: this.run.status,
@@ -198,6 +201,39 @@ export function finalAttemptPerTest(results: TestResult[]): TestResult[] {
     if (!existing || result.retry > existing.retry) byId.set(result.id, result);
   }
   return [...byId.values()];
+}
+
+/**
+ * An intermittent failure is by definition rare — if the next run's cleanup
+ * wipes its trace/video/screenshot before anyone can look, it can never be
+ * diagnosed (this is exactly what happened investigating the
+ * nav.fileExplorer/admin.new flake: the evidence was gone by the time it
+ * mattered). Playwright wipes its own `outputDir` (test-results) internally
+ * at the START of the next run, before global-setup.ts even gets a chance to
+ * look at it — so archiving has to happen HERE, at the end of THIS run,
+ * while the artifacts are still on disk. A clean run has nothing worth
+ * keeping and is left for the next run's ordinary cleanup.
+ */
+function archiveIfNotClean(run: Run, reportsDir: string, log: Logger): void {
+  const failed = run.summary?.failed ?? 0;
+  const flaky = run.summary?.flaky ?? 0;
+  if (failed === 0 && flaky === 0) return;
+
+  const artifactsDir = path.dirname(reportsDir);
+  const testResultsDir = path.join(artifactsDir, 'test-results');
+  const archiveDir = path.join(artifactsDir, 'runs', run.id);
+
+  log.info('This run had failures or flakes — archiving its artifacts', {
+    runId: run.id,
+    failed,
+    flaky,
+    archiveDir: path.relative(artifactsDir, archiveDir),
+  });
+
+  cpSync(reportsDir, path.join(archiveDir, 'reports'), { recursive: true });
+  if (existsSync(testResultsDir)) {
+    cpSync(testResultsDir, path.join(archiveDir, 'test-results'), { recursive: true });
+  }
 }
 
 function stripAnsi(input: string): string {

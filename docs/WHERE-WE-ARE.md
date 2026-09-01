@@ -23,12 +23,25 @@ saw 3 flaky results on `nav.fileExplorer`/`admin.new` (single-candidate
 verified both by reading `smart-locator.ts` and by an empirical runtime
 test). A targeted 4-way-concurrency reproduction (24 attempts) and 3
 required full-suite runs (0 flaky each) both failed to reproduce it, and no
-trace.zip survived from the original occurrence (Playwright's `outputDir` is
-wiped every run). Bottom line: root cause still unknown, no fix applied —
-deliberately, since the earlier base-class-retry "fix" for this same shape
-of problem was wrong and got rejected. If it recurs, the trace is captured
-automatically (`trace: 'retain-on-failure'`); inspect it before touching any
-locator code.
+trace.zip survived from the original occurrence — Playwright wipes its own
+`outputDir` (`artifacts/test-results`) at the start of every run, before
+anything of ours gets a chance to look at it. Bottom line: root cause still
+unknown, no fix applied — deliberately, since the earlier base-class-retry
+"fix" for this same shape of problem was wrong and got rejected.
+
+That evidence-loss problem is now fixed (2026-09-01): `AitpReporter.onEnd`
+(`packages/reporting-engine/src/reporters/aitp-reporter.ts`) archives a
+run's full `reports/` + `test-results/` — traces, videos, screenshots
+included — under `artifacts/runs/<runId>/` whenever that run had any
+failures or flakes, before the next run's cleanup can touch anything. (Not
+`global-setup.ts` — that runs too late, after Playwright's own internal wipe
+has already happened; the archival has to happen at the end of the run that
+still has the evidence, not the start of the next one.) Clean runs still get
+wiped normally; nothing is pruned automatically yet, so `artifacts/runs/`
+will grow unbounded across failing runs — fine for now, revisit if it
+matters. If this flake recurs, its trace will be sitting under
+`artifacts/runs/<that run's id>/test-results/`; inspect it before touching
+any locator code.
 
 **How to run it:**
 
@@ -97,13 +110,18 @@ just add a feature.
   against the bundled demo app, see below
 
 **Not implemented / not done:**
-- `env.features.selfHealing` is `true` for DmsSynergy as of 2026-09-01. Note
-  it's currently declarative only — logged at startup
-  (`tests/support/global-setup.ts`) but not read by `fixtures/index.ts` (the
-  gate check and evidence capture already run unconditionally on any locator
-  failure) or by `pnpm heal`/`pnpm heal:review` (both run whenever invoked,
-  regardless of this flag). Flipping it is safe for exactly that reason —
-  propose-mode has nothing left to gate behind a flag yet.
+- `env.features.selfHealing` is `true` for DmsSynergy as of 2026-09-01. It
+  was flipped on when the flag still controlled nothing (logged at startup
+  only) — caught immediately as a real problem ("someone will later set it
+  to false and believe healing is disabled") and fixed the same day: the
+  flag now gates the one real cost self-healing adds, the CDP accessibility
+  snapshot on a gate-eligible failure (`fixtures/index.ts`) — off means that
+  capture genuinely doesn't happen, verified by flipping it off and
+  confirming `healingContext`/`healing-context.json` are absent while the
+  free gate check (`healingGate`) still runs. `pnpm heal` also now refuses
+  outright with a clear message if the flag is off for the resolved
+  environment. `pnpm heal:review` stays unconditional on purpose — reviewing
+  an already-generated proposal is harmless regardless of the flag.
 - A real DmsSynergy failure has now gone through `pnpm heal` →
   `pnpm heal:review` end to end (2026-09-01): a deliberately mutated
   `admin.refresh` locator (typo'd label) produced a real LLM proposal at

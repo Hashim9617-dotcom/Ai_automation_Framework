@@ -81,7 +81,7 @@ export const test = coreTest.extend<UiFixtures>({
   },
 
   diagnostics: [
-    async ({ page, locatorTelemetry, locatorFailures }, use, testInfo) => {
+    async ({ page, env, locatorTelemetry, locatorFailures }, use, testInfo) => {
       const diagnostics: Diagnostics = { consoleErrors: [], pageErrors: [], failedRequests: [] };
 
       // A page in a retry loop against a broken endpoint can emit thousands of
@@ -194,7 +194,10 @@ export const test = coreTest.extend<UiFixtures>({
         // actually use it. One capture per test covers every eligible
         // failure in it (a stale accessibility tree a few ms apart is not
         // the risk here; a CDP session per failure is the cost being avoided).
-        if (verdicts.some((v) => v.eligible)) {
+        // Also gated on the feature flag itself: this CDP session is the one
+        // real cost self-healing adds to a run, so `selfHealing: false` must
+        // actually remove it, not just leave the flag meaning nothing.
+        if (env.features.selfHealing && verdicts.some((v) => v.eligible)) {
           try {
             const axSnapshot = await Promise.race([
               captureAccessibilityTree(page),
