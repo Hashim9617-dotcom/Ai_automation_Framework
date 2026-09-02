@@ -37,11 +37,39 @@ failures or flakes, before the next run's cleanup can touch anything. (Not
 `global-setup.ts` — that runs too late, after Playwright's own internal wipe
 has already happened; the archival has to happen at the end of the run that
 still has the evidence, not the start of the next one.) Clean runs still get
-wiped normally; nothing is pruned automatically yet, so `artifacts/runs/`
-will grow unbounded across failing runs — fine for now, revisit if it
-matters. If this flake recurs, its trace will be sitting under
+wiped normally. If this flake recurs, its trace will be sitting under
 `artifacts/runs/<that run's id>/test-results/`; inspect it before touching
 any locator code.
+
+**Retention.** `global-setup.ts` prunes that archive on every suite start:
+keep the newest 10, drop anything older than 14 days, one log line naming
+what went. Both rules prune, so the count is a hard cap — without that,
+nightly runs would fill the disk and surface as a run dying on ENOSPC one
+morning with no obvious cause. The tradeoff to know about: an archive from a
+rare flake nobody investigated is deleted at 14 days even if it's the only
+copy of that evidence. Raise `MAX_ARCHIVE_AGE_DAYS` if that window is too
+short.
+
+**The archive copies exactly two directories** — `artifacts/reports` and
+`artifacts/test-results`, both named explicitly in `archiveIfNotClean`.
+`artifacts/auth/` (live session state) is structurally unreachable: there is
+no recursive copy of `artifacts/` itself. Verified by planting a sentinel
+file in `artifacts/auth/`, forcing a failing run, and confirming it appears
+nowhere in the resulting archive.
+
+⚠️ **But the archived traces do contain live session tokens.** Playwright
+records network traffic and storage state, so `trace.zip` holds the
+`refresh_token` cookie plus `access_token`/`refresh_token` from
+localStorage — confirmed by extracting an archived trace and matching
+against `artifacts/auth/app.json`. This is inherent to trace capture, not
+to archiving, and it was already true of `artifacts/test-results`. What
+archiving changed is the *lifetime*: those tokens used to be wiped at the
+next run, and now persist up to 10 failing runs / 14 days. Mitigating:
+`artifacts/` is gitignored so none of it reaches the repo, and DmsSynergy's
+refresh_token TTL is ~15 minutes, so archived tokens are stale almost
+immediately. Worth a deliberate decision before any CI job starts uploading
+`artifacts/` as build artifacts, or before archives are shared off the
+machine that produced them.
 
 **How to run it:**
 
