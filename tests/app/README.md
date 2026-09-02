@@ -52,6 +52,23 @@ without touching a single spec — the candidates are data, not code.
   the wizard's guard rails; the destructive-action specs assert that Cut / Copy /
   Delete / Archive stay **disabled** with nothing selected.
 
+### Never share a raw `trace.zip` outside the team
+
+A Playwright trace records network traffic and storage state, so a trace from
+any authenticated run **contains a live session** — the `refresh_token` cookie
+plus `access_token`/`refresh_token` from localStorage. The access token
+authorises real API calls for 60 minutes from capture.
+
+Pasting a trace into a ticket or a chat thread to help someone debug is the
+likeliest way this leaks, and it needs no CI involvement at all. Share the
+failing test name, the error text and a screenshot instead. If someone
+genuinely needs the trace, hand it over inside the team and say why.
+
+This applies to everything under `artifacts/test-results/` and
+`artifacts/runs/` (archived failing runs, kept up to 14 days), and to the
+Playwright HTML report, which embeds the same traces under `html/data/*.zip`.
+`run.json`, `junit.xml` and `summary.html` are token-free and safe to attach.
+
 ## Tuning to your instance
 
 These read from the environment, with the defaults observed during capture:

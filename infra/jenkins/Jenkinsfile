@@ -63,7 +63,44 @@ pipeline {
   post {
     always {
       junit allowEmptyResults: true, testResults: 'artifacts/reports/junit.xml'
-      archiveArtifacts artifacts: 'artifacts/reports/**', allowEmptyArchive: true, fingerprint: true
+
+      // ─────────────────────────────────────────────────────────────────────
+      // DO NOT PUBLISH artifacts/ WHOLESALE. Read this before widening the
+      // glob below — the obvious-looking change here leaks live credentials.
+      //
+      // Playwright traces (trace.zip) record network traffic and storage
+      // state, so every trace from an authenticated run contains a LIVE
+      // SESSION: the refresh_token cookie plus access_token/refresh_token
+      // from localStorage. This is verified, not theoretical — unzip any
+      // trace.zip and match it against artifacts/auth/<env>.json. The access
+      // token authorises real API calls for 60 minutes from capture, so a
+      // trace on a build page is a working credential for anyone who can
+      // open that page.
+      //
+      // Traces live in all three of these. None may be published:
+      //   artifacts/test-results/**           this run's traces
+      //   artifacts/runs/**                   archived failing runs, kept up
+      //                                       to 14 days (docs/WHERE-WE-ARE.md)
+      //   artifacts/reports/html/data/*.zip   the HTML report EMBEDS them
+      //
+      // That last one is the trap: 'artifacts/reports/**' reads like a
+      // report-only glob and is not — it sweeps the embedded traces in with
+      // the reports. It is what this step used to do.
+      //
+      // Safe to publish, each verified token-free against live session state:
+      // run.json, junit.xml, summary.html. Extend this list only after
+      // checking a candidate the same way.
+      // ─────────────────────────────────────────────────────────────────────
+      archiveArtifacts(
+        artifacts: 'artifacts/reports/run.json,artifacts/reports/junit.xml,artifacts/reports/summary.html',
+        allowEmptyArchive: true,
+        fingerprint: true
+      )
+
+      // The HTML report earns its place for triage, but only once the
+      // embedded traces are stripped out of it. Results, errors, screenshots
+      // and videos all survive this; only the trace-viewer links go dead.
+      sh 'rm -f artifacts/reports/html/data/*.zip'
       publishHTML(target: [
         reportDir: 'artifacts/reports/html',
         reportFiles: 'index.html',

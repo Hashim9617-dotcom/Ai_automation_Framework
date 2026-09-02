@@ -4,6 +4,18 @@ Read this first if you have no memory of this project. It exists so a fresh
 session (or a fresh person) doesn't have to reconstruct context from git log
 and guesswork.
 
+> ⚠️ **Before you share any test artifact: never send a raw `trace.zip`
+> outside the team.** A Playwright trace contains a live session — the
+> `refresh_token` cookie plus `access_token`/`refresh_token` from
+> localStorage — and the access token authorises real API calls for 60
+> minutes from capture. Pasting one into a ticket to help someone debug is
+> the likeliest leak path and needs no CI involvement at all. The same goes
+> for anything under `artifacts/test-results/` or `artifacts/runs/`, and for
+> the Playwright HTML report, which embeds traces under `html/data/*.zip`.
+> `run.json`, `junit.xml` and `summary.html` are token-free. Details under
+> "Retention" below; the CI boundary is enforced in
+> [`infra/jenkins/Jenkinsfile`](../infra/jenkins/Jenkinsfile).
+
 ---
 
 ## The baseline: 42 passed / 0 failed / 0 flaky / 4 skipped
@@ -65,11 +77,16 @@ against `artifacts/auth/app.json`. This is inherent to trace capture, not
 to archiving, and it was already true of `artifacts/test-results`. What
 archiving changed is the *lifetime*: those tokens used to be wiped at the
 next run, and now persist up to 10 failing runs / 14 days. Mitigating:
-`artifacts/` is gitignored so none of it reaches the repo, and DmsSynergy's
-refresh_token TTL is ~15 minutes, so archived tokens are stale almost
-immediately. Worth a deliberate decision before any CI job starts uploading
-`artifacts/` as build artifacts, or before archives are shared off the
-machine that produced them.
+`artifacts/` is gitignored so none of it reaches the repo, and the exposure
+window is bounded by the **access token's 60-minute TTL** — that's the token
+that actually authorises calls (not the refresh token's 15 minutes, which is
+a different thing and not the bound that matters here).
+
+**Never share a raw `trace.zip` outside the team.** Pasting one into a
+ticket to help someone debug is the likeliest leak path and needs no CI
+involvement at all — the trace carries a working session for up to an hour.
+Share the failing test name, the error, and a screenshot instead; if someone
+genuinely needs the trace, hand it over inside the team and say why.
 
 **How to run it:**
 
