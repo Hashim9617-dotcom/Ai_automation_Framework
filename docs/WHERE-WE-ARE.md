@@ -12,8 +12,9 @@ and guesswork.
 > the likeliest leak path and needs no CI involvement at all. The same goes
 > for anything under `artifacts/test-results/` or `artifacts/runs/`, and for
 > the Playwright HTML report, which embeds traces under `html/data/*.zip`.
-> `run.json`, `junit.xml` and `summary.html` are token-free. Details under
-> "Retention" below; the CI boundary is enforced in
+> `run.json`, `junit.xml` and `summary.html` are token-free. This is not
+> theoretical — CI published these for about a week before it was caught;
+> see "Resolved incident" below. The CI boundary is now enforced in
 > [`infra/jenkins/Jenkinsfile`](../infra/jenkins/Jenkinsfile).
 
 ---
@@ -87,6 +88,62 @@ ticket to help someone debug is the likeliest leak path and needs no CI
 involvement at all — the trace carries a working session for up to an hour.
 Share the failing test name, the error, and a screenshot instead; if someone
 genuinely needs the trace, hand it over inside the team and say why.
+
+### Resolved incident: CI published traces containing live sessions
+
+This is not a hypothetical precaution — **it happened, and the nightly job
+had been running.** Recorded here so nobody re-derives it or assumes the
+warnings above are theoretical.
+
+**What.** `infra/jenkins/Jenkinsfile` archived `artifacts/reports/**`. That
+glob reads like a report-only glob and is not: the Playwright HTML report
+embeds its attachments, so every trace was swept up under
+`artifacts/reports/html/data/*.zip` and published to the Jenkins build page,
+readable by anyone who could view the job. Each trace carries a live session
+(`refresh_token` cookie, `access_token`/`refresh_token` from localStorage).
+
+**Window.** Present from the initial commit (2026-08-26; the file itself
+dates to 2026-08-17, predating this repo's history) until fixed 2026-09-02.
+Retention was `logRotator(numToKeepStr: '30')`, so at discovery roughly the
+last 30 builds were still holding artifacts.
+
+**Scope.** CI runs target `qa`/`staging` only — `TEST_ENV` is a `choice`
+parameter restricted to those two, and the job authenticates with the
+`aitp-qa-admin-*` credentials. So the exposed sessions are QA/staging admin,
+not production, and the access token's 60-minute TTL means anything older
+than an hour was already inert. Low practical severity; still credentials on
+a build page.
+
+**The trap when scoping a purge.** Do *not* filter by build result. `trace:
+'retain-on-failure'` keeps the trace of a failed *attempt*, so a test that
+fails then passes on retry leaves a trace behind while the build finishes
+**green**. Verified deliberately with a probe spec that failed on attempt 0
+and passed on retry: run status `passed`, exit code 0 — and a token-bearing
+trace zip still sitting in the HTML report. Scope by artifact contents, not
+build colour.
+
+**Finding affected builds** (on the Jenkins controller):
+
+```bash
+find "$JENKINS_HOME/jobs/<JOB>/builds" \
+  \( -path "*/archive/artifacts/reports/html/data/*.zip" \
+     -o -path "*/htmlreports/*/data/*.zip" \) -print
+```
+
+Both locations matter: `archive/` is `archiveArtifacts`, `htmlreports/` is
+`publishHTML(keepAll: true)` keeping a copy per build.
+
+**Fix.** `archiveArtifacts` now names only the three files verified
+token-free (`run.json`, `junit.xml`, `summary.html`), and the HTML report is
+published only after `rm -f artifacts/reports/html/data/*.zip` strips the
+embedded traces. Results, errors, screenshots and videos survive; only
+trace-viewer links go dead. The Jenkinsfile carries a comment block
+explaining the trap so the glob doesn't get widened back.
+
+**Remaining action (owner: whoever administers the Jenkins instance).**
+Delete stored artifacts and published HTML reports for retained builds of
+the job. Not yet confirmed done as of 2026-09-02 — if you are reading this
+and it is still unconfirmed, chase it.
 
 **How to run it:**
 
