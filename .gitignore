@@ -4,7 +4,12 @@ build/
 *.tsbuildinfo
 
 # Test + AI artifacts
-artifacts/
+# Root-anchored on purpose: an unanchored `artifacts/` matches a directory of
+# that name at ANY depth, which silently excluded
+# packages/execution-engine/src/artifacts/ — real source, exporting from the
+# package index, so a fresh clone would not have compiled. Only the output
+# directory at the repo root is meant to be ignored.
+/artifacts/
 playwright-report/
 test-results/
 blob-report/
