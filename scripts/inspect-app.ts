@@ -11,7 +11,18 @@
  *
  * Output lands in artifacts/inspect/:
  *   - report.md   readable inventory, ready to paste into a chat
- *   - pages.json  the raw DomSnapshot per page, for tooling
+ *   - pages.json  the raw DomSnapshot AND the real accessibility tree per page
+ *
+ * Both captures are kept, deliberately, because they disagree and the
+ * disagreement is the point. `DomSnapshot.name` is a heuristic
+ * (aria-labelledby -> <label> -> innerText); the accessibility tree is the
+ * browser's own computed name, which is what `getByRole({ name })` actually
+ * matches against. Findings 5, 6, 10 and 11 (docs/dms-findings.md) were every
+ * one of them a case where those two strings differed and we trusted the
+ * wrong one — a tree row reading "ABCD" whose real name is
+ * "Collapse ABCD More options", a button reading "Create User" whose real name
+ * carries an invisible icon glyph. report.md surfaces those divergences
+ * explicitly, because they are the locators that will silently never match.
  *
  * Why interactive rather than scripted: a real enterprise app has SSO, MFA,
  * consent screens and landing redirects. Automating the login *before* you know
@@ -23,9 +34,21 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import { chromium, type Browser } from '@playwright/test';
-import { authStatePath, captureDomSnapshot, loadEnvironment } from '@aitp/execution-engine';
-import { findRepoRoot, rootLogger, slugify, type DomSnapshot } from '@aitp/shared';
+import { chromium, type Browser, type Page } from '@playwright/test';
+import {
+  authStatePath,
+  captureAccessibilityTree,
+  captureDomSnapshot,
+  loadEnvironment,
+  normalizeAccessibleName,
+} from '@aitp/execution-engine';
+import {
+  findRepoRoot,
+  rootLogger,
+  slugify,
+  type AccessibilityTreeSnapshot,
+  type DomSnapshot,
+} from '@aitp/shared';
 
 const log = rootLogger.child('inspect');
 
@@ -78,7 +101,172 @@ function ask(question: string): Promise<string> {
   });
 }
 
-function renderPage(snapshot: DomSnapshot, label: string): string {
+/**
+ * Waits for a single-page app to actually render something before capturing.
+ *
+ * Without this, capturing immediately after `domcontentloaded` on a SPA
+ * records an empty shell — 0 interactive elements, 1 accessibility node — and
+ * writes that to the report as though it were the page. A human driving the
+ * tool never sees this, because typing a label takes seconds; piped input
+ * hits it every time, which is exactly the "impossible to script in a test"
+ * failure this file's input queue was already written to avoid.
+ *
+ * Bounded and non-fatal: if the page genuinely has no interactive elements,
+ * we capture it anyway and the caller warns. Better an honest empty capture
+ * than a hang.
+ */
+async function waitForPageToRender(page: Page): Promise<void> {
+  try {
+    await page.waitForFunction(
+      () =>
+        document.querySelectorAll(
+          'a[href], button, input, select, textarea, [role], [data-testid]',
+        ).length > 0,
+      undefined,
+      { timeout: 10_000 },
+    );
+  } catch {
+    // Timed out: capture whatever is there rather than refusing.
+  }
+
+  // The shell rendering is not the same as the content arriving. This app
+  // paints its chrome immediately and then fetches the workspace tree, so a
+  // capture taken on the first check above sees 21 buttons and no treeitems
+  // at all. Bounded and swallowed: an app that polls or holds a socket open
+  // never reaches networkidle, and waiting the full timeout on every capture
+  // is a worse failure than capturing slightly early.
+  await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
+}
+
+interface NameDivergence {
+  role: string;
+  /** What the DOM heuristic thinks this element is called. */
+  domName: string;
+  /** What the browser actually computes — what `getByRole({ name })` matches. */
+  axName: string;
+  /**
+   * Whether `getByRole(role, { name: <visible label>, exact: true })` still
+   * resolves this element despite the divergence.
+   *
+   * This models SmartLocator's actual Finding 10 fallback, which is
+   * `primary.or(normalizedFallback)` where the fallback filters on
+   * `hasText: /^\s*<normalised label>\s*$/` — **text content, not the
+   * accessible name**. So the question is not "can the glyph be stripped
+   * from the AX name" (it often cannot: this app's Sign In button carries
+   * U+FC76, outside the Private Use Area that `normalizeAccessibleName`
+   * removes) but "is the element's own text exactly the label".
+   *
+   * True is the Finding 10 family: an icon drawn by a CSS pseudo-element,
+   * which never appears in text content, so the fallback matches and the
+   * locator works. False is the Finding 11 family: the extra words are real
+   * nested elements whose text is part of this element's text content
+   * ("Collapse ABCD More options"), the anchored regex cannot match, and an
+   * `exact: true` candidate is dead no matter how it is spelled.
+   */
+  exactTrueStillResolves: boolean;
+}
+
+/**
+ * Finds elements whose visible/heuristic name and real computed accessible
+ * name disagree — the single most expensive class of bug this project has
+ * hit (Findings 5, 6, 10, 11). Detection is substring containment in the AX
+ * name, because that is the shape both known families take: an icon glyph
+ * prepended ("<U+EB62> Create User"), or nested control names concatenated
+ * ("Collapse ABCD More options"). An exact match is not a divergence, and an
+ * element with no AX counterpart at all is not reported here — that is a
+ * different diagnostic and mostly noise, since many DOM elements map to
+ * ignored AX nodes by design.
+ */
+function findNameDivergences(
+  snapshot: DomSnapshot,
+  axTree: AccessibilityTreeSnapshot,
+): NameDivergence[] {
+  const collapse = (value: string): string => value.replace(/\s+/g, ' ').trim();
+  const out: NameDivergence[] = [];
+  const seen = new Set<string>();
+
+  for (const element of snapshot.elements) {
+    const domName = collapse(element.name ?? '');
+    if (!domName) continue;
+
+    const sameRole = axTree.nodes.filter((node) => node.role === element.role);
+    if (sameRole.some((node) => collapse(node.name) === domName)) continue; // agree
+
+    const diverging = sameRole.find((node) => {
+      const axName = collapse(node.name);
+      return axName.length > 0 && axName !== domName && axName.includes(domName);
+    });
+    if (!diverging) continue;
+
+    const axName = collapse(diverging.name);
+    const key = `${element.role}\u0000${domName}\u0000${axName}`;
+    if (seen.has(key)) continue; // one row per distinct disagreement, not per element
+    seen.add(key);
+
+    // Mirrors build()'s fallback exactly: needle is the normalised candidate
+    // name, matched against the element's TEXT content, anchored both ends.
+    const needle = normalizeAccessibleName(domName);
+    const elementText = collapse(element.text ?? '');
+    out.push({
+      role: element.role,
+      domName,
+      axName,
+      exactTrueStillResolves: elementText === needle,
+    });
+  }
+  return out;
+}
+
+function renderDivergences(divergences: NameDivergence[]): string {
+  if (divergences.length === 0) {
+    return '_No name divergences: every element’s visible label matches its computed accessible name on this page._';
+  }
+
+  const fatal = divergences.filter((d) => !d.exactTrueStillResolves);
+  const rows = divergences
+    .map(
+      (d) =>
+        `| ${d.role} | "${d.domName}" | "${d.axName}" | ${
+          d.exactTrueStillResolves
+            ? 'yes — auto-fallback covers it'
+            : '**NO — will never match**'
+        } |`,
+    )
+    .join('\n');
+
+  return [
+    `#### ⚠ Name divergences (${divergences.length}${fatal.length > 0 ? `, ${fatal.length} fatal` : ''})`,
+    '',
+    'The visible label and the real computed accessible name differ. The right',
+    'column is whether `getByRole(..., { name, exact: true })` on the visible',
+    'label still resolves, via SmartLocator’s automatic text-content fallback',
+    '(Finding 10).',
+    '',
+    '- **yes** — an icon glyph drawn by CSS, absent from text content. The',
+    '  fallback matches and the locator works. Informational only.',
+    '- **NO** — the extra words are real nested elements, so they are part of',
+    '  this element’s text content too and the anchored fallback cannot match',
+    '  either. This is the Finding 11 shape: an `exact: true` candidate here is',
+    '  dead however it is spelled. Use a regex anchored on both ends, or target',
+    '  the inner element directly.',
+    '',
+    'Note the column says *through SmartLocator* — i.e. from a page object, the',
+    'way every locator in this repo is written. A raw `page.getByRole(...)` in a',
+    'spec has no fallback and fails on **every** row in this table. Verified',
+    'live on the workspace tree: raw `exact: true` matches 0 elements, the same',
+    'candidate through SmartLocator resolves 1.',
+    '',
+    '| role | visible label | real accessible name | resolves via SmartLocator? |',
+    '| --- | --- | --- | --- |',
+    rows,
+  ].join('\n');
+}
+
+function renderPage(
+  snapshot: DomSnapshot,
+  axTree: AccessibilityTreeSnapshot,
+  label: string,
+): string {
   const byRole = new Map<string, DomSnapshot['elements']>();
   for (const element of snapshot.elements) {
     byRole.set(element.role, [...(byRole.get(element.role) ?? []), element]);
@@ -106,6 +294,8 @@ function renderPage(snapshot: DomSnapshot, label: string): string {
     ? Math.round((withTestId / snapshot.elements.length) * 100)
     : 0;
 
+  const divergences = findNameDivergences(snapshot, axTree);
+
   return [
     `### ${label}`,
     '',
@@ -113,6 +303,10 @@ function renderPage(snapshot: DomSnapshot, label: string): string {
     `- Title: ${snapshot.title}`,
     `- Interactive elements: ${snapshot.elements.length}`,
     `- With a \`data-testid\`: ${withTestId} (${coverage}%)`,
+    `- Accessibility nodes: ${axTree.nodes.length}${axTree.truncated ? ' (truncated)' : ''}`,
+    `- Name divergences: ${divergences.length}`,
+    '',
+    renderDivergences(divergences),
     '',
     sections,
   ].join('\n');
@@ -150,7 +344,11 @@ async function main(): Promise<void> {
 
   const headless = process.env.INSPECT_HEADLESS === 'true';
   let browser: Browser | undefined;
-  const captured: Array<{ label: string; snapshot: DomSnapshot }> = [];
+  const captured: Array<{
+    label: string;
+    snapshot: DomSnapshot;
+    axTree: AccessibilityTreeSnapshot;
+  }> = [];
 
   try {
     browser = await chromium.launch({ headless });
@@ -183,10 +381,28 @@ async function main(): Promise<void> {
       if (!label) continue;
 
       try {
+        await waitForPageToRender(page);
         const snapshot = await captureDomSnapshot(page, { maxElements: 400 });
-        captured.push({ label, snapshot });
+        // Captured together, from the same page state, so the two views are
+        // directly comparable — a divergence report built from captures taken
+        // at different moments would be reporting navigation, not naming.
+        const axTree = await captureAccessibilityTree(page, { maxNodes: 500 });
+        captured.push({ label, snapshot, axTree });
+
+        const divergences = findNameDivergences(snapshot, axTree).length;
         process.stdout.write(
-          `  captured "${label}" — ${snapshot.elements.length} elements at ${snapshot.url}\n\n`,
+          `  captured "${label}" — ${snapshot.elements.length} elements, ` +
+            `${axTree.nodes.length} accessibility nodes at ${snapshot.url}\n` +
+            (divergences > 0
+              ? `  ${divergences} name divergence(s) — visible label != real accessible name; see report.md\n`
+              : '') +
+            // An empty capture is worse than no capture: it looks like data,
+            // and anything grounded in it would be grounded in nothing.
+            (snapshot.elements.length === 0
+              ? '  WARNING: no interactive elements found — the page probably had not finished rendering.\n' +
+                '  Re-capture this one; do not use it as a source of truth.\n'
+              : '') +
+            '\n',
         );
       } catch (error) {
         process.stdout.write(`  could not capture: ${(error as Error).message}\n\n`);
@@ -214,7 +430,9 @@ async function main(): Promise<void> {
 
   const report = [
     header,
-    ...captured.map((entry, index) => renderPage(entry.snapshot, `${index + 1}. ${entry.label}`)),
+    ...captured.map((entry, index) =>
+      renderPage(entry.snapshot, entry.axTree, `${index + 1}. ${entry.label}`),
+    ),
   ].join('\n\n');
 
   const reportPath = path.join(outDir, 'report.md');
@@ -227,6 +445,13 @@ async function main(): Promise<void> {
         label: entry.label,
         slug: slugify(entry.label),
         ...entry.snapshot,
+        // Kept as its own key rather than merged into the DomSnapshot's
+        // `elements`: these are two different views of the same page that
+        // disagree, and flattening them would destroy exactly the signal
+        // this capture exists to preserve. Grounding checks (step 3) read
+        // ONLY this one — see docs/phase-2-generation.md, P1.
+        accessibilityTree: entry.axTree,
+        nameDivergences: findNameDivergences(entry.snapshot, entry.axTree),
       })),
       null,
       2,

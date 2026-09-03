@@ -65,6 +65,14 @@ export interface DomSnapshot {
     ref: string;
     role: string;
     name?: string;
+    /**
+     * The element's own rendered text, kept separate from the derived `name`.
+     * SmartLocator's Finding 10 fallback matches on text content (`hasText`),
+     * not on the accessible name, so this is what decides whether an
+     * `exact: true` role+name candidate actually resolves against a
+     * glyph-poisoned name. Absent for inputs, whose text is user data.
+     */
+    text?: string;
     tag: string;
     testId?: string;
     placeholder?: string;

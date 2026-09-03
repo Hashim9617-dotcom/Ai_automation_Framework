@@ -109,6 +109,18 @@ export async function captureDomSnapshot(
           ref: `e${index}`,
           role: implicitRole(el),
           name: accessibleName(el),
+          // The element's own rendered text, separate from the derived name.
+          // Needed because SmartLocator's Finding 10 fallback matches on TEXT
+          // CONTENT (`hasText`), not on the accessible name — so text is the
+          // only way to tell whether an `exact: true` role+name candidate
+          // will actually resolve against a glyph-poisoned name. Exposes
+          // nothing new: `accessibleName()` above already falls back to
+          // innerText. Skipped for inputs, whose text is user data rather
+          // than a label, and capped for the same reason `name` is.
+          text:
+            el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+              ? undefined
+              : ((el as HTMLElement).innerText?.trim().slice(0, 200) || undefined),
           tag: el.tagName.toLowerCase(),
           testId:
             el.getAttribute('data-testid') ??
