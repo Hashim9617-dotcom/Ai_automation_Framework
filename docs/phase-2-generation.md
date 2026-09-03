@@ -285,58 +285,263 @@ conventional wizard pattern and nothing in the capture refutes it.
 
 The mitigation is not cleverer prompting. It is a richer capture.
 
-### The v1 shape: human-declared transitions, not automatic recording
+### P2 design: state-oriented capture with declared, cross-checked transitions
 
 `pnpm inspect` is already interactive and human-driven — the operator drives
 the browser and presses Enter to capture. That existing property is worth more
-here than any automation, because the property we need is **observed rather
-than inferred**, and a human who just performed the click is the most reliable
+here than any automation, because what P2 needs is **observed rather than
+inferred**, and a human who just performed the click is the most reliable
 observer available.
 
-So v1 is:
+But it introduces a risk the project has not had before. Until now, everything
+downstream was grounded in a capture, and a capture cannot lie — it is a
+mechanical record of what the browser computed. P2 makes a *human's
+description* into ground truth, and step 3 will build on it confidently.
+Nothing catches an operator who mislabels a state or misdescribes an action at
+six o'clock on a Friday. So the design pairs every human declaration with a
+mechanical check, the same asymmetry healing uses — there the model proposes
+and deterministic code judges; here the human declares and the AX delta judges.
 
-1. The operator names each capture as a **state**, not a page:
-   `upload.workspace-step`, `upload.folder-step`, `admin.create-role.empty`.
-   Several states per URL is normal and expected.
-2. After a capture, inspect notices whether the AX tree or URL changed since
-   the previous capture, and if so asks one question: **"What did you do to get
-   here?"** The operator answers in plain language — `clicked the ABCD
-   workspace tile`.
-3. That produces a declared transition:
-   `{ from: 'upload.workspace-step', action: 'clicked the ABCD workspace tile', to: 'upload.folder-step' }`.
-4. An assertion about post-action state is `OBSERVED` **only if** a declared
-   transition covers it. No inference from the action's name, ever.
+#### What a state is
 
-The mechanical part is only *detecting that something changed* and prompting;
-it never infers what the action was. That split is deliberate: change detection
-is reliable, action inference is not.
+**URL is not identity.** The upload wizard's three steps share
+`/upload-files`, and that flow is precisely what P2 exists for. Nor is the
+capture's content identity: the workspace list changes between sessions, so
+two captures of the same logical state hash differently.
 
-**Is this sufficient?** For step 3, yes — and I'd argue it is better than
-automatic recording, not merely cheaper. Automatic recording would have to
-infer which element was clicked from an event stream and decide when the
-resulting state has settled; both are guesses, and a wrong guess produces a
-*confidently wrong transition*, which is precisely the failure this whole
-design exists to prevent. Human declaration gives intent directly, with no
-inference layer to be wrong.
+So identity is a **human-assigned label**, and the tool's job is to check it
+rather than to derive it:
 
-Two honest limits:
+```
+stateId   = slug(label)            // "upload.folder-step" — the primary key
+label     = human-supplied         // proposed by the tool, confirmed or edited
+url       = captured              // recorded, but NOT identity
+signature = structural fingerprint // the cross-check, not the key
+```
 
-- **The operator can forget or mislabel.** Forgetting is mostly handled by the
-  change-detection prompt; mislabelling is not, and a wrong declared transition
-  is a wrong ground truth. This is acceptable for the same reason we accept
-  hand-written tests at all — but it means a transition is only as good as the
-  person who declared it, and the fixture (below) is what catches systematic
-  error.
-- **The action string is prose, not a replayable instruction.** Step 3 only
-  needs to know *that* the transition was observed, so prose is enough. **Step
-  4 will need more** — an action it can compile into a click on a specific
-  locator. Carrying that forward as a step-4 requirement rather than
-  over-building it now; if it turns out step 4 needs structure, the natural
-  upgrade is to have inspect record the locator alongside the prose while the
-  operator is still on the page.
+Two captures are **the same state** when they carry the same `stateId`. That
+is deliberately a human judgement, because "same state" is a question about
+the application's model, not about bytes — the Folder step with two folders
+listed and the Folder step with fifty is the same state, and no content hash
+will agree.
 
-Automatic recording stays on the table if the manual version proves tedious in
-practice. It should not be built before we know that.
+The **signature** is what stops that judgement going unchecked. It is
+computed over the structural, non-data part of the AX tree: the multiset of
+roles, plus the names appearing in chrome roles (`heading`, `tab`, `button`,
+`link`) and explicitly *not* in data roles (`treeitem`, `row`, `cell`,
+`option`, `listitem`). Workspace names change; "Select destination folder"
+does not. On a re-capture the tool compares:
+
+- **same label, very different signature** → "you labelled this
+  `upload.folder-step`, but it looks nothing like the `upload.folder-step`
+  captured on 20 Aug. Same state?"
+- **different label, near-identical signature** → "this looks like
+  `upload.workspace-step`, which you already captured. Same state?"
+
+Neither blocks. Both are asked at capture time, while the operator is still
+looking at the page and can answer cheaply.
+
+#### The capture must record selection state — and acceptance depends on it
+
+**This is P2's version of P1's blocker, and it is load-bearing for the
+acceptance criterion.**
+
+`captureAccessibilityTree` keeps `{ role, name, enabled }` and reads exactly
+one CDP property, `disabled`. It drops everything else. Meanwhile the fixed
+test for mistake #2 asserts:
+
+```ts
+await expect(upload.step('Folder')).toHaveAttribute('aria-selected', 'true');
+```
+
+That is a **selection-state** assertion, and the capture contains no selection
+state. So with transitions but without this, the generator still could not
+ground "the Folder tab is selected" — the fact is simply not in the evidence —
+and **mistake #2 would not move to caught.** P2 would have shipped and missed
+its one acceptance test.
+
+So the AX capture gains the properties that carry step/selection semantics:
+`selected`, `expanded`, `checked`, and `level` where present. All four come
+from the same `node.properties` array already being read for `disabled`, so
+this is a few lines and no new CDP round trip.
+
+Worth being precise about what this buys, because there are two routes to
+catching #2 and only one needs it:
+
+- **Via node presence** — "after choosing a workspace, the heading *Select
+  destination folder* is present" grounds from the transition alone, no
+  selection state required.
+- **Via selection** — "the Folder tab is selected" needs `selected`, and it is
+  the more precise contract, the one our own fixed test chose, and the one a
+  wizard's semantics actually turn on.
+
+Capturing selection is what makes the second available. Without it P2 could
+still claim #2 "caught" on the weaker route, which would be true but would
+quietly narrow what the generator can express about every wizard in the app.
+
+#### What a transition records
+
+```
+{
+  from: stateId,
+  to:   stateId,
+  action:   "clicked the ABCD workspace tile",   // human, required
+  declaredAt,
+  observed: {                                    // tool, mechanical
+    nodesAdded, nodesRemoved, nodesChanged,      // counts + samples
+    urlChanged: boolean,
+    selectionChanged: [{ role, name, from, to }] // now available
+  },
+  crossCheck: { verdict: 'consistent' | 'suspect', reasons: [...] }
+}
+```
+
+The human supplies `action`. The tool computes `observed` by diffing the two
+AX trees it already holds. Then it cross-checks them against each other:
+
+| Check | Fires when | Why it catches a real mistake |
+| --- | --- | --- |
+| **Empty delta** | the action is declared but the trees are materially identical | "I clicked Next" when the click did nothing — the operator saw a page that looked the same and assumed it advanced |
+| **Named element absent from `from`** | the declaration quotes a name no node in `from` carries | "I clicked the ABCD tile" recorded while standing on the Folder step — a mislabelled `from` |
+| **Named element unchanged in `to`** | the quoted element is still present and nothing around it moved | the click missed, or hit a disabled control |
+| **Delta implausibly large** | near-total node replacement for a declared in-place action | a navigation or session expiry happened mid-capture, not the action described |
+
+Flags are raised **at capture time**, to the operator, while the browser is
+still open and re-doing it costs seconds. `suspect` does not block the
+recording — the human may be right and the heuristic wrong — but the verdict
+is stored on the transition, and step 3 treats a `suspect` transition as **not
+grounding**: it can support a question, never an `OBSERVED` assertion. A
+transition nobody can vouch for is exactly the input this design exists to
+refuse.
+
+Note what this cross-check costs: nothing. Both AX trees are already captured,
+the diff is a set comparison, and the name lookup is a substring scan over
+nodes already in memory. It is the cheapest guard in the system and it covers
+the failure mode P2 introduces.
+
+#### Ergonomics: the typical flow in 11 keystrokes
+
+If this is tedious it will not be used, and P2 becomes shelfware. Most
+transitions are "I clicked X", so that case has to be nearly free.
+
+The tool proposes; the human confirms. Labels are proposed from the page's own
+heading and URL (`upload-files` + "Select destination folder" →
+`upload.folder-step`). Actions are proposed from the delta: the tool lists
+nodes that were present in `from` and are plausible click targets, ranked by
+whether they vanished, and offers them as a numbered menu.
+
+```
+  captured "upload.workspace-step" — 45 elements, 131 ax nodes
+
+  [drive the browser, come back, press Enter]
+
+  Looks like a new state.
+    label? [upload.folder-step]                    <- Enter accepts
+    You went from "upload.workspace-step" to "upload.folder-step".
+    What did you do?
+      1) clicked "ABCD"
+      2) clicked "Next"
+      3) something else
+    > 1                                            <- 1, Enter
+    ✓ consistent: "ABCD" was present before, absent after; 38 nodes changed
+```
+
+A three-state flow with two transitions:
+
+| Step | Keystrokes |
+| --- | --- |
+| capture state 1, accept proposed label | `Enter` = 1 |
+| capture state 2, accept label, pick action | `Enter` `Enter` `1` `Enter` = 4 |
+| capture state 3, accept label, pick action | `Enter` `Enter` `1` `Enter` = 4 |
+| finish | `q` `Enter` = 2 |
+| **total** | **11** |
+
+Typing it all as prose instead — three labels at ~20 characters, two actions at
+~30 — is roughly 130 keystrokes. The proposal machinery is worth about a 12×
+reduction, which is the difference between a tool that gets used on a Friday
+and one that does not.
+
+**One hazard to be explicit about:** offering a guess biases the human toward
+accepting it, and a wrongly-accepted action becomes ground truth. Mitigations:
+never pre-select an option, always keep "something else", only offer candidates
+when the delta actually implicates them, and run the cross-check on whatever is
+chosen — including the chosen suggestion. The menu speeds up agreement; it is
+not allowed to manufacture it.
+
+#### The capture file, and why `checkGrounding()` can be state-aware
+
+One session writes one directory (P1's retention already does this), and the
+file is state-keyed throughout:
+
+```
+{
+  sessionId, capturedAt, baseUrl,
+  states: [ { id, label, url, signature, domSnapshot, axTree, nameDivergences } ],
+  transitions: [ { from, to, action, observed, crossCheck } ]
+}
+```
+
+The structural guarantee is what is *absent*: **there is no flattened,
+all-states node list, and no accessor that returns one.** A grounding check
+cannot accidentally match against the wrong state's nodes because it cannot
+reach them without naming a state first. That is what makes the state cursor
+described earlier enforceable rather than aspirational — an assertion observed
+in `upload.folder-step` cannot ground a claim about `upload.workspace-step`,
+because the two node sets never meet.
+
+#### Acceptance: mistake #2 must move to caught
+
+Re-run the four-mistake fixture the moment P2 lands, and record the score in
+the table above. The mechanism by which #2 moves:
+
+1. The capture holds `upload.workspace-step` and `upload.folder-step` as
+   distinct states with distinct node sets and distinct tab selection.
+2. A declared transition connects them with the action *clicked the ABCD
+   workspace tile* and a `consistent` cross-check verdict.
+3. `checkGrounding()`'s cursor, standing in `upload.workspace-step`, sees an
+   action step matching that transition and advances to `upload.folder-step`.
+4. The assertion "the Folder tab is selected" is graded against
+   `upload.folder-step`'s nodes, finds `tab "Folder" selected=true`, and
+   grades `OBSERVED`.
+5. The wrong assertion — *click Next to advance* — finds no transition from
+   `upload.workspace-step` whose action is a Next click, so the cursor goes
+   `unknown` and every downstream assertion grades `ASSUMED`. It becomes a
+   question, never an observation.
+
+**If #2 does not move, P2 failed** regardless of how good the capture library
+looks, and that is the point of fixing the criterion in advance.
+
+The honest caveat, stated once plainly: step 4 above grounds because *a human
+said so*. The cross-check makes a careless mistake unlikely, not impossible. A
+determined mislabel still becomes ground truth, and the only remaining defence
+is that generated cases go to review before they become tests.
+
+#### Does P1 carry through to multi-state sessions?
+
+Mostly yes; one thing needs rework.
+
+- **`findNameDivergences(snapshot, axTree)` needs no change.** It already
+  takes exactly one snapshot and one tree, which is what a single state is.
+  It runs per state and the results attach per state.
+- **`nameTruncated` needs no change.** It is a per-element flag inside a
+  per-state snapshot, so it travels with its state automatically.
+- **The report does need rework.** It currently renders one section per
+  captured *page*, keyed on the label, and prints that state's divergence
+  table. With several states sharing a URL that is still correct but becomes
+  repetitive: the 25 workspace-row divergences on `/files` will re-appear
+  identically in every `/files` state captured. Left alone, a ten-state
+  session buries its two interesting divergences under two hundred repeats.
+  So the report gains a **session-level rollup** — divergences grouped by
+  shape across the whole session, with the states each shape appears in,
+  which is the form the P1 audit already found most readable — and per-state
+  tables list only what is new to that state.
+- **A known detector weakness gets worse with more states.** Substring
+  containment mispaired the row named `test` with `Expand Automation testing
+  789101112 More options`. One session, one page, one bad row; ten states,
+  ten copies of it. The rollup makes it visible rather than fixing it, and
+  tightening the pairing rule (prefer the shortest containing name, require a
+  word boundary) is worth doing when the noise justifies it — not before.
+
 
 ### `checkGrounding()` is state-aware, by construction
 
@@ -605,6 +810,14 @@ Two things this table makes falsifiable:
   half — but #2 is the one that is impossible without declared *transitions*,
   so it is the sharpest test. **If #2 does not move to caught after P2, P2
   failed**, regardless of how good the state library looks.
+- **#2 has two routes to "caught", and they are not equally good.** Node
+  presence ("the *Select destination folder* heading appears") grounds from
+  the declared transition alone. Selection ("the Folder tab is selected") is
+  the contract our own fixed test asserts, and needs the AX capture to record
+  `selected` — which it does not today. Scoring #2 caught on the presence
+  route while selection is ungroundable would be technically true and
+  quietly misleading, so the fixture asserts the **selection** route. See
+  "The capture must record selection state" above.
 
 Note the first row: before P1 the fixture does not merely score 0/4, it scores
 *worse* than useless on #4, because that mistake is generated with an `OBSERVED`
