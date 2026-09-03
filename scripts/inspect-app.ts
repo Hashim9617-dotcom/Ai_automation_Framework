@@ -39,8 +39,9 @@ import {
   authStatePath,
   captureAccessibilityTree,
   captureDomSnapshot,
+  findNameDivergences,
   loadEnvironment,
-  normalizeAccessibleName,
+  type NameDivergence,
 } from '@aitp/execution-engine';
 import {
   findRepoRoot,
@@ -138,84 +139,6 @@ async function waitForPageToRender(page: Page): Promise<void> {
   await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
 }
 
-interface NameDivergence {
-  role: string;
-  /** What the DOM heuristic thinks this element is called. */
-  domName: string;
-  /** What the browser actually computes — what `getByRole({ name })` matches. */
-  axName: string;
-  /**
-   * Whether `getByRole(role, { name: <visible label>, exact: true })` still
-   * resolves this element despite the divergence.
-   *
-   * This models SmartLocator's actual Finding 10 fallback, which is
-   * `primary.or(normalizedFallback)` where the fallback filters on
-   * `hasText: /^\s*<normalised label>\s*$/` — **text content, not the
-   * accessible name**. So the question is not "can the glyph be stripped
-   * from the AX name" (it often cannot: this app's Sign In button carries
-   * U+FC76, outside the Private Use Area that `normalizeAccessibleName`
-   * removes) but "is the element's own text exactly the label".
-   *
-   * True is the Finding 10 family: an icon drawn by a CSS pseudo-element,
-   * which never appears in text content, so the fallback matches and the
-   * locator works. False is the Finding 11 family: the extra words are real
-   * nested elements whose text is part of this element's text content
-   * ("Collapse ABCD More options"), the anchored regex cannot match, and an
-   * `exact: true` candidate is dead no matter how it is spelled.
-   */
-  exactTrueStillResolves: boolean;
-}
-
-/**
- * Finds elements whose visible/heuristic name and real computed accessible
- * name disagree — the single most expensive class of bug this project has
- * hit (Findings 5, 6, 10, 11). Detection is substring containment in the AX
- * name, because that is the shape both known families take: an icon glyph
- * prepended ("<U+EB62> Create User"), or nested control names concatenated
- * ("Collapse ABCD More options"). An exact match is not a divergence, and an
- * element with no AX counterpart at all is not reported here — that is a
- * different diagnostic and mostly noise, since many DOM elements map to
- * ignored AX nodes by design.
- */
-function findNameDivergences(
-  snapshot: DomSnapshot,
-  axTree: AccessibilityTreeSnapshot,
-): NameDivergence[] {
-  const collapse = (value: string): string => value.replace(/\s+/g, ' ').trim();
-  const out: NameDivergence[] = [];
-  const seen = new Set<string>();
-
-  for (const element of snapshot.elements) {
-    const domName = collapse(element.name ?? '');
-    if (!domName) continue;
-
-    const sameRole = axTree.nodes.filter((node) => node.role === element.role);
-    if (sameRole.some((node) => collapse(node.name) === domName)) continue; // agree
-
-    const diverging = sameRole.find((node) => {
-      const axName = collapse(node.name);
-      return axName.length > 0 && axName !== domName && axName.includes(domName);
-    });
-    if (!diverging) continue;
-
-    const axName = collapse(diverging.name);
-    const key = `${element.role}\u0000${domName}\u0000${axName}`;
-    if (seen.has(key)) continue; // one row per distinct disagreement, not per element
-    seen.add(key);
-
-    // Mirrors build()'s fallback exactly: needle is the normalised candidate
-    // name, matched against the element's TEXT content, anchored both ends.
-    const needle = normalizeAccessibleName(domName);
-    const elementText = collapse(element.text ?? '');
-    out.push({
-      role: element.role,
-      domName,
-      axName,
-      exactTrueStillResolves: elementText === needle,
-    });
-  }
-  return out;
-}
 
 function renderDivergences(divergences: NameDivergence[]): string {
   if (divergences.length === 0) {

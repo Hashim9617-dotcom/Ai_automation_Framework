@@ -1,6 +1,14 @@
 import type { Page } from '@playwright/test';
 import { sanitizeUrl, type DomSnapshot } from '@aitp/shared';
 
+/**
+ * Cap on the heuristic accessible name. Exported because a name at this exact
+ * length is *truncated*, and anything comparing it to another string has to
+ * know that — `findNameDivergences` would otherwise report every long label as
+ * a fatal mismatch, since a truncated prefix can never equal the full name.
+ */
+export const ACCESSIBLE_NAME_MAX_LENGTH = 80;
+
 export interface SnapshotOptions {
   /** Cap on elements sent to the model — controls prompt size and therefore cost. */
   maxElements?: number;
@@ -25,7 +33,7 @@ export async function captureDomSnapshot(
   const visibleOnly = options.visibleOnly ?? true;
 
   const elements = await page.evaluate(
-    ({ limit, onlyVisible }) => {
+    ({ limit, onlyVisible, nameMaxLength }) => {
       // Bundlers that keep function names (esbuild, which powers tsx) wrap the
       // helpers below in a `__name(...)` call. That helper is defined in the
       // Node module scope, not in the page, so without this shim the whole
@@ -62,7 +70,7 @@ export async function captureDomSnapshot(
         const closestLabel = el.closest('label');
         if (closestLabel?.textContent) return closestLabel.textContent.trim();
         const text = (el as HTMLElement).innerText?.trim();
-        return text ? text.slice(0, 80) : undefined;
+        return text ? text.slice(0, nameMaxLength) : undefined;
       };
 
       const implicitRole = (el: Element): string => {
@@ -135,7 +143,7 @@ export async function captureDomSnapshot(
       }
       return out;
     },
-    { limit: maxElements, onlyVisible: visibleOnly },
+    { limit: maxElements, onlyVisible: visibleOnly, nameMaxLength: ACCESSIBLE_NAME_MAX_LENGTH },
   );
 
   const typedElements = elements as DomSnapshot['elements'];
