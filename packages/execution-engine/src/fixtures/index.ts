@@ -200,7 +200,14 @@ export const test = coreTest.extend<UiFixtures>({
         if (env.features.selfHealing && verdicts.some((v) => v.eligible)) {
           try {
             const axSnapshot = await Promise.race([
-              captureAccessibilityTree(page),
+              // Above the default 500 on purpose. `propose()` now refuses
+              // outright on a truncated tree (uniqueness is an absence
+              // claim, and a cut-off view cannot support one), so a cap the
+              // real pages brush against would trade a false guarantee for a
+              // healer that never proposes. Measured across twelve DMS
+              // states, the largest tree was ~400 nodes; 1000 leaves room
+              // without letting a pathological page run away.
+              captureAccessibilityTree(page, { maxNodes: 1_000 }),
               new Promise<never>((_, reject) =>
                 setTimeout(() => reject(new Error('Accessibility snapshot timed out')), 5_000),
               ),

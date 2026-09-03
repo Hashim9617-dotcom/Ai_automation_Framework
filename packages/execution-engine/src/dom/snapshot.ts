@@ -52,25 +52,33 @@ export async function captureDomSnapshot(
         return style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
       };
 
-      const accessibleName = (el: Element): string | undefined => {
+      // Returns whether the name was clipped alongside the name itself.
+      // Only the innerText branch caps — the aria-label / aria-labelledby /
+      // <label> branches return the attribute verbatim at any length — so
+      // "long" is not the same as "truncated" and only the capture itself
+      // can tell the difference.
+      const accessibleName = (el: Element): { name?: string; truncated: boolean } => {
         const aria = el.getAttribute('aria-label');
-        if (aria) return aria.trim();
+        if (aria) return { name: aria.trim(), truncated: false };
         const labelledBy = el.getAttribute('aria-labelledby');
         if (labelledBy) {
           const parts = labelledBy
             .split(/\s+/)
             .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
             .filter(Boolean);
-          if (parts.length) return parts.join(' ');
+          if (parts.length) return { name: parts.join(' '), truncated: false };
         }
         if (el.id) {
           const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
-          if (label?.textContent) return label.textContent.trim();
+          if (label?.textContent) return { name: label.textContent.trim(), truncated: false };
         }
         const closestLabel = el.closest('label');
-        if (closestLabel?.textContent) return closestLabel.textContent.trim();
+        if (closestLabel?.textContent) {
+          return { name: closestLabel.textContent.trim(), truncated: false };
+        }
         const text = (el as HTMLElement).innerText?.trim();
-        return text ? text.slice(0, nameMaxLength) : undefined;
+        if (!text) return { name: undefined, truncated: false };
+        return { name: text.slice(0, nameMaxLength), truncated: text.length > nameMaxLength };
       };
 
       const implicitRole = (el: Element): string => {
@@ -113,10 +121,15 @@ export async function captureDomSnapshot(
         const visible = isVisible(el);
         if (onlyVisible && !visible) continue;
 
+        const named = accessibleName(el);
+
         out.push({
           ref: `e${index}`,
           role: implicitRole(el),
-          name: accessibleName(el),
+          name: named.name,
+          // Omitted rather than `false` so the common case adds no bytes to
+          // run.json or to any prompt built from it.
+          nameTruncated: named.truncated ? true : undefined,
           // The element's own rendered text, separate from the derived name.
           // Needed because SmartLocator's Finding 10 fallback matches on TEXT
           // CONTENT (`hasText`), not on the accessible name — so text is the

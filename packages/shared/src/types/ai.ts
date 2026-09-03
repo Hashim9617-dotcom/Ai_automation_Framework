@@ -66,11 +66,27 @@ export interface DomSnapshot {
     role: string;
     name?: string;
     /**
+     * True when `name` was cut off at the capture's length cap, so it is a
+     * PREFIX of the real accessible name rather than the whole of it.
+     *
+     * Capping is fine; capping silently is not. Without this flag a clipped
+     * name is indistinguishable from a complete one, and every downstream
+     * consumer will compare, quote or match against a partial string as
+     * though it were whole — which produced a phantom "fatal" divergence in
+     * the first real name audit. The elements most likely to exceed the cap
+     * are exactly the composite ones that concatenate their children's
+     * labels: the Finding 11 family (docs/dms-findings.md).
+     */
+    nameTruncated?: boolean;
+    /**
      * The element's own rendered text, kept separate from the derived `name`.
      * SmartLocator's Finding 10 fallback matches on text content (`hasText`),
      * not on the accessible name, so this is what decides whether an
      * `exact: true` role+name candidate actually resolves against a
      * glyph-poisoned name. Absent for inputs, whose text is user data.
+     * Capped at its own, larger limit; a clipped `text` cannot produce the
+     * false "divergence" a clipped `name` can, because any text long enough
+     * to be cut is already longer than the label it would be compared to.
      */
     text?: string;
     tag: string;

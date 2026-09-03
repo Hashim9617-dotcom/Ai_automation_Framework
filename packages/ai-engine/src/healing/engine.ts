@@ -87,6 +87,28 @@ export class LlmSelfHealingEngine implements SelfHealingEngine {
   }): Promise<HealingProposal | null> {
     const { spec, axSnapshot, runId, testId } = input;
 
+    // A truncated accessibility tree cannot support the one guarantee this
+    // engine makes. Verification is `matchCount === 1` — a claim that no
+    // OTHER node matches — and that is an absence claim, which a view cut off
+    // at its node cap cannot establish: a second match may sit past the
+    // cutoff. `matchCount: 1` computed here would be a false guarantee, and a
+    // false guarantee is worse than none, since the whole point of the
+    // verification step is that a human can trust it without re-checking.
+    //
+    // This is the same reasoning as the gate's rule 4 ("absence proves
+    // nothing in a truncated view"), which applies it to the DOM snapshot;
+    // nothing applied it to the AX snapshot until now, even though the AX
+    // snapshot is what verification actually reads. The prompt already
+    // mentioned truncation to the model, which is not the same as refusing
+    // to act on it.
+    if (axSnapshot.truncated) {
+      this.log.warn('Not proposing — the accessibility snapshot was truncated', {
+        key: spec.key,
+        nodes: axSnapshot.nodes.length,
+      });
+      return null;
+    }
+
     // Pre-check, before spending an LLM call: if any EXISTING role-strategy
     // candidate now matches exactly one node, the chain would resolve fine
     // today — this was a timing problem (the element was merely slow to
