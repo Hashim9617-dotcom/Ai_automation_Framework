@@ -1,8 +1,31 @@
 # The DMS suite — what it covers and how to run it
 
-45 tests across 6 spec files, built from the 24-page inventory in
-`artifacts/inspect/report.md`. Every locator, every label and every step name in
-these files came out of that capture — nothing here is guessed.
+45 tests across 6 spec files, built from a 24-page `pnpm inspect` capture taken
+on **20 August 2026**. Every locator, every label and every step name in these
+files came out of that capture — nothing here was guessed.
+
+> **That capture no longer exists, and cannot be reproduced.** It lived at
+> `artifacts/inspect/report.md`, which is gitignored, and the inspector
+> overwrote it on its next run. Even a fresh capture would not be the same
+> artifact: the app's data has changed since (workspaces added and renamed),
+> so the names in it are not the names it recorded. Citing it here as a
+> resolvable source would be a citation that goes nowhere, which is worse than
+> admitting the gap.
+>
+> What it established is written down, in reviewed prose, in two places that do
+> resolve: [`tests/app/README.md`](../tests/app/README.md) for the structural
+> facts (0% `data-testid` coverage, and why every locator therefore leads with
+> role + name) and [`docs/dms-findings.md`](dms-findings.md) for the specific
+> name shapes it exposed — Finding 11's `(Expand|Collapse) <name> More options`
+> above all. Those are the load-bearing conclusions; the capture was the
+> evidence for them, not an ongoing dependency.
+>
+> Captures are no longer overwritten: `pnpm inspect` writes one timestamped
+> directory per session under `artifacts/inspect/` and keeps the newest 20,
+> with no age expiry. They stay gitignored — they hold real workspace names,
+> document titles and user names from a live customer system, and committing
+> that would copy customer data into permanent git history. See
+> [`docs/WHERE-WE-ARE.md`](WHERE-WE-ARE.md).
 
 ## Run it
 
@@ -86,7 +109,8 @@ $env:DMS_SAMPLE_WORKSPACE="Finance"
 
 ## Why the locators look the way they do
 
-The app has **no `data-testid` anywhere** — 0% across all 24 captured pages. What
+The app has **no `data-testid` anywhere** — 0% across all 24 pages of the
+20 August 2026 capture, and still 0% on every page captured since. What
 it does have is genuinely good accessibility: `tree` / `treeitem` for the
 workspace pane, `menu` / `menuitem` for context menus, `tablist` / `tab` for both
 upload wizards, `toolbar` for the file actions, and an accessible name on every

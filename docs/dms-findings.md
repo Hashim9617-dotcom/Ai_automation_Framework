@@ -815,3 +815,62 @@ twice already.
 show-trace`) of one reproduced failure, read the way Finding 7's trace was
 — network timeline, screencast frames, and the AX tree at the moment
 `Next` should have enabled — before drawing any conclusion.
+
+## Finding 15 — an absence claim needs a completeness guarantee over whatever it counts across
+
+**Discovered while auditing name truncation, not while looking for it.** The
+self-healing verification step's one guarantee is `matchCount === 1`: the
+proposed locator matches exactly one node in the captured accessibility tree.
+That is what a human is told they can trust without re-checking, and it is the
+whole reason `propose()` is allowed to exist alongside "never heal
+automatically".
+
+**The problem.** `matchCount === 1` is really two claims: *this* node matches
+(presence), and *no other* node matches (absence). Presence is established by
+what the capture contains. Absence is not — it depends on the capture being
+**complete**. `captureAccessibilityTree` caps at `maxNodes` and sets
+`truncated: true` when it hits the cap, and until 3 Sept 2026 nothing in the
+healing path read that flag. So a proposal verified against a tree cut off at
+its cap could have a second match sitting past the cutoff, and would still
+report `matchCount: 1`.
+
+Nothing was observed to have gone wrong — the fixtures captured with the
+default cap of 500 and the largest tree measured across twelve DMS states was
+~400 nodes. But "we were under the cap in the cases we happened to measure" is
+not a guarantee, and the failure would have been silent and confident, which is
+the shape this project keeps getting bitten by.
+
+**The general rule, which is why this is written down as a finding rather than
+a commit message:**
+
+> Any claim of the form "there is no X" is only as strong as the completeness
+> of the thing you looked in. Before asserting absence, check whether your view
+> was truncated, filtered, capped, paginated or sampled — and if it was, say
+> "unknown", not "none".
+
+This is not specific to accessibility trees, or to healing. The same shape
+appears wherever the codebase reasons over a bounded capture:
+
+- The healing gate's **rule 4** already got this right for the DOM snapshot —
+  *"absence proves nothing in a truncated view"* — which is exactly the same
+  reasoning applied one layer down. The gap was that nobody carried it across
+  to the AX snapshot, which is the capture verification actually reads.
+- `DomSnapshot.elements` is capped at `maxElements`, so "this page has no
+  Submit button" is unsafe from a truncated snapshot.
+- `accessibleName()` caps a name at 80 characters, so "this name differs from
+  that one" is unsafe when either side was clipped — the same bug in
+  miniature, which produced a phantom "fatal" divergence in the first name
+  audit (fixed by flagging truncation at the capture: see
+  `DomSnapshot.elements[].nameTruncated`).
+- Step 3's generator (`docs/phase-2-generation.md`) will inherit it wholesale:
+  its `CONTRADICTED` grade is an absence claim ("no node supports this"), and
+  it must not be reachable from a truncated capture.
+
+**Fixed.** `LlmSelfHealingEngine.propose()` refuses outright on
+`axSnapshot.truncated` rather than reporting an unprovable uniqueness, and the
+fixtures' capture raises `maxNodes` to 1000 so refusing stays rare — otherwise
+the fix trades a false guarantee for a healer that never proposes, which is a
+different way of being useless.
+
+**Not an app defect.** Entirely our own reasoning, in our own verification
+step.

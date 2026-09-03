@@ -8,5 +8,6 @@ export * from './data/factory';
 export * from './dom/snapshot';
 export * from './dom/accessibility-snapshot';
 export * from './dom/name-divergence';
+export * from './artifacts/prune';
 export * from './fixtures/core';
 export * from './fixtures';

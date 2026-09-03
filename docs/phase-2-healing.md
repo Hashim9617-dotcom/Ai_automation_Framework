@@ -200,6 +200,21 @@ ordering meaning something, and healing must respect it, not fight it.
 Before a proposal is written — not before approval, before it's written at
 all — the candidate is checked:
 
+0. **Completeness — checked first, because the rest is meaningless without
+   it.** If `axSnapshot.truncated` is set, `propose()` returns `null` and no
+   proposal is made. `matchCount === 1` is partly an *absence* claim ("no
+   other node matches"), and absence cannot be established from a view that
+   was cut off at its node cap: a second match may sit past the cutoff. A
+   `matchCount: 1` derived that way is a false guarantee, which is worse than
+   no guarantee, because this step exists precisely so a reviewer does not
+   re-check it. The gate's rule 4 applies the identical reasoning to the DOM
+   snapshot; it went unapplied to the AX snapshot — the capture verification
+   actually reads — until 3 Sept 2026. Generalised as **Finding 15**
+   (docs/dms-findings.md): *an absence claim is only as strong as the
+   completeness of the thing you looked in.* The fixtures' capture uses
+   `maxNodes: 1000` (largest tree measured across twelve DMS states: ~400) so
+   this refusal stays rare rather than trading a false guarantee for a healer
+   that never proposes.
 1. **Uniqueness.** Match the candidate's role + name against the captured
    accessibility-tree snapshot. `matchCount` must be exactly `1`. Both real
    bugs this week that came from a non-unique match (`option()`'s unscoped

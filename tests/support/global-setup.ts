@@ -1,6 +1,6 @@
-import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
-import { loadEnvironment } from '@aitp/execution-engine';
+import { loadEnvironment, pruneDirectories } from '@aitp/execution-engine';
 import { rootLogger } from '@aitp/shared';
 
 const log = rootLogger.child('global-setup');
@@ -19,63 +19,13 @@ const log = rootLogger.child('global-setup');
  * rare flake that nobody investigated is deleted at 14 days even if it's the
  * only copy of that evidence. Raising MAX_ARCHIVE_AGE_DAYS trades disk for a
  * longer window to notice.
+ *
+ * Deliberately NOT the same policy as inspection captures (scripts/inspect-app.ts),
+ * which are provenance rather than diagnostics and are never aged out — see
+ * the note there.
  */
 const MAX_ARCHIVED_RUNS = 10;
 const MAX_ARCHIVE_AGE_DAYS = 14;
-
-/**
- * Ordered by directory mtime rather than by reading each archive's run.json:
- * a run.json carrying DOM snapshots and accessibility trees runs to several
- * MB, and parsing dozens of them on every suite start would cost far more
- * than this housekeeping is worth. The archive directory is created at
- * archive time, so its mtime is the run's finish time for our purposes.
- */
-function pruneFailureArchives(artifactsDir: string): void {
-  const runsDir = path.join(artifactsDir, 'runs');
-
-  let archives: { name: string; path: string; mtimeMs: number }[];
-  try {
-    archives = readdirSync(runsDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => {
-        const full = path.join(runsDir, entry.name);
-        return { name: entry.name, path: full, mtimeMs: statSync(full).mtimeMs };
-      })
-      .sort((a, b) => b.mtimeMs - a.mtimeMs); // newest first
-  } catch {
-    return; // no archive directory yet, or it's unreadable — nothing to prune
-  }
-
-  const cutoffMs = Date.now() - MAX_ARCHIVE_AGE_DAYS * 24 * 60 * 60 * 1000;
-  const doomed = archives.filter(
-    (archive, index) => index >= MAX_ARCHIVED_RUNS || archive.mtimeMs < cutoffMs,
-  );
-  if (doomed.length === 0) return;
-
-  const pruned: string[] = [];
-  for (const archive of doomed) {
-    try {
-      rmSync(archive.path, { recursive: true, force: true });
-      pruned.push(archive.name);
-    } catch (error) {
-      // A locked file (an open trace viewer on Windows, say) must not abort
-      // the suite before it has run a single test — skip it and move on.
-      log.warn('Could not prune a failure archive', {
-        runId: archive.name,
-        error: (error as Error).message,
-      });
-    }
-  }
-
-  if (pruned.length > 0) {
-    log.info('Pruned old failure archives', {
-      pruned: pruned.length,
-      retained: archives.length - pruned.length,
-      policy: `keep newest ${MAX_ARCHIVED_RUNS}, drop older than ${MAX_ARCHIVE_AGE_DAYS}d`,
-      runIds: pruned,
-    });
-  }
-}
 
 /**
  * Runs once before the whole suite. Keep it cheap: anything per-test belongs in
@@ -104,7 +54,18 @@ export default async function globalSetup(): Promise<void> {
   // Outside the CLEAN_ARTIFACTS guard on purpose: that flag suppresses wiping
   // the *current* run's inputs while debugging, but the archive cap is a disk
   // safety net that has to hold on every run, however the suite was invoked.
-  pruneFailureArchives(artifacts);
+  const { pruned, retained } = pruneDirectories(path.join(artifacts, 'runs'), {
+    keep: MAX_ARCHIVED_RUNS,
+    maxAgeDays: MAX_ARCHIVE_AGE_DAYS,
+  });
+  if (pruned.length > 0) {
+    log.info('Pruned old failure archives', {
+      pruned: pruned.length,
+      retained,
+      policy: `keep newest ${MAX_ARCHIVED_RUNS}, drop older than ${MAX_ARCHIVE_AGE_DAYS}d`,
+      runIds: pruned,
+    });
+  }
 
   log.info('Suite starting', {
     environment: env.name,

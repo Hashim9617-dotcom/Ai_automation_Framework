@@ -41,6 +41,7 @@ import {
   captureDomSnapshot,
   findNameDivergences,
   loadEnvironment,
+  pruneDirectories,
   type NameDivergence,
 } from '@aitp/execution-engine';
 import {
@@ -52,6 +53,12 @@ import {
 } from '@aitp/shared';
 
 const log = rootLogger.child('inspect');
+
+/**
+ * How many capture sessions to keep. No age limit — see the note at the
+ * prune call for why provenance is retained differently from diagnostics.
+ */
+const MAX_CAPTURES = 20;
 
 /**
  * One readline interface for the whole session. Creating a fresh one per
@@ -262,7 +269,15 @@ async function main(): Promise<void> {
     return;
   }
 
-  const outDir = path.join(findRepoRoot(__dirname), 'artifacts', 'inspect');
+  // One timestamped directory per capture session, never overwritten.
+  //
+  // This used to write straight into artifacts/inspect/, so every run
+  // destroyed the previous one. That is how the original 24-page inventory —
+  // the ground truth the entire 45-test suite was built from — was lost: it
+  // was silently replaced by a single-page capture, and the app's data has
+  // moved on since, so it cannot be reproduced.
+  const inspectRoot = path.join(findRepoRoot(__dirname), 'artifacts', 'inspect');
+  const outDir = path.join(inspectRoot, new Date().toISOString().replace(/[:.]/g, '-'));
   mkdirSync(outDir, { recursive: true });
 
   const headless = process.env.INSPECT_HEADLESS === 'true';
@@ -325,6 +340,14 @@ async function main(): Promise<void> {
               ? '  WARNING: no interactive elements found — the page probably had not finished rendering.\n' +
                 '  Re-capture this one; do not use it as a source of truth.\n'
               : '') +
+            // Captures are provenance now, so one labelled "dashboard" that is
+            // actually the login screen is a durable artifact that misleads.
+            // Landing on /login while reusing a saved session means the session
+            // expired mid-capture — easy to miss when driving non-interactively.
+            (reuseSession && /\/login(\b|$)/.test(snapshot.url)
+              ? `  WARNING: captured the login page, not "${label}" — the saved session has expired.\n` +
+                '  Run `pnpm auth` (or the setup project) and capture again.\n'
+              : '') +
             '\n',
         );
       } catch (error) {
@@ -382,11 +405,28 @@ async function main(): Promise<void> {
     'utf8',
   );
 
+  // Count-capped, but deliberately NOT aged out, unlike failure archives
+  // (tests/support/global-setup.ts). Those are diagnostics: once a failure is
+  // understood its trace is worthless, and 14-day expiry bounds the disk they
+  // take. A capture is the opposite — it is provenance, it is what a locator
+  // was written against, and an old one is MORE valuable than a new one for
+  // answering "why does this say ABCD". Ageing these out would recreate
+  // exactly the loss this retention exists to prevent. They are also tiny
+  // (tens of KB per page against tens of MB per trace), so keeping a deep
+  // history costs nothing worth counting.
+  const { pruned, retained } = pruneDirectories(inspectRoot, { keep: MAX_CAPTURES });
+
   process.stdout.write(
     [
       '',
       `Report:    ${path.relative(process.cwd(), reportPath)}`,
       `Raw data:  ${path.relative(process.cwd(), jsonPath)}`,
+      '',
+      `Kept ${retained} capture(s) under artifacts/inspect/` +
+        (pruned.length > 0 ? `; pruned ${pruned.length} beyond the newest ${MAX_CAPTURES}` : '') +
+        '.',
+      'Captures are gitignored and stay on this machine: they contain real',
+      'workspace names, document titles and user names from a live system.',
       '',
       'Open report.md and paste it into the chat — that is enough to write real',
       'page objects with accurate locators and fallback chains.',

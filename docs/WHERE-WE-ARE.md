@@ -54,6 +54,31 @@ wiped normally. If this flake recurs, its trace will be sitting under
 `artifacts/runs/<that run's id>/test-results/`; inspect it before touching
 any locator code.
 
+**Inspection captures are retained, and deliberately never committed.**
+`pnpm inspect` writes one timestamped directory per session under
+`artifacts/inspect/` and keeps the newest 20 — **count-capped but never aged
+out**, unlike failure archives below. The difference is deliberate: a failure
+archive is diagnostics (worthless once the failure is understood, bulky enough
+to need an expiry), while a capture is *provenance* — it is what a locator was
+written against, and an old one is more valuable than a new one for answering
+"why does this locator say ABCD". Ageing them out would recreate exactly the
+loss this retention exists to prevent: the original 24-page capture the whole
+45-test suite was built from was destroyed by the inspector overwriting itself,
+and cannot be reproduced now that the app's data has moved on
+([`dms-suite.md`](dms-suite.md) records that honestly rather than citing it).
+
+They stay **gitignored, and are not committed** — they hold real workspace
+names, document titles and user names from a live customer system, and
+committing that copies customer data into permanent git history. A redacted
+version was considered and rejected: redaction destroys precisely the detail
+that makes a capture useful ("why does this locator say ABCD" needs the real
+name), while the facts that *survive* redaction — 0% testid coverage, the
+role+name strategy, Finding 11's name shape — are already written down in
+reviewed prose in [`tests/app/README.md`](../tests/app/README.md) and
+[`dms-findings.md`](dms-findings.md). So it would restate documented knowledge
+in exchange for a recurring human redaction review whose failure mode is a
+quiet leak.
+
 **Retention.** `global-setup.ts` prunes that archive on every suite start:
 keep the newest 10, drop anything older than 14 days, one log line naming
 what went. Both rules prune, so the count is a hard cap — without that,
