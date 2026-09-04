@@ -320,17 +320,104 @@ gate is *safe*. The eval set is what proves it's *useful*.
 
 ---
 
+## Phase 2 status: step 3, test-case generation
+
+Design: [`docs/phase-2-generation.md`](phase-2-generation.md), which is the
+authority. This is the orientation summary.
+
+**Where it stands as of 2026-09-04 (all committed and pushed):**
+
+| | Status |
+| --- | --- |
+| **P1** — AX-tree capture in `pnpm inspect` | **done** |
+| **P2a** — `selected`/`expanded`/`checked`/`level` in `captureAccessibilityTree` | **done** |
+| **P2** — state-oriented capture with declared, cross-checked transitions | **done** |
+| **P3** — the generator itself | **designed, NOT built.** This is next. |
+
+**The fixture exists and the scores ARE recorded** — `pnpm eval:generation`,
+`scripts/eval-generation-fixture.ts`. Every stage is reproducible with
+`AITP_FIXTURE_STAGE=baseline|p2a|p2`, which recreates an earlier stage by
+removing exactly what that prerequisite added:
+
+| Stage | #1 | #2 | #3 | #4 | Score |
+| --- | --- | --- | --- | --- | --- |
+| empty capture (ignorance check, runs every time) | ✗ | ✗ | ✗ | ✗ | **0/4** |
+| baseline (after P1) | ✓ | **✗** | ✓ | ✓ | **3/4** |
+| after P2a | ✓ | **✗** | ✓ | ✓ | **3/4** |
+| after P2 | ✓ | **✓** | ✓ | ✓ | **4/4** |
+
+P2a moved nothing alone — #2 fails at the *transition* step before ever
+reaching the selection assertion — but with a transition present and
+`selected` missing it still fails. **Necessary but not sufficient**; the two
+prerequisites only carry #2 together.
+
+### The pass criterion, and why the first one was wrong
+
+**This is the part that took the work; it must survive.**
+
+The fixture's first criterion was "the generator must not emit the known-wrong
+assertion as `OBSERVED`". That is satisfied **before any prerequisite lands**:
+with no transitions the state cursor goes `unknown` and grades the wrong
+assertion `assumed`, which is not `observed`. It would have scored #2 as
+passing before P2 existed, and we would have discovered that only after
+building P2 and congratulating ourselves.
+
+The general rule, recorded because it is not specific to this fixture:
+
+> **A criterion that can be satisfied by knowing nothing is not a criterion.**
+
+Refusing to assert anything is free, so any criterion phrased as an *absence*
+("does not claim X", "emits no false positive") is passed perfectly by a system
+that has not looked. This is [Finding 15](dms-findings.md)'s shape one level
+up: there, an absence claim needed a completeness guarantee; here, a pass
+criterion needs positive evidence.
+
+So `caught` is **two positive halves**:
+
+- **safety** — the wrong assertion must reach a *specific* grade, not merely
+  "anything but observed". #1/#3/#4 must reach `contradicted`, which requires
+  the state to be captured *and complete*. #2 cannot (nobody captured what
+  `Next` does, so `assumed` is the honest grade) and therefore rests entirely
+  on its capability half.
+- **capability** — the *right* assertion must grade `observed`.
+
+Two guards, because the halves fail to ignorance differently:
+`expectedWrongGrade` stops safety being satisfiable by silence; the ignorance
+check stops capability being. The latter runs on every invocation and fails the
+run if an empty capture ever scores above 0/4.
+
+### What a green score does not prove
+
+The fixture runs against `tests/fixtures/generation/four-mistakes.html` — a
+~60-node synthetic offline page with no icon glyphs, no async loading, no
+session expiry, no 25-row tree, no truncation. Every one of those has broken an
+assumption in the real app at least once. **4/4 means "the machinery is sound",
+never "the DMS suite is covered."** Live spot-checks done separately: P2a's
+selection capture against the real upload wizard, and the transition
+cross-check against the real dashboard. Two spot-checks, not coverage.
+
+---
+
 ## The exact next command to run
 
 ```powershell
-pnpm.cmd eval:healing
+pnpm.cmd eval:generation
 ```
 
-Confirms the eval set still passes 7/7 with today's code before doing
-anything else with self-healing. If it does, the next real step (not yet
-done) is running the full DmsSynergy suite, then `pnpm heal` against its
-`run.json`, then `pnpm heal:review` against whatever it proposes — the
-first real, non-synthetic test of this feature.
+Needs **no `.env`, no network and no session** — it is deterministic, offline
+and free. Confirms the four-mistake fixture still scores 4/4 and that the
+ignorance check still reports 0/4 before anything else is touched. Run it first
+on a new machine: if it passes, P1/P2a/P2 are intact and the next work is
+**P3, the generator** (`docs/phase-2-generation.md` — the matcher gate, the
+prompt, `TestCaseProposal`, and `pnpm generate:review`).
+
+To confirm the rest of the platform too:
+
+```powershell
+pnpm.cmd test --project=unit      # 46 tests, no browser, no network
+pnpm.cmd eval:healing             # 7/7, needs ANTHROPIC_API_KEY
+pnpm.cmd test --project=chromium  # 42/0/0/4, needs a session + the real app
+```
 
 ---
 
@@ -358,6 +445,18 @@ for the fuller walkthrough (that file predates the git remote existing —
 skip its "there is no git remote" section, that part's done).
 
 ### `.env` variable names required (names only — never commit values)
+
+**Resuming the generation work specifically:**
+
+| To run | Needs |
+| --- | --- |
+| `pnpm eval:generation` (the four-mistake fixture) | **nothing** — offline, deterministic, no key, no session |
+| `pnpm test --project=unit` | **nothing** |
+| `pnpm inspect` against the real app (P2 captures) | `TEST_ENV`, `BASE_URL`, `APP_USERNAME`, `APP_PASSWORD` |
+| `pnpm eval:healing`, `pnpm heal`, `pnpm rca`, and P3's generator | the above plus `LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `LLM_MODEL_REASONING`, `LLM_MODEL_FAST` |
+
+So a machine with no `.env` at all can still verify P1/P2a/P2 are intact —
+that is deliberate, and the reason the fixture was built offline.
 
 **Core, required to run anything against the real app:**
 - `TEST_ENV`
