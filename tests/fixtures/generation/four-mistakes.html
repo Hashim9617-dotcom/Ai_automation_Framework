@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Four-mistake fixture</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 1rem; }
+      .hidden { display: none; }
+      [role='tab'][aria-selected='true'] { font-weight: 700; }
+      .icon::before { content: '\eb62'; }
+    </style>
+  </head>
+  <body>
+    <!--
+      Reproduces the SHAPE of the four by-hand mistakes (docs/dms-findings.md)
+      with synthetic names. Structure is copied from real DmsSynergy captures;
+      the data is invented, because the real captures carry customer workspace
+      names and document titles and are deliberately never committed.
+
+      This page exists so the fixture's input comes out of the real capture
+      functions rather than out of hand-authored JSON. When the capture gains
+      a new property, the fixture sees it here automatically — which is what
+      makes a before/after score mean anything.
+    -->
+
+    <!-- (1) Finding 9 — the create dialog validates on click; Create is ENABLED
+         on an empty form. The historical wrong assertion was toBeDisabled. -->
+    <section id="create-dialog" role="dialog" aria-label="Create Role">
+      <h2>Create Role</h2>
+      <label for="role-name">Name</label>
+      <input id="role-name" />
+      <button id="create-role">Create</button>
+      <button id="clear-role">Clear</button>
+    </section>
+
+    <!-- (4) Finding 11 — a treeitem's computed name concatenates its nested
+         controls' names: "Expand <name> More options". -->
+    <ul role="tree" aria-label="Workspaces">
+      <li role="treeitem" id="ws-alpha">
+        <button aria-label="Expand"></button>
+        <span>WS-ALPHA</span>
+        <button aria-label="More options"></button>
+      </li>
+      <li role="treeitem" id="ws-beta">
+        <button aria-label="Expand"></button>
+        <span>WS-BETA</span>
+        <button aria-label="More options"></button>
+      </li>
+    </ul>
+
+    <!-- (2) Finding 8 — choosing a workspace AUTO-ADVANCES the wizard to the
+         Folder step. The historical wrong model was "choose, then click Next". -->
+    <div role="tablist" aria-label="Upload steps">
+      <button role="tab" id="tab-workspace" aria-selected="true">Workspace</button>
+      <button role="tab" id="tab-folder" aria-selected="false">Folder</button>
+    </div>
+    <div id="step-workspace">
+      <h3>Select workspace</h3>
+      <button id="tile-alpha">WS-ALPHA</button>
+      <button id="wizard-next" disabled>Next</button>
+    </div>
+    <div id="step-folder" class="hidden">
+      <h3>Select destination folder</h3>
+      <button id="folder-root">Root folder</button>
+    </div>
+
+    <!-- (3) The bulk download — selecting all reveals ONE consolidated button,
+         not a per-row Download File action. -->
+    <div id="search-results">
+      <h3>Results</h3>
+      <div role="list" aria-label="Search results">
+        <div role="listitem">DOC-001</div>
+        <div role="listitem">DOC-002</div>
+      </div>
+      <button id="select-all">Select All</button>
+      <button id="download-selected" class="hidden">Download Selected (2)</button>
+    </div>
+
+    <script>
+      // Auto-advance: clicking the tile moves the wizard on by itself. No Next
+      // click involved — that is the entire point of mistake #2.
+      document.getElementById('tile-alpha').addEventListener('click', () => {
+        document.getElementById('tab-workspace').setAttribute('aria-selected', 'false');
+        document.getElementById('tab-folder').setAttribute('aria-selected', 'true');
+        document.getElementById('step-workspace').classList.add('hidden');
+        document.getElementById('step-folder').classList.remove('hidden');
+      });
+
+      document.getElementById('select-all').addEventListener('click', () => {
+        document.getElementById('download-selected').classList.remove('hidden');
+      });
+    </script>
+  </body>
+</html>

@@ -54,11 +54,32 @@ export async function captureAccessibilityTree(
       // page, but they are noise for candidate matching, which only ever
       // queries role + name.
       if (!role || role === 'none' || role === 'generic' || role === 'InlineTextBox') continue;
-      const disabledProp = node.properties?.find((p) => p.name === 'disabled');
+      const prop = (wanted: string): unknown =>
+        node.properties?.find((p) => p.name === wanted)?.value?.value;
+
+      // `selected`/`expanded`/`checked` are only meaningful on the roles that
+      // carry them, and CDP omits them elsewhere — so `undefined` here means
+      // "the platform did not report it", which downstream must read as
+      // SILENCE rather than `false`. A wizard step's whole contract lives in
+      // `selected` (docs/dms-findings.md, Finding 8: the fixed test asserts
+      // aria-selected on the Folder tab), so a capture without it cannot
+      // ground the one fact that flow turns on.
+      const selected = prop('selected');
+      const expanded = prop('expanded');
+      const checked = prop('checked');
+      const level = prop('level');
+
       kept.push({
         role,
         name: name ?? '',
-        enabled: disabledProp?.value?.value !== true,
+        enabled: prop('disabled') !== true,
+        ...(typeof selected === 'boolean' ? { selected } : {}),
+        ...(typeof expanded === 'boolean' ? { expanded } : {}),
+        // CDP reports tristate checkboxes as the string "mixed"; only a real
+        // boolean is recorded, so "mixed" stays silence rather than becoming
+        // a misleading `false`.
+        ...(typeof checked === 'boolean' ? { checked } : {}),
+        ...(typeof level === 'number' ? { level } : {}),
       });
     }
 

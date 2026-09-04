@@ -2,7 +2,7 @@
   "name": "ai-testing-platform",
   "version": "0.1.0",
   "private": true,
-  "description": "AI-powered test automation platform \u2014 Playwright execution engine with an AI layer for test generation, self-healing, DOM understanding and root cause analysis.",
+  "description": "AI-powered test automation platform — Playwright execution engine with an AI layer for test generation, self-healing, DOM understanding and root cause analysis.",
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
@@ -36,7 +36,8 @@
     "prepare:browsers": "playwright install --with-deps chromium",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:smoke",
     "docker:up": "docker compose -f infra/docker/docker-compose.yml up -d",
-    "docker:down": "docker compose -f infra/docker/docker-compose.yml down"
+    "docker:down": "docker compose -f infra/docker/docker-compose.yml down",
+    "eval:generation": "tsx scripts/eval-generation-fixture.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

@@ -6,6 +6,7 @@ export * from './logger';
 export * from './errors';
 export * from './healing/gate';
 export * from './healing/match';
+export * from './generation/grounding';
 export * from './utils/env';
 export * from './utils/id';
 export * from './utils/paths';

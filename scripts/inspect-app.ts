@@ -39,18 +39,39 @@ import {
   authStatePath,
   captureAccessibilityTree,
   captureDomSnapshot,
+  crossCheckTransition,
+  diffAxTrees,
   findNameDivergences,
   loadEnvironment,
   pruneDirectories,
+  signatureSimilarity,
+  stateSignature,
+  suggestActions,
   type NameDivergence,
 } from '@aitp/execution-engine';
 import {
   findRepoRoot,
   rootLogger,
   slugify,
+  type AccessibilityNode,
   type AccessibilityTreeSnapshot,
+  type DeclaredTransition,
   type DomSnapshot,
 } from '@aitp/shared';
+
+/**
+ * Proposes a state label from the page's own route and heading, so the common
+ * case is one keystroke (Enter) instead of typing a name. Only ever a
+ * proposal: identity is the human's, because "same state" is a question about
+ * the application's model that no fingerprint can answer.
+ */
+function proposeLabel(url: string, nodes: AccessibilityNode[]): string {
+  const route =
+    new URL(url).pathname.split('/').filter(Boolean).join('.').replace(/[^a-z0-9.-]/gi, '') ||
+    'root';
+  const heading = nodes.find((node) => node.role === 'heading' && node.name)?.name;
+  return heading ? `${route}.${slugify(heading)}` : route;
+}
 
 const log = rootLogger.child('inspect');
 
@@ -286,7 +307,9 @@ async function main(): Promise<void> {
     label: string;
     snapshot: DomSnapshot;
     axTree: AccessibilityTreeSnapshot;
+    signature: string;
   }> = [];
+  const transitions: DeclaredTransition[] = [];
 
   try {
     browser = await chromium.launch({ headless });
@@ -314,9 +337,12 @@ async function main(): Promise<void> {
     process.stdout.write(BANNER);
 
     for (;;) {
-      const label = await ask('Page name (or q to finish): ');
-      if (label.toLowerCase() === 'q' || label.toLowerCase() === 'quit') break;
-      if (!label) continue;
+      const answer = await ask(
+        captured.length === 0
+          ? 'State name (or q to finish): '
+          : 'Press Enter to capture the current state, or q to finish: ',
+      );
+      if (answer.toLowerCase() === 'q' || answer.toLowerCase() === 'quit') break;
 
       try {
         await waitForPageToRender(page);
@@ -324,8 +350,78 @@ async function main(): Promise<void> {
         // Captured together, from the same page state, so the two views are
         // directly comparable — a divergence report built from captures taken
         // at different moments would be reporting navigation, not naming.
-        const axTree = await captureAccessibilityTree(page, { maxNodes: 500 });
-        captured.push({ label, snapshot, axTree });
+        const axTree = await captureAccessibilityTree(page, { maxNodes: 1_000 });
+
+        const previous = captured[captured.length - 1];
+        const delta = previous ? diffAxTrees(previous.axTree.nodes, axTree.nodes) : undefined;
+
+        // A state's identity is a human label. The tool proposes one from the
+        // page's own heading and route, but never assigns it silently.
+        const proposed = proposeLabel(snapshot.url, axTree.nodes);
+        const label =
+          captured.length === 0 && answer
+            ? answer
+            : (await ask(`  label? [${proposed}] `)) || proposed;
+
+        // Signature check — raises a question, never makes a decision. Fires
+        // when a label is reused for something structurally different, or a
+        // new label looks like a state already captured. Both directions of a
+        // misclassification land here as noise, never as a silent wrong fact.
+        const signature = stateSignature(axTree.nodes);
+        for (const other of captured) {
+          const similarity = signatureSimilarity(signature, other.signature);
+          if (other.label === label && similarity < 0.5) {
+            process.stdout.write(
+              `  ? "${label}" was captured before but looks structurally different now (${Math.round(similarity * 100)}% shared). Same state?\n`,
+            );
+          } else if (other.label !== label && similarity > 0.95) {
+            process.stdout.write(
+              `  ? this looks almost identical to "${other.label}" (${Math.round(similarity * 100)}% shared). Same state?\n`,
+            );
+          }
+        }
+
+        // Transition — declared by the human, cross-checked by the tool, both
+        // in this same prompt cycle while the browser is still on the page.
+        // Surfacing a suspect declaration in a report the next morning would
+        // be surfacing it to someone who can no longer check it.
+        if (previous && delta) {
+          const suggestions = suggestActions(previous.axTree.nodes, delta);
+          process.stdout.write(
+            `  You went from "${previous.label}" to "${label}". What did you do?\n`,
+          );
+          suggestions.forEach((s, i) => process.stdout.write(`    ${i + 1}) ${s}\n`));
+          process.stdout.write(`    ${suggestions.length + 1}) something else\n`);
+          const pick = await ask('  > ');
+          const index = Number.parseInt(pick, 10);
+          const action =
+            Number.isInteger(index) && index >= 1 && index <= suggestions.length
+              ? suggestions[index - 1]!
+              : await ask('  describe it: ');
+
+          if (action) {
+            const check = crossCheckTransition(action, previous.axTree.nodes, delta);
+            transitions.push({
+              from: slugify(previous.label),
+              to: slugify(label),
+              action,
+              verdict: check.verdict,
+            });
+            if (check.verdict === 'consistent') {
+              process.stdout.write(
+                `  ok consistent: ${delta.added.length} added, ${delta.removed.length} removed, ${delta.stateChanged.length} changed state\n`,
+              );
+            } else {
+              process.stdout.write('  SUSPECT — this declaration does not match what changed:\n');
+              for (const reason of check.reasons) process.stdout.write(`    - ${reason}\n`);
+              process.stdout.write(
+                '  Recorded anyway, but marked suspect: it can raise a question, never ground an assertion.\n',
+              );
+            }
+          }
+        }
+
+        captured.push({ label, snapshot, axTree, signature });
 
         const divergences = findNameDivergences(snapshot, axTree).length;
         process.stdout.write(
@@ -342,8 +438,6 @@ async function main(): Promise<void> {
               : '') +
             // Captures are provenance now, so one labelled "dashboard" that is
             // actually the login screen is a durable artifact that misleads.
-            // Landing on /login while reusing a saved session means the session
-            // expired mid-capture — easy to miss when driving non-interactively.
             (reuseSession && /\/login(\b|$)/.test(snapshot.url)
               ? `  WARNING: captured the login page, not "${label}" — the saved session has expired.\n` +
                 '  Run `pnpm auth` (or the setup project) and capture again.\n'
@@ -382,23 +476,35 @@ async function main(): Promise<void> {
   ].join('\n\n');
 
   const reportPath = path.join(outDir, 'report.md');
-  const jsonPath = path.join(outDir, 'pages.json');
+  const jsonPath = path.join(outDir, 'capture.json');
   writeFileSync(reportPath, report, 'utf8');
+  // State-keyed throughout, and deliberately offering NO flattened,
+  // all-states node list: a grounding check cannot match against the wrong
+  // state's nodes because it cannot reach them without naming a state first.
+  // That is what makes checkGrounding()'s state cursor enforceable rather
+  // than merely intended (docs/phase-2-generation.md, P2).
   writeFileSync(
     jsonPath,
     JSON.stringify(
-      captured.map((entry) => ({
-        label: entry.label,
-        slug: slugify(entry.label),
-        ...entry.snapshot,
-        // Kept as its own key rather than merged into the DomSnapshot's
-        // `elements`: these are two different views of the same page that
-        // disagree, and flattening them would destroy exactly the signal
-        // this capture exists to preserve. Grounding checks (step 3) read
-        // ONLY this one — see docs/phase-2-generation.md, P1.
-        accessibilityTree: entry.axTree,
-        nameDivergences: findNameDivergences(entry.snapshot, entry.axTree),
-      })),
+      {
+        sessionId: path.basename(outDir),
+        capturedAt: new Date().toISOString(),
+        states: captured.map((entry) => ({
+          id: slugify(entry.label),
+          label: entry.label,
+          url: entry.snapshot.url,
+          signature: entry.signature,
+          truncated: entry.axTree.truncated,
+          nodes: entry.axTree.nodes,
+          // Kept as its own key rather than merged into the AX nodes: these
+          // are two views of the same page that disagree, and flattening them
+          // would destroy exactly the signal this capture exists to preserve.
+          // Grounding reads ONLY `nodes` — see P1.
+          domSnapshot: entry.snapshot,
+          nameDivergences: findNameDivergences(entry.snapshot, entry.axTree),
+        })),
+        transitions,
+      },
       null,
       2,
     ),

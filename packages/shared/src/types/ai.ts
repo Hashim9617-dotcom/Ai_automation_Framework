@@ -126,6 +126,19 @@ export interface AccessibilityNode {
   name: string;
   /** From the AX node's `disabled` property when present; `true` otherwise. */
   enabled: boolean;
+  /**
+   * Step/selection semantics, from the same CDP `properties` array `enabled`
+   * is read from. `undefined` means the capture did not record it — which a
+   * grounding check must treat as SILENCE (assumed), never as `false`. The
+   * difference matters: "the tool cannot express this fact" and "the app does
+   * not do this" are not the same statement, and conflating them would let a
+   * capability gap read as a finding about the application.
+   */
+  selected?: boolean;
+  expanded?: boolean;
+  checked?: boolean;
+  /** Heading/treeitem depth, where the platform exposes it. */
+  level?: number;
 }
 
 /**

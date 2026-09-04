@@ -341,6 +341,30 @@ does not. On a re-capture the tool compares:
 Neither blocks. Both are asked at capture time, while the operator is still
 looking at the page and can answer cheaply.
 
+**The signature's data/chrome split is a heuristic, and it inherits exactly the
+weakness that made redaction not worth doing:** nothing mechanically separates
+"Accounting Department" (a workspace, data) from "Advanced Search" (a control,
+chrome). The role a name appears under is a good proxy and not a guarantee — an
+app that renders navigation as `listitem`, or data as `heading`, defeats it.
+
+That is acceptable here, and only because of *what the signature is for*. It is
+a **check, not ground truth**: it never writes a fact, it only decides whether
+to ask a human a question. So the design constraint is that a
+misclassification must fail toward **asking**, never toward silence:
+
+| Misclassification | Effect | Cost |
+| --- | --- | --- |
+| Data treated as chrome (a workspace name enters the signature) | The signature is more volatile than it should be, so re-capturing the same state after the data changed looks *different* → the tool asks "same state?" when it needn't have | A spurious question. Cheap, visible, answered in one keystroke. |
+| Chrome treated as data (a real heading excluded) | The signature is *coarser* than it should be, so two genuinely different states can look alike → the tool asks "is this the same state you already captured?" | Also a question — and in the direction that catches mislabels. |
+
+Both directions produce a question, which is the whole point: the failure mode
+is *noise*, never a silently-accepted wrong state. Nothing in the signature
+path may ever auto-accept a label, auto-merge two states, or suppress a
+prompt — a signature that agreed would simply not raise a question, leaving
+the human's label to stand on its own, which is exactly where it stood before
+the signature existed. The signature can only ever add scrutiny, never remove
+it.
+
 #### The capture must record selection state — and acceptance depends on it
 
 **This is P2's version of P1's blocker, and it is load-bearing for the
@@ -406,8 +430,16 @@ AX trees it already holds. Then it cross-checks them against each other:
 | **Named element unchanged in `to`** | the quoted element is still present and nothing around it moved | the click missed, or hit a disabled control |
 | **Delta implausibly large** | near-total node replacement for a declared in-place action | a navigation or session expiry happened mid-capture, not the action described |
 
-Flags are raised **at capture time**, to the operator, while the browser is
-still open and re-doing it costs seconds. `suspect` does not block the
+**The cross-check fires immediately, at the moment of declaration** — in the
+same prompt cycle as the label and signature checks, before the next state is
+captured, while the browser is still open on the resulting page and the
+operator still remembers what they clicked. This is not a reporting feature
+and must never become one. The entire advantage of human-declared capture is
+that the human is *right there*; a suspect transition surfaced in a report the
+next morning is a suspect transition nobody resolves, because resolving it
+means reconstructing a browser state and a memory that are both gone. Same
+moment, same reason as the label/signature questions: the only cheap time to
+fix a wrong declaration is the second after making it. `suspect` does not block the
 recording — the human may be right and the heuristic wrong — but the verdict
 is stored on the transition, and step 3 treats a `suspect` transition as **not
 grounding**: it can support a question, never an `OBSERVED` assertion. A
@@ -777,9 +809,35 @@ the feature is annoying enough not to be used.
 ### Axis 4 — the four-mistake fixture, which is also the prerequisites' acceptance test
 
 The four by-hand mistakes become permanent fixtures, the way healing's seven
-scenarios did. For each: capture the relevant state, run generation, assert the
-generator does **not** emit the known-wrong assertion as `OBSERVED`. That is a
-true negative-control set, checkable on every future prompt change.
+scenarios did.
+
+**"Caught" is two conditions, not one.** The first draft of this fixture asked
+only that the generator *not* emit the known-wrong assertion as `OBSERVED` —
+and that criterion is satisfied **before P2 lands**, because with no
+transitions recorded the cursor goes `unknown` at the first action step and
+grades the wrong assertion `ASSUMED` anyway. A fixture that already passes
+proves nothing, and we would have discovered that only after building P2 and
+congratulating ourselves. So each mistake is scored on both halves:
+
+| | Condition | What it protects |
+| --- | --- | --- |
+| **Safety** | the known-**wrong** assertion must NOT grade `OBSERVED` | no green lie enters the suite |
+| **Capability** | the known-**right** assertion MUST grade `OBSERVED` | the capture can actually express the true contract |
+
+`caught = safety && capability`. Safety is expected to hold at *every* stage,
+including today — it is the property the whole design exists for, and a
+regression in it is an emergency. Capability is the half that moves when a
+prerequisite lands, which makes it the half that actually measures whether P1
+and P2 did their job. Reporting only safety would show 4/4 from the start and
+mean nothing.
+
+The fixture grades **deterministically, with no LLM.** Its input is the
+historical wrong assertion and the historical right one, hand-written from
+`docs/dms-findings.md`; its judge is `checkGrounding()`. That is deliberate:
+what P1 and P2 change is whether a *capture can ground a fact*, which is a
+property of the capture and the grader, not of the model. Whether the model
+actually produces these assertions is a different question, measured by eval
+axes 1–3 once the generator exists.
 
 But it is doing a second job that matters more during the build, and it is the
 reason the sequencing above is safe:
@@ -793,12 +851,43 @@ reason the sequencing above is safe:
 Run the fixture after **each** prerequisite and record the score. Expected
 progression, written down in advance so it can be wrong:
 
-| Stage | #1 admin `toBeDisabled` | #2 upload auto-advance | #3 bulk download | #4 tree row names | Expected total |
+**Measured, 2026-09-04.** The prediction below it was wrong, and the fixture is
+what found that out:
+
+| Stage | #1 admin `toBeDisabled` | #2 upload auto-advance | #3 bulk download | #4 tree row names | Score |
 | --- | --- | --- | --- | --- | --- |
-| Before P1 (DomSnapshot, page-oriented) | question | question | question | **generated wrong, marked OBSERVED** | 0/4 — and one silently false |
-| After **P1** (AX tree) | question | question | question | **caught** | 1/4 |
-| After **P2** (states + transitions) | **caught** | **caught** | **caught** | caught | 4/4 |
-| Design's honest claim (retrospective) | caught | caught | caught | caught | 4/4 with both prerequisites |
+| **After P1** (AX tree; measured baseline) | caught | **not caught** | caught | caught | **3/4** |
+| **After P2a** (selection captured) | caught | **not caught** | caught | caught | **3/4** |
+| **After P2** (states + transitions) | caught | **caught** | caught | caught | **4/4** |
+
+*Predicted in advance, for comparison:* after P1 → 1/4, with #1 and #3 also
+waiting on P2.
+
+**Where the prediction was wrong.** #1 and #3 were already caught at the P1
+baseline. The claim that they needed P2 assumed the old tooling could not
+capture a dialog or a post-select-all list as its own state — but it always
+could: a human navigates there, types a label, and captures. What the old
+tooling genuinely lacked was **transitions**, and only #2 depends on those. So
+P2's real scope is narrower than this document originally claimed: it moves
+exactly one mistake, not three.
+
+That is a smaller win than predicted, and it is still the right thing to have
+built, because #2 is the one that is *impossible* by any other route — no
+static capture of any number of states can establish what an action causes.
+
+**P2a moved nothing on its own, and that is not a failure.** The score is 3/4
+before and after it, because #2 fails at the *transition* step long before it
+reaches the selection assertion. Its contribution was isolated by forcing a
+transition into the capture and running the fixture at each stage:
+
+| | transition present, `selected` not captured | transition present, `selected` captured |
+| --- | --- | --- |
+| #2 capability | **FAIL** — `the capture does not record "selected" for tab "Folder"` | **PASS** — `tab "Folder" has selected=true` |
+
+So P2a is **necessary but not sufficient**, demonstrated rather than argued.
+Either prerequisite alone leaves #2 not caught; together they carry it. That is
+precisely the reading the staged run was designed to produce, and it would have
+been invisible in a single combined jump at the end.
 
 Two things this table makes falsifiable:
 
