@@ -831,6 +831,46 @@ prerequisite lands, which makes it the half that actually measures whether P1
 and P2 did their job. Reporting only safety would show 4/4 from the start and
 mean nothing.
 
+#### The property every criterion here must have
+
+The first draft failed for a reason worth naming, because it generalises:
+
+> **A criterion that can be satisfied by knowing nothing is not a criterion.**
+
+Refusing to assert anything is free. A system that knows nothing asserts
+nothing, so any criterion phrased as an *absence* — "does not claim X", "emits
+no false positive", "never says Y" — is passed perfectly by ignorance. This is
+the same shape as Finding 15 (`docs/dms-findings.md`): there, an absence claim
+needed a completeness guarantee; here, a pass criterion needs positive
+evidence. Both are the rule that **you cannot conclude anything from a system
+that hasn't looked.**
+
+So every half of every criterion below is positive — it names a grade the
+capture must actively *reach*, which an empty capture cannot:
+
+| | "Caught" means | Why ignorance cannot satisfy it |
+| --- | --- | --- |
+| **#1** admin `toBeDisabled` | wrong assertion graded **`contradicted`**, right assertion graded **`observed`** | Both require the dialog state to be captured and to contain `button "Create" enabled=true`. An empty capture grades both `assumed` and fails both halves. |
+| **#2** upload auto-advance | wrong assertion graded `assumed`, right assertion graded **`observed`** | Safety here is genuinely *not* positive, and cannot be: nobody captured what `Next` does, so `assumed` is the honest grade and an empty capture would match it. **#2 therefore rests entirely on capability**, which requires a declared transition *and* `tab "Folder" selected=true`. Neither exists in an empty capture. |
+| **#3** bulk download | wrong assertion graded **`contradicted`**, right assertion graded **`observed`** | Contradiction requires the post-select-all state to be captured *and complete* — absence is only evidence in a complete view (Finding 15). Ignorance yields `assumed`. |
+| **#4** tree row names | wrong assertion graded **`contradicted`**, right assertion graded **`observed`** | Same: the bare name must be positively absent from a complete capture, and the concatenated name positively present. |
+
+Safety is scored against that **specific expected grade**, not against "anything
+but observed" — which is what makes the safety half unreachable by ignorance
+for #1, #3 and #4. For #2 it is unreachable via capability instead. Two
+different guards, because the two halves fail to ignorance in two different
+ways:
+
+- `expectedWrongGrade` stops **safety** being satisfiable by silence.
+- The ignorance check (below) stops **capability** being satisfiable by silence.
+
+**The fixture proves this about itself on every run.** It grades all four
+mistakes against a deliberately empty capture and asserts the score is 0/4,
+printing `ignorance check: an empty capture scores 0/4 — the criterion needs
+positive evidence. ok`. If that ever scores above zero, the criterion has
+rotted back into something ignorance can pass, and the run fails rather than
+reporting a comfortable number.
+
 The fixture grades **deterministically, with no LLM.** Its input is the
 historical wrong assertion and the historical right one, hand-written from
 `docs/dms-findings.md`; its judge is `checkGrounding()`. That is deliberate:
@@ -851,14 +891,45 @@ reason the sequencing above is safe:
 Run the fixture after **each** prerequisite and record the score. Expected
 progression, written down in advance so it can be wrong:
 
+> ### What a green score here does and does not prove
+>
+> **It proves the mechanism works.** The capture path, the AX properties, the
+> grader, the state cursor, the transition cross-check — all genuinely
+> exercised, by the real functions, end to end.
+>
+> **It does not prove any of it works against DmsSynergy.** The fixture runs
+> against `tests/fixtures/generation/four-mistakes.html`: a synthetic offline
+> page, ~60 nodes, no icon-font glyphs, no async loading, no session expiry, no
+> 25-row workspace tree, no truncation. The real app has every one of those,
+> and each has already broken an assumption at least once (Findings 5, 6, 10,
+> 11, and the truncation false positive found in P1's own audit).
+>
+> These are two different claims and the second is the one that matters for
+> the suite. **A 4/4 here means "the machinery is sound", never "the DMS suite
+> is covered."** Anyone reading this score six months from now should assume
+> the weaker claim unless they find a live measurement alongside it.
+>
+> What *has* been checked live, separately from this fixture: P2a's selection
+> capture against the real upload wizard (`tab "Workspace" selected=true`,
+> `Folder`/`Upload` false) and the transition cross-check against the real
+> dashboard (it correctly flagged a fabricated transition as `suspect`). Those
+> are two spot-checks, not coverage.
+
 **Measured, 2026-09-04.** The prediction below it was wrong, and the fixture is
 what found that out:
 
 | Stage | #1 admin `toBeDisabled` | #2 upload auto-advance | #3 bulk download | #4 tree row names | Score |
 | --- | --- | --- | --- | --- | --- |
+| *empty capture (ignorance check)* | not caught | not caught | not caught | not caught | **0/4** |
 | **After P1** (AX tree; measured baseline) | caught | **not caught** | caught | caught | **3/4** |
 | **After P2a** (selection captured) | caught | **not caught** | caught | caught | **3/4** |
 | **After P2** (states + transitions) | caught | **caught** | caught | caught | **4/4** |
+
+Every row is reproducible: `AITP_FIXTURE_STAGE=baseline|p2a|p2 pnpm eval:generation`.
+Each earlier stage is recreated by *removing* exactly what that prerequisite
+added — selection properties for P2a, declared transitions for P2 — so these
+numbers stay checkable rather than being a one-off measurement taken on trust.
+The 0/4 row runs on every invocation regardless of stage.
 
 *Predicted in advance, for comparison:* after P1 → 1/4, with #1 and #3 also
 waiting on P2.

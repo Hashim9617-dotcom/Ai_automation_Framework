@@ -55,6 +55,22 @@ interface MistakeCase {
   right: CandidateCase;
   /** What the wrong assertion was, in words, for the report. */
   wrongDescription: string;
+  /**
+   * The grade the WRONG assertion must receive — not merely "anything but
+   * observed".
+   *
+   * A criterion that can be satisfied by knowing nothing is not a criterion.
+   * "Not observed" is free: an empty capture grades everything `assumed` and
+   * would pass. So where the capture is capable of positively refuting the
+   * mistake, the fixture demands exactly that — `contradicted`, which no
+   * empty capture can produce. Where refutation is genuinely impossible
+   * (#2: we never captured what Next does, so `assumed` is the correct and
+   * honest grade), safety carries no positive weight and `caught` rests
+   * entirely on capability, which is itself positive.
+   */
+  expectedWrongGrade: 'contradicted' | 'assumed';
+  /** Why that grade, in words, for the report and for the next reader. */
+  wrongGradeReason: string;
 }
 
 function serve(): Promise<{ server: Server; baseUrl: string }> {
@@ -74,6 +90,32 @@ function serve(): Promise<{ server: Server; baseUrl: string }> {
 async function captureState(page: Page, id: string, label: string): Promise<CapturedState> {
   const tree = await captureAccessibilityTree(page, { maxNodes: 1_000 });
   return { id, label, url: tree.url, nodes: tree.nodes, truncated: tree.truncated };
+}
+
+/**
+ * Which prerequisite's capability the capture is allowed to use.
+ *
+ * `AITP_FIXTURE_STAGE=baseline|p2a|p2` (default `p2`). Each earlier stage is
+ * reproduced by REMOVING exactly what the prerequisite added — selection
+ * properties for P2a, declared transitions for P2 — so the staged scores in
+ * docs/phase-2-generation.md stay re-derivable by anyone, instead of being a
+ * one-off measurement nobody can check.
+ */
+type Stage = 'baseline' | 'p2a' | 'p2';
+const STAGE: Stage = (process.env.AITP_FIXTURE_STAGE as Stage) || 'p2';
+
+function degradeToStage(capture: StateCapture, stage: Stage): StateCapture {
+  if (stage === 'p2') return capture;
+  const withoutTransitions = { ...capture, transitions: [] };
+  if (stage === 'p2a') return withoutTransitions; // selection kept, transitions removed
+  // baseline: also strip what P2a added, back to {role, name, enabled}.
+  return {
+    ...withoutTransitions,
+    states: withoutTransitions.states.map((state) => ({
+      ...state,
+      nodes: state.nodes.map(({ role, name, enabled }) => ({ role, name, enabled })),
+    })),
+  };
 }
 
 /**
@@ -135,6 +177,9 @@ const MISTAKES: MistakeCase[] = [
     title: 'admin create form: Create is disabled while empty (Finding 9)',
     owner: 'P2',
     wrongDescription: 'Create button is DISABLED on an empty form',
+    expectedWrongGrade: 'contradicted',
+    wrongGradeReason:
+      'the dialog state is captured and holds button "Create" enabled=true, so the capture actively refutes this — an empty capture could not',
     wrong: {
       entryState: 'admin.create-role.empty',
       steps: [{ kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: false }],
@@ -149,6 +194,9 @@ const MISTAKES: MistakeCase[] = [
     title: 'upload wizard: choosing a workspace auto-advances (Finding 8)',
     owner: 'P2',
     wrongDescription: 'after choosing a workspace you click Next to reach the Folder step',
+    expectedWrongGrade: 'assumed',
+    wrongGradeReason:
+      'nobody ever declared what clicking Next does, so the capture genuinely does not know — `assumed` is the honest grade, and #2 therefore rests entirely on its (positive) capability half',
     wrong: {
       entryState: 'upload.workspace-step',
       steps: [
@@ -169,6 +217,9 @@ const MISTAKES: MistakeCase[] = [
     title: 'global search: select-all reveals one consolidated download',
     owner: 'P2',
     wrongDescription: 'every result row gains its own "Download File" action',
+    expectedWrongGrade: 'contradicted',
+    wrongGradeReason:
+      'the post-select-all state is captured and complete, and contains no such button — absence in a COMPLETE view is evidence (Finding 15)',
     wrong: {
       entryState: 'search.all-selected',
       steps: [
@@ -193,6 +244,9 @@ const MISTAKES: MistakeCase[] = [
     title: 'file tree: a row is named for its nested controls too (Finding 11)',
     owner: 'P1',
     wrongDescription: 'the workspace row is named "WS-ALPHA"',
+    expectedWrongGrade: 'contradicted',
+    wrongGradeReason:
+      'the tree state is captured and complete, and the row is named "Expand WS-ALPHA More options" — the bare name is positively absent',
     wrong: {
       entryState: 'files.tree',
       steps: [{ kind: 'assert', role: 'treeitem', name: 'WS-ALPHA', property: 'present', expected: true }],
@@ -221,10 +275,35 @@ async function main(): Promise<void> {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
+  capture = degradeToStage(capture, STAGE);
+
   console.log('\n=== Four-mistake fixture ===\n');
+  console.log(
+    `stage:   ${STAGE}${STAGE === 'p2' ? ' (full)' : ' (earlier capability, reproduced by removal)'}`,
+  );
   console.log(
     `capture: ${capture.states.length} state(s), ${capture.transitions.length} declared transition(s)\n`,
   );
+
+  // A criterion that can be satisfied by knowing nothing is not a criterion.
+  // This runs every time, against a capture that knows nothing at all. If any
+  // mistake scores caught here, the criterion has rotted into something
+  // ignorance can pass, and the fixture says so loudly rather than reporting a
+  // comfortable number.
+  const emptyCapture: StateCapture = { sessionId: 'empty', states: [], transitions: [] };
+  const ignoranceCaught = MISTAKES.filter((mistake) => {
+    const wrong = checkGrounding(emptyCapture, mistake.wrong);
+    const right = checkGrounding(emptyCapture, mistake.right);
+    return wrong.overall === mistake.expectedWrongGrade && right.overall === 'observed';
+  });
+  console.log(
+    ignoranceCaught.length === 0
+      ? 'ignorance check: an empty capture scores 0/4 — the criterion needs positive evidence. ok\n'
+      : `IGNORANCE CHECK FAILED: an empty capture scored ${ignoranceCaught.length}/4 (${ignoranceCaught
+          .map((m) => m.id)
+          .join(', ')}) — the criterion can be satisfied by knowing nothing.\n`,
+  );
+  if (ignoranceCaught.length > 0) process.exitCode = 1;
 
   let caughtCount = 0;
   const rows: string[] = [];
@@ -233,7 +312,10 @@ async function main(): Promise<void> {
     const wrong = checkGrounding(capture, mistake.wrong);
     const right = checkGrounding(capture, mistake.right);
 
-    const safety = wrong.overall !== 'observed';
+    // Not "anything but observed" — the specific grade the capture ought to
+    // be able to reach. Demanding `contradicted` where refutation is possible
+    // is what stops an empty capture passing this half by default.
+    const safety = wrong.overall === mistake.expectedWrongGrade;
     const capability = right.overall === 'observed';
     const caught = safety && capability;
     if (caught) caughtCount += 1;
@@ -241,7 +323,7 @@ async function main(): Promise<void> {
     console.log(`${caught ? 'CAUGHT    ' : 'not caught'} ${mistake.id}  ${mistake.title}`);
     console.log(`    owner: ${mistake.owner}`);
     console.log(
-      `    safety     ${safety ? 'PASS' : 'FAIL'}  wrong assertion (${mistake.wrongDescription}) graded ${wrong.overall}`,
+      `    safety     ${safety ? 'PASS' : 'FAIL'}  wrong assertion (${mistake.wrongDescription}) graded ${wrong.overall}, required ${mistake.expectedWrongGrade}`,
     );
     for (const s of wrong.steps) console.log(`        - ${s.grade}: ${s.reason}`);
     console.log(
