@@ -291,11 +291,46 @@ An unknown model falls back to the **most expensive** known rate, so it
 over-estimates and the guard trips early rather than late — a run that stops
 early is an annoyance, a run that quietly overspends is a bill.
 
+**Rates are keyed by family AND version**, verified against Anthropic's
+official pricing page on 2026-09-05:
+
+| Model | Input / MTok | Output / MTok |
+| --- | --- | --- |
+| `claude-sonnet-4-5` | $3 | $15 |
+| `claude-sonnet-5` | $2 | $10 |
+| `claude-haiku-4-5` | $1 | $5 |
+| `claude-opus-5` | $5 | $25 |
+
+The version half is load-bearing, and a first attempt got it wrong: matching
+the family by *substring* made `claude-sonnet-4-5` and `claude-sonnet-5`
+resolve to the same rate, pricing one of them 50% wrong. Worse, the first test
+suite asserted both ids resolve to family `sonnet` — it **enshrined the bug as
+intended behaviour**. A test that pins the wrong answer is worse than no test.
+So: an unrecognised *version* now falls back to the conservative rate rather
+than inheriting its family's price, and `tests/unit/llm-pricing.spec.ts`
+asserts Sonnet 4.5 and Sonnet 5 price *differently*.
+
 **Still true, and worth keeping in mind:** the rates are hardcoded and
 therefore perishable. Nothing reads live pricing, so they drift as list prices
-change. Last checked 2026-09-05. Treat every `costUsd` here as an estimate, and
-when a figure really matters, check the token counts — those come from the
-provider and are exact.
+change. Treat every `costUsd` here as an estimate, and when a figure really
+matters, check the token counts — those come from the provider and are exact.
+
+### Deferred decision: switching the reasoning model to Sonnet 5
+
+Sonnet 5 is cheaper per token than Sonnet 4.5 ($2/$10 against $3/$15), which
+would ease the eval's budget headroom. **Deliberately not done during step 3**,
+for two reasons:
+
+1. Every token measurement in these docs was taken on 4.5. Switching mid-P3
+   would make the eval numbers incomparable with the staged ones already
+   recorded.
+2. The headline saving is misleading. Anthropic's pricing page notes that
+   4.7+ models use a newer tokenizer producing roughly **30% more tokens for
+   the same text**, so a 33% lower per-token price nets out closer to **13%**
+   real saving — and it invalidates every token count measured so far.
+
+Revisit after P3 lands, as its own measured comparison rather than a
+mid-flight swap.
 
 ---
 
