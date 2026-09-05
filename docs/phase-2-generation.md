@@ -113,6 +113,20 @@ So the rule is:
   carried in a separate `openQuestions` list on the proposal.
 - `OBSERVED` assertions are the only ones eligible to become case steps.
 
+**How a case's assertions roll up to one verdict.** The grades above are
+per-assertion; `checkGrounding()` also returns an `overall` used by the
+four-mistake fixture, and the first pass of design-derived unit tests found
+this under-specified — the document defined the parts and not the whole. Now
+specified, so a test has something external to check against:
+
+- any assertion `CONTRADICTED` → the case is `CONTRADICTED` and must never be
+  proposed;
+- otherwise, every assertion `OBSERVED` (and at least one exists) → `OBSERVED`;
+- otherwise → `ASSUMED`.
+
+A case is only as grounded as its weakest claim, and a case asserting nothing
+is not grounded — it is a question with no content.
+
 **A case with zero observed assertions is not a case.** It is a question, and
 it is emitted as one — into a separate bin, in question form ("Does choosing a
 workspace advance the wizard, or require a Next click?"), never as a
@@ -901,6 +915,34 @@ they are the same idea at three levels, and **P3 will have prerequisites too**:
 > meaningful if each stage contains something that FAILS when that stage is
 > removed. Otherwise you have stages that measure nothing and a table that
 > looks like evidence.
+>
+> **4. A test that pins the wrong answer is worse than no test, because it
+> converts a bug into a requirement.**
+
+Rules 1–3 are about what evidence proves. **Rule 4 is about tests inheriting
+their author's misconception**, and it is the one that bites hardest, because
+the same process that writes the bug writes the test — and then asserts what
+the code *does* rather than what is *correct*. It was learned on 2026-09-05 by
+shipping a model-pricing matcher that treated `claude-sonnet-4-5` and
+`claude-sonnet-5` as the same model, together with a unit test asserting
+exactly that. The test did not fail to catch the bug; it **certified** it.
+
+The defence is not more care. It is a rule about where expectations come from:
+
+> **A pinning test's expectations must come from an EXTERNAL source of truth,
+> never from reading the implementation.**
+
+For the pricing bug the external source was Anthropic's published pricing page,
+and consulting it is what exposed the error. For `checkGrounding()` — the
+safety mechanism of this whole design, and therefore the highest-stakes place
+this trap can be set — the external source is **this document**. Its unit
+tests derive every expected grade from the design rules below, never from
+reading `grounding.ts`.
+
+Where the design and the implementation disagree, **that is a finding to
+report, not a test to adjust.** Divergence is the expected outcome of doing
+this properly rather than a sign something went wrong: the `navigate` step was
+found exactly this way.
 
 Rule 3 was learned on 2026-09-05, and its failure was subtler than a bug: the
 `baseline` and `p2a` stages produced byte-identical output, not because the

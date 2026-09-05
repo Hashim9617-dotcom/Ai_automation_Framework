@@ -34,6 +34,27 @@ expected 1')` is worth more than any amount of care taken while writing it.
 in the scratchpad is the one nobody reviews, run once, its output believed
 because there is no reason to doubt it. Both near-misses above were throwaways.
 
+---
+
+## A test suite that passes first time has not yet been checked
+
+Rule 4 in [`docs/phase-2-generation.md`](docs/phase-2-generation.md) says a
+test's expectations must come from an external source of truth, never from
+reading the implementation — because the process that wrote the bug writes the
+test and asserts what the code *does* rather than what is *correct*.
+
+Stating that rule does not make you obey it. **The verification is mutation
+testing:** break each rule in the implementation deliberately, and confirm a
+test fails for each break. A suite that passes both the correct implementation
+and a broken one is not testing what it claims to test — it is rule 3
+("a stage that measures nothing") wearing a different hat.
+
+Done for `checkGrounding()` on 2026-09-05: six mutations, one per design rule,
+all caught (state isolation by 4 tests, unrecorded-property silence by 2). The
+throwaway mutation script asserted its own effect at three points — the anchor
+matched exactly once, the file actually changed, and the original was restored
+byte-for-byte afterwards.
+
 The same idea runs through the design docs, where it was learned three separate
 times (see "Three rules this project keeps re-deriving the expensive way" in
 [`docs/phase-2-generation.md`](docs/phase-2-generation.md)): you cannot
