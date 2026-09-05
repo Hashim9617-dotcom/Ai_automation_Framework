@@ -6,6 +6,7 @@ export * from './logger';
 export * from './errors';
 export * from './healing/gate';
 export * from './healing/match';
+export * from './generation/bounding';
 export * from './generation/gate';
 export * from './generation/grounding';
 export * from './matching/command-matcher';

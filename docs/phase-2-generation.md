@@ -628,13 +628,27 @@ can only ever be dead weight or a hole.
 
 **One line that will matter later, written now because the pressure will come
 from exactly this symptom:** if generated cases turn out to lose a lot of
-grounding to the absorbing `unknown`, that is evidence the **capture is
-incomplete** — a transition the human performed but did not declare — and not
-evidence that the cursor needs an escape hatch. **The fix belongs in capture,
-never in grading.** Loosening the grader to rescue a thin capture converts a
-visible gap ("we never recorded what that click does") into an invisible one
-("the grader assumed it was fine"), which is the exact trade this whole design
-refuses everywhere else.
+grounding to the absorbing `unknown`, the answer is never to loosen the cursor.
+**The fix belongs in capture or in bounding, never in grading.** Loosening the
+grader to rescue a thin capture converts a visible gap ("we never recorded what
+that click does") into an invisible one ("the grader assumed it was fine"),
+which is the exact trade this whole design refuses everywhere else.
+
+**But "the capture was thin" is three different faults, and they need telling
+apart.** An earlier draft of this note named only the first, which would have
+sent someone off to re-capture a flow that was captured perfectly well:
+
+| Cause | Where the fix belongs | How to tell |
+| --- | --- | --- |
+| The human performed a transition and never declared it | capture — re-capture the flow, declaring the action | the transition is absent from `transitions` for a `from` state that exists |
+| The declared transition was marked **`suspect`** by the cross-check | capture — the declaration and the observed delta disagree, so one of them is wrong | the transition exists with `verdict: 'suspect'` |
+| **State selection dropped the state holding the fact** | bounding — the relevance heuristic, not the capture | the state exists in the session but not in the bounded set (see the exclusion record below) |
+
+The third is the dangerous one, because a relevance heuristic that picks wrong
+produces an `ASSUMED` that looks *identical* to a genuinely undeclared
+transition. Without the exclusion record specified below, a reviewer seeing
+"this is a question, not a case" cannot tell which of the three happened — and
+would follow this very note to the wrong fix.
 
 This is what makes the prerequisite chain mechanical rather than aspirational.
 Before P2, no transitions exist, so the cursor goes `unknown` at the first
@@ -746,9 +760,57 @@ the projection creeps.
    names, and send only the top-scoring states (proposed cap: 3 states, plus
    any state reachable by one recorded transition from them). A 24-page
    library must never go into one prompt.
+
+   **This is a relevance heuristic, so it must record what it excluded and
+   why** — the same requirement, for the same reason, as the generation gate's
+   suppression logging. When selection picks wrong, the generator never sees
+   the state holding the fact, an observable assertion grades `ASSUMED`, and
+   the reviewer is shown "this is a question, not a case". That is
+   *indistinguishable* from a genuinely undeclared transition, and the two
+   have opposite fixes: re-capture the flow, or widen the selector. Guessing
+   wrong costs a re-capture of something already captured correctly.
+
+   So the bounded capture carries a `selection` record:
+
+   - every state that was **available**, with its score;
+   - the states **chosen**, and whether each was chosen on its own score or
+     pulled in as a transition neighbour;
+   - the states **excluded**, each with the score and the rule that dropped it
+     (below the cut, or beyond the state cap);
+   - the keywords the scoring actually used, after stop-word removal.
+
+   A reviewer looking at an `ASSUMED` assertion can then answer "was the state
+   holding this fact even offered to the model?" without re-running anything.
+   As with the gate, this is a requirement on the bounding output rather than a
+   courtesy of its callers: a bounded capture that cannot answer that question
+   is incomplete even though nothing misbehaves.
 2. **Drop unnameable nodes.** A node with an empty `name` cannot be targeted by
    a `role + name` locator and cannot ground an assertion. `captureAccessibilityTree`
    already drops `none`/`generic`/`InlineTextBox`; this drops the rest.
+
+   This one loss needs **no marker**, unlike the other three: every assertion
+   names a node, so a node with no name could never have grounded or refuted
+   anything. Nothing is lost that grading could have used.
+
+   **But it changes counts, and one count carries a completeness guarantee.**
+   `captureAccessibilityTree` computes `truncated: kept.length >= maxNodes`
+   over a set that still *includes* unnamed nodes. Drop them afterwards and the
+   count shrinks — so a state that genuinely hit its cap at 150 might hold only
+   130 named nodes, and any later `truncated = count >= cap` recomputation
+   would report **`false`** for a view that is demonstrably incomplete. That
+   silently re-enables refutation over nodes nobody ever saw: Finding 15's
+   failure, reintroduced by an ordering detail rather than by a wrong idea.
+
+   Hence the rule, which holds for every bounding step and not just this one:
+
+   > **`truncated` is monotonic. Bounding may only ever set it, never clear
+   > it.** Once a view is known incomplete, no later filtering can make it
+   > complete again — filtering removes what we saw, it cannot recover what we
+   > did not.
+
+   The cap in step 4 therefore ORs into the existing flag rather than replacing
+   it, and it is applied after this step and the collapsing below, so the
+   budget is spent on nodes that can actually be targeted.
 3. **Collapse repeated siblings.** Finding 11 observed 25 workspace rows all of
    shape `(Expand|Collapse) <name> More options`. Sending 25 near-identical
    nodes is pure waste. Send one exemplar plus a count and the shape:

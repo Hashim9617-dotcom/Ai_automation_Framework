@@ -462,3 +462,29 @@ test.describe('checkGrounding — collapsed groups @unit', () => {
     expect(notMember.steps[0]!.grade).toBe('contradicted');
   });
 });
+
+test.describe('checkGrounding — malformed capture @unit', () => {
+  test('a cursor advancing to a state the capture lacks grades ASSUMED, not a crash', () => {
+    // A safety mechanism must degrade conservatively on malformed input. This
+    // crashed with "Cannot read properties of undefined (reading 'nodes')"
+    // until 2026-09-05, and capture bounding could produce exactly this shape
+    // by pulling a transition's unseen far end into the kept set.
+    const malformed: StateCapture = {
+      sessionId: 'x',
+      states: [{ id: 'a', label: 'a', url: 'https://app.example/a', nodes: [], truncated: false }],
+      transitions: [{ from: 'a', to: 'ghost', action: 'clicked', verdict: 'consistent' }],
+    };
+
+    const result = checkGrounding(malformed, {
+      entryState: 'a',
+      steps: [
+        { kind: 'action', description: 'clicked' },
+        assertStep('button', 'X', 'present', true),
+      ],
+    });
+
+    expect(result.steps[1]!.grade).toBe('assumed');
+    expect(result.steps[1]!.reason).toContain('does not contain');
+    expect(result.overall).not.toBe('observed');
+  });
+});

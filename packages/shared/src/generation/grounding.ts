@@ -225,7 +225,22 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
       continue;
     }
 
-    const state = byId.get(cursor)!;
+    const state = byId.get(cursor);
+    if (!state) {
+      // A declared transition pointed at a state this capture does not
+      // contain, so the cursor advanced somewhere unrepresented. That is a
+      // malformed capture, and a safety mechanism must degrade conservatively
+      // on malformed input rather than throw — this used to crash with
+      // "Cannot read properties of undefined". Grading `assumed` says exactly
+      // what is true: we do not know what is on screen here.
+      steps.push({
+        stepIndex,
+        grade: 'assumed',
+        stateId: null,
+        reason: `the cursor points at "${cursor}", which this capture does not contain — nothing can be grounded against a state that is not here`,
+      });
+      continue;
+    }
     const matches = state.nodes.filter(
       (node) => node.role === step.role && normalise(node.name) === normalise(step.name),
     );
