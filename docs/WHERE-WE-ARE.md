@@ -266,42 +266,50 @@ just add a feature.
   quirks (the tree-row name-concatenation pattern from Finding 11, for
   instance) — the demo app doesn't reproduce those.
 
-### Known issue: LLM cost reporting is not model-aware
+### FIXED 2026-09-05: LLM cost reporting is now model-aware
 
-`HttpLlmGateway` (`packages/ai-engine/src/gateway/http-gateway.ts`) prices
-every completion at one fixed rate — $3/$15 per million tokens, in/out —
-regardless of which model actually ran. `createLlmGateway()`
-(`packages/ai-engine/src/gateway/factory.ts`) never passes model-specific
-pricing in, so a Haiku call and a Sonnet call currently report identical
-`costUsd` for identical token counts, even though Haiku is genuinely
-cheaper. The rate itself is also hardcoded, so it will silently drift out
-of date as provider pricing changes — nothing here reads live pricing.
+**Was:** `HttpLlmGateway` priced every completion at one fixed rate — $3/$15
+per million tokens — regardless of which model ran, so a Haiku call and a
+Sonnet call reported identical `costUsd` for identical token counts. Recorded
+as cosmetic for as long as the only consumer was a number a human read.
 
-**Token counts (`promptTokens`/`completionTokens`) are real and accurate.**
-Only the derived `costUsd` is wrong. Anywhere this matters — reading a
-budget report, deciding whether `LLM_BUDGET_USD` headroom is real — trust
-the token counts, not the dollar figure.
+**Why it stopped being cosmetic.** Step 3's full eval is projected at ~200k
+prompt + ~30k completion tokens against `LLM_BUDGET_USD` (default 2). At the
+blanket Sonnet rate a Haiku-run eval would have computed ~3x its real cost, and
+`BudgetGuard.assertAllowed()` **throws `BudgetExceededError` mid-run** — which
+surfaces as an eval failure, not as a budget stop, and costs an afternoon
+chasing the wrong thing.
 
-**This makes `LLM_BUDGET_USD` fail conservative, not dangerous**: because
-the fixed rate ($3/$15) is Sonnet-level pricing applied even to cheaper
-Haiku calls, the budget guard trips *earlier* than a model-aware
-calculation would, never later. A run can stop early on an inflated cost
-estimate; it can't blow through the real budget because the estimate came
-in too low.
+**Now:** `packages/ai-engine/src/gateway/pricing.ts` resolves a per-model rate
+by family (opus / sonnet / haiku, matched by substring so dated variants
+resolve too), and `HttpLlmGateway` prices each completion at *its own* model's
+rate. Unit-covered in `tests/unit/llm-pricing.spec.ts`, including the exact
+regression this fixes: Haiku and Sonnet must not cost the same for identical
+token counts.
 
-Not fixed — flagged, not fixed, per explicit instruction to note it and
-move on rather than fix it now.
+An unknown model falls back to the **most expensive** known rate, so it
+over-estimates and the guard trips early rather than late — a run that stops
+early is an annoyance, a run that quietly overspends is a bill.
+
+**Still true, and worth keeping in mind:** the rates are hardcoded and
+therefore perishable. Nothing reads live pricing, so they drift as list prices
+change. Last checked 2026-09-05. Treat every `costUsd` here as an estimate, and
+when a figure really matters, check the token counts — those come from the
+provider and are exact.
 
 ---
+
 
 ## The seven eval cases, and what each one actually proves
 
 `pnpm eval:healing` — six mutations to the bundled demo app plus one
 simulating the real DmsSynergy bug shape. Last real run: **7/7, cold LLM
-cache, 5 real calls, 4029 prompt + 532 completion tokens = 4561 tokens
-total.** (Dollar cost deliberately not quoted here — see "Known issue: LLM
-cost reporting is not model-aware" above; the token counts are the real
-measurement, the derived cost isn't.)
+cache, 5 real calls, 4029 prompt + 533 completion tokens = 4562 tokens
+total, $0.0201** — re-measured 2026-09-05 with model-aware pricing, and the
+arithmetic checks out by hand at Sonnet's $3/$15 per MTok (4029/1e6 × 3 +
+533/1e6 × 15 = $0.0201). The dollar figure is quotable again now that it is
+computed at the model's own rate; the token counts remain the exact
+measurement, since those come from the provider.
 
 | # | Mutation | Proves |
 |---|---|---|

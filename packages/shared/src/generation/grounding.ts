@@ -126,12 +126,19 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
           transition.from === cursor && normalise(transition.action) === normalise(step.description),
       );
       if (!match) {
+        // Names the state the cursor was ACTUALLY standing in, not the case's
+        // entry state. Those differ the moment a case has more than one
+        // action, and a reason naming the wrong state is worse than no reason
+        // at all: reasons are what a reviewer reads to decide whether to
+        // trust a proposal, so an explanation that lies costs more than a
+        // grade that is merely unexplained.
+        const from = cursor;
         cursor = null;
         steps.push({
           stepIndex,
           grade: 'assumed',
           stateId: null,
-          reason: `no declared transition from "${candidate.entryState}" for this action — resulting state unknown`,
+          reason: `no declared transition from "${from}" for this action — resulting state unknown`,
         });
         continue;
       }

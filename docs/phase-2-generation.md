@@ -590,11 +590,37 @@ claim about the Workspace step. Designing that in now rather than retrofitting:
 - An action step advances the cursor **only if a declared transition matches
   `(currentState, action)`**. If none matches, the cursor becomes `unknown`.
 - Once the cursor is `unknown`, **every downstream assertion is `ASSUMED`**,
-  regardless of what any state contains. The only thing that re-anchors it is
-  an explicit `navigate` step to a URL matching a captured state.
+  regardless of what any state contains. Nothing re-anchors it. `unknown` is
+  absorbing, deliberately — see below.
 - A node that exists in some *other* state does not ground anything. If it
   conflicts with a node of the same role+name in the *current* state, that is
   `CONTRADICTED`.
+
+#### There is no `navigate` step, and there should not be
+
+An earlier draft of this section said an explicit `navigate` step could
+re-anchor an unknown cursor. That was wrong, and the reason is sharper than
+"the absorbing version is safer":
+
+> **A `navigate` step is either redundant or ungrounded, with nothing in
+> between.** If the capture contains a state the human declared as reached by
+> navigating, that is an ordinary transition and the existing cursor mechanism
+> already handles it — no special step kind required. If the capture does *not*
+> contain it, then `navigate` re-anchors the cursor on an **undeclared claim**,
+> which is precisely what this design exists to prevent.
+
+There is no third case. Every `navigate` is one or the other, so the step kind
+can only ever be dead weight or a hole.
+
+**One line that will matter later, written now because the pressure will come
+from exactly this symptom:** if generated cases turn out to lose a lot of
+grounding to the absorbing `unknown`, that is evidence the **capture is
+incomplete** — a transition the human performed but did not declare — and not
+evidence that the cursor needs an escape hatch. **The fix belongs in capture,
+never in grading.** Loosening the grader to rescue a thin capture converts a
+visible gap ("we never recorded what that click does") into an invisible one
+("the grader assumed it was fine"), which is the exact trade this whole design
+refuses everywhere else.
 
 This is what makes the prerequisite chain mechanical rather than aspirational.
 Before P2, no transitions exist, so the cursor goes `unknown` at the first
@@ -644,10 +670,37 @@ solving with embeddings in step 3.
 
 ## Cost, capture bounding, and the cache key
 
-Budget assumption: ~$0.05 per generation, roughly five times a healing call.
-Healing's measured cold-cache run was 4,561 tokens across 5 calls (~900
-tokens/call). Generation's prompt is dominated by the capture, so bounding the
-capture *is* bounding the cost.
+**Measured, 2026-09-05**, rather than assumed. Real DMS captures were
+serialised the way the prompt will send them:
+
+| State | AX nodes | With names | Raw | After collapsing repeated shapes |
+| --- | --- | --- | --- | --- |
+| dashboard | 399 | 304 | ~1,880 tok | **~850 tok** |
+| upload-workspace | 131 | 127 | ~930 tok | **~850 tok** |
+
+So a state costs ~850 tokens collapsed, not the 2,000–3,000 a first guess put
+it at. Per generation: three states (~2,550) + system prompt and schema (~600)
++ existing case titles (~400) + the command ≈ **3,600–6,700 prompt tokens**,
+plus 500–900 completion. Call it **~5,000 tokens per generation**.
+
+- **First end-to-end smoke** (3 commands the matcher finds nothing for):
+  ~15,000–21,000 tokens, about **$0.08** on Sonnet.
+- **Full eval** across the flows the 45 hand-written tests cover: ~200k prompt
+  + ~30k completion ≈ **$1.00–1.35 on Sonnet**, or ~**$0.36 on Haiku**. That
+  is the real cost item, not the smoke run, and it should be a deliberate
+  decision rather than a surprise.
+
+**A collision worth knowing about before it bites.** `BudgetGuard`
+(`packages/ai-engine/src/gateway/budget.ts`) **throws `BudgetExceededError`
+mid-run** when spend reaches `LLM_BUDGET_USD` (default 2). A full eval at
+~$1.35 sits at roughly two-thirds of that cap — it should not trip, but the
+headroom is thin, and a trip surfaces as an *eval failure* rather than as a
+budget stop, which is an afternoon lost chasing the wrong thing. Two things
+make it survivable: the cap is checked against **model-aware** pricing as of
+2026-09-05 (before that a Haiku-run eval computed ~3× its real cost), and the
+cache key includes the capture digest, so re-runs during development are free
+unless the capture changed. Run the eval in batches, or on the fast model, if
+the projection creeps.
 
 **Bounding the capture sent to the model**, in order of application:
 

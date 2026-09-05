@@ -3,6 +3,7 @@ export * from './gateway/cache';
 export * from './gateway/mock-gateway';
 export * from './gateway/http-gateway';
 export * from './gateway/factory';
+export * from './gateway/pricing';
 export * from './dom/render';
 export * from './rca/prompts';
 export * from './rca/analyzer';

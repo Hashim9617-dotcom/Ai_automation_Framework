@@ -7,6 +7,7 @@ import {
 } from '@aitp/shared';
 import { BudgetGuard } from './budget';
 import { MemoryCompletionCache, cacheKeyFor, type CompletionCache } from './cache';
+import { estimateCostUsd, type TokenRate } from './pricing';
 
 export type LlmProvider = 'anthropic' | 'openai';
 
@@ -17,7 +18,8 @@ export interface HttpGatewayConfig {
   models: { reasoning: string; fast: string };
   baseUrl?: string;
   /** USD per 1M tokens, used for the budget guard. */
-  pricing?: { inputPerMTok: number; outputPerMTok: number };
+  /** Overrides the model-aware rate table. Mainly for tests. */
+  pricing?: TokenRate;
   cache?: CompletionCache;
   budget?: BudgetGuard;
   maxRetries?: number;
@@ -170,7 +172,9 @@ export class HttpLlmGateway implements LlmGateway {
   }
 
   private parse(payload: Record<string, never>, model: string): LlmCompletion<string> {
-    const pricing = this.config.pricing ?? { inputPerMTok: 3, outputPerMTok: 15 };
+    // Priced at THIS model's rate, not one blanket rate for every model.
+    const cost = (promptTokens: number, completionTokens: number): number =>
+      estimateCostUsd(model, promptTokens, completionTokens, this.config.pricing);
 
     if (this.config.provider === 'anthropic') {
       const blocks = (payload.content ?? []) as unknown as Array<{ type: string; text?: string }>;
@@ -191,9 +195,7 @@ export class HttpLlmGateway implements LlmGateway {
           promptTokens,
           completionTokens,
           cached: false,
-          costUsd:
-            (promptTokens / 1e6) * pricing.inputPerMTok +
-            (completionTokens / 1e6) * pricing.outputPerMTok,
+          costUsd: cost(promptTokens, completionTokens),
         },
       };
     }
@@ -215,9 +217,7 @@ export class HttpLlmGateway implements LlmGateway {
         promptTokens,
         completionTokens,
         cached: false,
-        costUsd:
-          (promptTokens / 1e6) * pricing.inputPerMTok +
-          (completionTokens / 1e6) * pricing.outputPerMTok,
+        costUsd: cost(promptTokens, completionTokens),
       },
     };
   }
