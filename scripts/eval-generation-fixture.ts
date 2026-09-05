@@ -266,6 +266,43 @@ const MISTAKES: MistakeCase[] = [
   },
 ];
 
+/**
+ * Assertions that isolate ONE prerequisite's contribution, reported separately
+ * from the four-mistake score.
+ *
+ * These exist because of a real gap found on 2026-09-05: the `baseline` and
+ * `p2a` stages produced BYTE-IDENTICAL output. The degradation was working
+ * (the raw capture carries `selected` on four nodes; baseline stripping
+ * removes it), but no mistake could observe the difference — #2 is the only
+ * case that touches `selected`, and it dies at the transition step long
+ * before reaching a node lookup. So the `p2a` row was unfalsifiable: it
+ * measured nothing the `baseline` row did not.
+ *
+ * A probe fixes that by asserting a property-only fact that needs no
+ * transition at all. P2a's contribution then shows up directly, and deleting
+ * P2a would visibly break this line rather than hiding behind #2.
+ */
+interface Probe {
+  owner: 'P1' | 'P2a' | 'P2';
+  what: string;
+  candidate: CandidateCase;
+  expected: 'observed';
+}
+
+const PROBES: Probe[] = [
+  {
+    owner: 'P2a',
+    what: 'selection state is recorded at all (needs no transition)',
+    candidate: {
+      entryState: 'upload.workspace-step',
+      steps: [
+        { kind: 'assert', role: 'tab', name: 'Workspace', property: 'selected', expected: true },
+      ],
+    },
+    expected: 'observed',
+  },
+];
+
 async function main(): Promise<void> {
   const { server, baseUrl } = await serve();
   let capture: StateCapture;
@@ -304,6 +341,24 @@ async function main(): Promise<void> {
           .join(', ')}) — the criterion can be satisfied by knowing nothing.\n`,
   );
   if (ignoranceCaught.length > 0) process.exitCode = 1;
+
+  console.log('--- prerequisite probes (isolate one prerequisite each) ---');
+  let probeFailures = 0;
+  for (const probe of PROBES) {
+    const result = checkGrounding(capture, probe.candidate);
+    const pass = result.overall === probe.expected;
+    if (!pass) probeFailures += 1;
+    console.log(`  ${pass ? 'PASS' : 'FAIL'}  [${probe.owner}] ${probe.what}`);
+    for (const step of result.steps) console.log(`          ${step.grade}: ${step.reason}`);
+  }
+  // Probes gate only at the full stage. Failing at an earlier stage is the
+  // whole point — that is the prerequisite's absence being visible — so
+  // treating it as an error there would make the staged runs unusable.
+  if (probeFailures > 0 && STAGE === 'p2') {
+    console.log(`  ${probeFailures} probe(s) FAILED at the full stage — a prerequisite regressed.`);
+    process.exitCode = 1;
+  }
+  console.log('');
 
   let caughtCount = 0;
   const rows: string[] = [];

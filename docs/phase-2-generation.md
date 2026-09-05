@@ -925,6 +925,36 @@ what found that out:
 | **After P2a** (selection captured) | caught | **not caught** | caught | caught | **3/4** |
 | **After P2** (states + transitions) | caught | **caught** | caught | caught | **4/4** |
 
+**The `baseline` and `p2a` rows are identical for a reason, and it is not
+coincidence — but it did hide a hole.** Re-verified 2026-09-05: the two stages
+produced *byte-identical* output. The degradation was working correctly (the
+raw capture carries `selected` on four nodes; baseline stripping removes all
+four), but **no mistake could observe the difference**. #2 is the only case
+touching `selected`, and it dies at the transition step — `assumed: cursor
+unknown` — long before any node lookup. So the `p2a` row measured nothing the
+`baseline` row did not, and was unfalsifiable on its own.
+
+Worth stating plainly, because it corrects an intuition that looks right:
+**#2's blocking reason does not shift from "missing property" to "missing
+transition" between those stages.** It is the *transition* at both, because
+the cursor walk fails first. #2 can never expose P2a's contribution at any
+stage.
+
+Fixed by adding a **prerequisite probe** — an assertion that isolates one
+prerequisite, reported separately from the four-mistake score. P2a's probe
+asserts `tab "Workspace" selected=true` in the workspace state, needing no
+transition at all:
+
+| Stage | P2a probe |
+| --- | --- |
+| baseline | `FAIL — assumed: the capture does not record "selected" for tab "Workspace"` |
+| p2a | `PASS — observed: tab "Workspace" has selected=true` |
+| p2 | `PASS` |
+
+Deleting P2a now visibly breaks that line instead of hiding behind #2. Probes
+gate only at the full stage, since failing at an earlier one is exactly what
+they are there to show.
+
 Every row is reproducible: `AITP_FIXTURE_STAGE=baseline|p2a|p2 pnpm eval:generation`.
 Each earlier stage is recreated by *removing* exactly what that prerequisite
 added — selection properties for P2a, declared transitions for P2 — so these

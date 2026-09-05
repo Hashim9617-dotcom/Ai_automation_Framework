@@ -351,6 +351,17 @@ reaching the selection assertion — but with a transition present and
 `selected` missing it still fails. **Necessary but not sufficient**; the two
 prerequisites only carry #2 together.
 
+**The `baseline` and `p2a` rows are indistinguishable through the four
+mistakes**, and a `pnpm eval:generation` run now proves P2a's contribution
+separately. Re-verified 2026-09-05: those two stages produced byte-identical
+output, because #2 — the only case touching `selected` — dies at the
+transition step before any node lookup. The degradation was genuinely working;
+nothing could see it. A **prerequisite probe** now isolates P2a by asserting
+`tab "Workspace" selected=true`, which needs no transition: it FAILs at
+baseline and PASSes from p2a on. Note the corrected intuition — #2's blocking
+reason does *not* move from "missing property" to "missing transition" across
+those stages; it is the transition at both.
+
 ### The pass criterion, and why the first one was wrong
 
 **This is the part that took the work; it must survive.**
