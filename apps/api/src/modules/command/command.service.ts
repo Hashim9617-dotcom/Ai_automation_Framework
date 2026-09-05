@@ -4,7 +4,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import { findRepoRoot } from '@aitp/shared';
 import { RunsService } from '../runs/runs.service';
-import { flattenSuites, rank, tokenize, escapeRegex, type InventoryEntry } from './command.matcher';
+import {
+  flattenSuites,
+  rank,
+  tokenize,
+  escapeRegex,
+  type InventoryEntry,
+} from '@aitp/shared';
 
 const execFileAsync = promisify(execFile);
 

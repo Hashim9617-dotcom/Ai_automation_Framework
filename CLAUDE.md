@@ -55,6 +55,22 @@ throwaway mutation script asserted its own effect at three points — the anchor
 matched exactly once, the file actually changed, and the original was restored
 byte-for-byte afterwards.
 
+### The hardest mutation is usually the most important one
+
+State isolation — the most important safety property in the generation design —
+was nearly skipped in that pass, because breaking it needed a structural
+rewrite of the lookup rather than a one-line flip like the others. That is not
+a coincidence and it will recur:
+
+> **A property that is hard to break is one that is deeply woven into the
+> implementation — which is exactly the property you most need to confirm is
+> load-bearing rather than incidental.**
+
+The ease of writing a mutation is a measure of how superficial the property is,
+so ranking mutations by convenience tests the design in precisely the wrong
+order. When one mutation is awkward and the rest are easy, do the awkward one
+first. It caught four tests where the easy ones caught one apiece.
+
 The same idea runs through the design docs, where it was learned three separate
 times (see "Three rules this project keeps re-deriving the expensive way" in
 [`docs/phase-2-generation.md`](docs/phase-2-generation.md)): you cannot

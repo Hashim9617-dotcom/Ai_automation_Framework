@@ -4,7 +4,7 @@ import {
   rank,
   tokenize,
   escapeRegex,
-} from '../../apps/api/src/modules/command/command.matcher';
+} from '@aitp/shared';
 
 /**
  * Locks in two behaviours that are easy to get wrong and expensive to debug:

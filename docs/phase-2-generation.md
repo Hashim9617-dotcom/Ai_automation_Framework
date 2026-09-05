@@ -680,6 +680,29 @@ have wanted rather than paying to generate a duplicate — and the reviewer sees
 the matched tests and can force generation with an explicit flag. Not worth
 solving with embeddings in step 3.
 
+**But the safe direction here is also the invisible one, so the gate must say
+what it did.** When over-matching suppresses generation for a genuinely new
+flow, the only symptom is that nothing was produced — which is
+*indistinguishable* from "there was no gap to fill". Two very different states,
+one identical observation, and an hour lost finding out which.
+
+So the gate's verdict is required to carry, on every suppression:
+
+- the **keywords** it actually matched on, after stop-word removal;
+- every **existing test that suppressed it**, best match first, with **title,
+  file and score**;
+- a one-line `reason`, **never empty in any branch**, naming the top matches.
+
+"The generator produced nothing" must never be an ambiguous statement. A caller
+that logs `reason` converts the ambiguity into one line of output. This is a
+requirement on the gate, not a courtesy of its callers — a verdict that omits
+it is a bug even though nothing misbehaves.
+
+Note the separate branch this implies: a command consisting entirely of stop
+words matches nothing, which `rank()` alone would report the same way as a
+genuine gap. That must be distinguishable too, and it is its own reason string
+rather than a generation attempt.
+
 ---
 
 ## Cost, capture bounding, and the cache key
@@ -943,6 +966,28 @@ Where the design and the implementation disagree, **that is a finding to
 report, not a test to adjust.** Divergence is the expected outcome of doing
 this properly rather than a sign something went wrong: the `navigate` step was
 found exactly this way.
+
+**And when the external source is SILENT — the rule's second half, which
+matters more than the first.** Writing the `checkGrounding()` tests hit this
+immediately: the design specified per-assertion grades and the
+proposals/questions split, but said nothing about how a case's assertions roll
+up to one verdict, while the implementation returned an `overall` the fixture
+depended on. There was no external truth to derive an expectation from.
+
+The tempting move is *"just read the implementation this once, the design
+doesn't say"* — and that is precisely how rule 4 gets hollowed out. It never
+gets hollowed out at the well-specified parts; it happens at the **thin spots
+in the design, which is exactly where the bugs are.** A gap in the design is
+not a licence to test the code against itself; it is the discovery that nobody
+ever decided what correct means here.
+
+> **When the design is silent, specify the design first, then test against it.
+> Never fall back to reading the implementation.**
+
+Deciding costs minutes and leaves a reviewable statement of intent behind.
+Reading the implementation costs nothing now and silently converts whatever
+the code happens to do into the definition of correct — including any bug in
+it. Done for the roll-up rule on 2026-09-05: specified above, then tested.
 
 Rule 3 was learned on 2026-09-05, and its failure was subtler than a bug: the
 `baseline` and `p2a` stages produced byte-identical output, not because the
