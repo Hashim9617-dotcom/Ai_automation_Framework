@@ -831,6 +831,37 @@ prerequisite lands, which makes it the half that actually measures whether P1
 and P2 did their job. Reporting only safety would show 4/4 from the start and
 mean nothing.
 
+#### Three rules this project keeps re-deriving the expensive way
+
+Each was learned by getting it wrong first. They are stated together because
+they are the same idea at three levels, and **P3 will have prerequisites too**:
+
+> **1. An absence claim needs a completeness guarantee over whatever it counts
+> across.** (Finding 15, `docs/dms-findings.md`.) `matchCount === 1` is partly
+> a claim that no *other* node matches, which a truncated view cannot support.
+>
+> **2. A criterion that can be satisfied by knowing nothing is not a
+> criterion.** Refusing to assert anything is free, so any criterion phrased as
+> an absence is passed perfectly by a system that has not looked.
+>
+> **3. Every prerequisite needs its own falsifier.** A staged score is only
+> meaningful if each stage contains something that FAILS when that stage is
+> removed. Otherwise you have stages that measure nothing and a table that
+> looks like evidence.
+
+Rule 3 was learned on 2026-09-05, and its failure was subtler than a bug: the
+`baseline` and `p2a` stages produced byte-identical output, not because the
+degradation was broken — it demonstrably worked — but because **no case could
+observe it**. The `p2a` row was decoration. The predicted diagnosis ("#2's
+blocking reason will shift from missing-property to missing-transition") was
+not merely wrong, it was *unfalsifiable*: #2 dies at the transition step before
+any property lookup, so it could never have exposed P2a at any stage. Fixed by
+adding prerequisite probes; see the staged-scores section above.
+
+The three rules point the same way: **you cannot conclude anything from a
+system that hasn't looked, a test that cannot fail, or a stage that measures
+nothing.**
+
 #### The property every criterion here must have
 
 The first draft failed for a reason worth naming, because it generalises:
