@@ -756,6 +756,46 @@ the projection creeps.
    This is likely the single largest saving on list-heavy pages, and it also
    makes the repeated-row *shape* explicit to the model, which is exactly the
    information that would have prevented mistake #4.
+
+   **Collapsing is a third kind of information loss, and it gets its own
+   representation rather than reusing `truncated`.** Bounding drops
+   information, and rule 1 says absence is evidence only in a complete view —
+   so every kind of loss must be marked, or `checkGrounding()` reads a
+   bounded-away node's absence as `CONTRADICTED`. That is the worst available
+   outcome: `CONTRADICTED` assertions are *dropped and never shown as
+   proposals*, so a valid assertion would vanish with nothing surfacing for
+   review. A false `ASSUMED` at least becomes a question.
+
+   Two kinds are already marked, and collapsing is neither:
+
+   | Kind | Means | Absence proves |
+   | --- | --- | --- |
+   | `truncated` (node cap) | we stopped looking — there may be nodes of *any* shape we never saw | nothing, about anything |
+   | `nameTruncated` (per node) | this name is a *prefix* of the real one | n/a — comparisons are unreliable |
+   | **collapsed group** | we saw everything and *summarised a known group* | nothing about members of that group; **everything else still holds** |
+
+   That last column is why reusing `truncated` is wrong rather than merely
+   imprecise. `truncated` blanket-disables refutation for the whole state, but
+   a collapsed capture is *complete* — we did see every node, we just stopped
+   listing the repetitive ones individually. Setting `truncated` on it would
+   make the state unable to contradict anything, and the four-mistake fixture
+   depends on exactly that power: #1, #3 and #4 all score their safety half via
+   `CONTRADICTED`. Reusing the flag would quietly drop those to `ASSUMED` and
+   the score from 4/4 to 1/4 — a safety mechanism disabled by a
+   convenience-driven type decision.
+
+   So a state carries `collapsed: CollapsedGroup[]`, each entry recording the
+   `role`, the `pattern` with the varying part marked, the `count` and a few
+   `examples`. The grader's rule follows directly:
+
+   > A node absent from a state's node list is `CONTRADICTED` as before —
+   > **unless** its role and name match a collapsed group's pattern, in which
+   > case it is `ASSUMED`, because it may be one of the members that was
+   > summarised away.
+
+   Per-group rather than per-state, deliberately: it preserves refutation for
+   every shape that was *not* collapsed, which is most of them. A blanket flag
+   would trade a real safety property for a boolean.
 4. **Hard node cap per state** (proposed: 150 after the above, truncation
    flagged). If truncated, the capture is marked `truncated: true` and **every
    assertion grounded in that state is downgraded to `ASSUMED`** — the same

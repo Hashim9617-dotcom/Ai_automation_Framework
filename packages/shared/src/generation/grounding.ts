@@ -15,6 +15,33 @@ import type { AccessibilityNode } from '../types/ai';
 export type Grade = 'observed' | 'assumed' | 'contradicted';
 
 /** One captured application state. Nodes belong to exactly one state. */
+/**
+ * A run of near-identical sibling nodes summarised into one entry, so a page
+ * with 25 workspace rows costs one line in a prompt instead of 25.
+ *
+ * This is a THIRD kind of information loss, distinct from both `truncated`
+ * and `nameTruncated`, and it is deliberately not folded into either:
+ *
+ * - `truncated` means "we stopped looking" — absence proves nothing about
+ *   anything, so refutation is disabled for the whole state.
+ * - A collapsed group means "we saw everything and summarised a known group" —
+ *   the state is COMPLETE, so absence still refutes for every shape that was
+ *   not collapsed.
+ *
+ * Reusing `truncated` here would disable refutation state-wide and drop the
+ * four-mistake fixture from 4/4 to 1/4, since #1, #3 and #4 all earn their
+ * safety half through `CONTRADICTED`. See docs/phase-2-generation.md.
+ */
+export interface CollapsedGroup {
+  role: string;
+  /** The shared shape, with the varying part written as `<name>`. */
+  pattern: string;
+  /** How many nodes this entry stands for. */
+  count: number;
+  /** A few real names from the group, for a human reading the capture. */
+  examples: string[];
+}
+
 export interface CapturedState {
   id: string;
   label: string;
@@ -22,6 +49,32 @@ export interface CapturedState {
   nodes: AccessibilityNode[];
   /** Absence proves nothing in a truncated view — see Finding 15. */
   truncated: boolean;
+  /**
+   * Groups summarised out of `nodes`. A node matching one of these patterns
+   * is not absent — it is unlisted — so its absence must grade `assumed`
+   * rather than `contradicted`.
+   */
+  collapsed?: CollapsedGroup[];
+}
+
+/**
+ * Does `name` look like a member of a collapsed group?
+ *
+ * The pattern's `<name>` placeholder stands for the part that varied across
+ * the group, so it matches any non-empty run of characters. Everything else in
+ * the pattern is literal and is escaped as such — a pattern is data taken from
+ * a captured page, and treating page content as a regular expression is how a
+ * workspace called `a.*` silently matches everything.
+ */
+export function matchesCollapsedGroup(
+  group: CollapsedGroup,
+  role: string,
+  name: string,
+): boolean {
+  if (group.role !== role) return false;
+  const escaped = group.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const source = `^${escaped.split('<name>').join('.+')}$`;
+  return new RegExp(source, 'i').test(name.trim());
 }
 
 /**
@@ -178,22 +231,42 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
     );
 
     if (matches.length === 0) {
-      // Absence only means something in a complete view (Finding 15).
-      steps.push(
-        state.truncated
-          ? {
-              stepIndex,
-              grade: 'assumed',
-              stateId: cursor,
-              reason: `no ${step.role} named "${step.name}" — but this capture was truncated, so absence proves nothing`,
-            }
-          : {
-              stepIndex,
-              grade: step.property === 'present' && !step.expected ? 'observed' : 'contradicted',
-              stateId: cursor,
-              reason: `no ${step.role} named "${step.name}" in "${cursor}"`,
-            },
+      // Absence only means something in a complete view (Finding 15). Three
+      // things can make a view incomplete, and they are not interchangeable.
+      if (state.truncated) {
+        steps.push({
+          stepIndex,
+          grade: 'assumed',
+          stateId: cursor,
+          reason: `no ${step.role} named "${step.name}" — but this capture was truncated, so absence proves nothing`,
+        });
+        continue;
+      }
+
+      // Not absent, merely UNLISTED: this node's shape was summarised into a
+      // collapsed group, so it was seen and then folded away. Grading it
+      // `contradicted` would drop a valid assertion with nothing surfacing
+      // for review, since contradictions are never shown as proposals.
+      const group = (state.collapsed ?? []).find((candidateGroup) =>
+        matchesCollapsedGroup(candidateGroup, step.role, step.name),
       );
+      if (group) {
+        steps.push({
+          stepIndex,
+          grade: 'assumed',
+          stateId: cursor,
+          reason: `no ${step.role} named "${step.name}" listed individually, but it matches the collapsed group "${group.pattern}" (${group.count} nodes) — unlisted, not absent`,
+        });
+        continue;
+      }
+
+      // Genuinely absent from a complete view: this is evidence.
+      steps.push({
+        stepIndex,
+        grade: step.property === 'present' && !step.expected ? 'observed' : 'contradicted',
+        stateId: cursor,
+        reason: `no ${step.role} named "${step.name}" in "${cursor}"`,
+      });
       continue;
     }
 

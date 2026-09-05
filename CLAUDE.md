@@ -71,6 +71,32 @@ so ranking mutations by convenience tests the design in precisely the wrong
 order. When one mutation is awkward and the rest are easy, do the awkward one
 first. It caught four tests where the easy ones caught one apiece.
 
+### A discriminating property needs a discriminating fixture
+
+> **A test of a DISCRIMINATING property is only real if its fixture would
+> produce a different result under the wrong behaviour.**
+
+This is *not* rule 4, and the difference matters. Rule 4 is asserting the wrong
+thing. This is asserting exactly the right thing about data that cannot tell
+the difference — so no implementation, correct or broken, could ever fail it.
+
+Found on 2026-09-05 in the generation gate. The assertion was right:
+
+```ts
+expect(scores).toEqual([...scores].sort((a, b) => b - a)); // best-first
+```
+
+The fixture was not. Every match scored the same, and a reversed list of tied
+scores still equals its own sort. Reversing the ordering in the implementation
+broke nothing. The test passed, read sensibly, and proved nothing — invisible
+to review, caught only by the mutation surviving.
+
+**Ordering, precedence, selection, tie-breaking and ranking are all this
+shape**, and so is anything that bounds, filters or prioritises. For each,
+ask the fixture question directly: *would this data give a different answer if
+the behaviour were wrong?* If every element is identical, every score tied, or
+every candidate equally eligible, the answer is no and the test is decorative.
+
 The same idea runs through the design docs, where it was learned three separate
 times (see "Three rules this project keeps re-deriving the expensive way" in
 [`docs/phase-2-generation.md`](docs/phase-2-generation.md)): you cannot

@@ -352,3 +352,113 @@ test.describe('checkGrounding — diagnostics @unit', () => {
     expect(result.steps[1]!.reason).not.toContain('workspace');
   });
 });
+
+/**
+ * Collapsed groups (design: "Collapse repeated siblings").
+ *
+ * The design's rule: a node absent from a state's node list is CONTRADICTED as
+ * before — UNLESS its role and name match a collapsed group's pattern, in
+ * which case it is ASSUMED, because it may be one of the members summarised
+ * away.
+ *
+ * Every fixture here is built to DISCRIMINATE: each contains both a name that
+ * matches the collapsed pattern and one that does not, so a grader that
+ * ignored `collapsed` (or applied it to everything) would fail rather than
+ * coincidentally agree.
+ */
+test.describe('checkGrounding — collapsed groups @unit', () => {
+  const collapsedTree = (): CapturedState => ({
+    id: 'files',
+    label: 'files',
+    url: 'https://app.example/files',
+    truncated: false,
+    nodes: [
+      // The group's members are NOT listed individually — that is the point.
+      { role: 'button', name: 'Refresh', enabled: true },
+    ],
+    collapsed: [
+      {
+        role: 'treeitem',
+        pattern: 'Expand <name> More options',
+        count: 25,
+        examples: ['Expand WS-ALPHA More options'],
+      },
+    ],
+  });
+
+  test('a node matching a collapsed pattern is ASSUMED, not contradicted', () => {
+    const result = checkGrounding(
+      capture([collapsedTree()]),
+      onlyStep('files', assertStep('treeitem', 'Expand WS-BETA More options', 'present', true)),
+    );
+    expect(result.steps[0]!.grade).toBe('assumed');
+    expect(result.steps[0]!.reason).toContain('unlisted, not absent');
+  });
+
+  test('a node NOT matching any collapsed pattern is still CONTRADICTED', () => {
+    // The discriminating half: collapsing must not disable refutation
+    // state-wide, or every safety half in the four-mistake fixture dies.
+    const result = checkGrounding(
+      capture([collapsedTree()]),
+      onlyStep('files', assertStep('button', 'Download File', 'present', true)),
+    );
+    expect(result.steps[0]!.grade).toBe('contradicted');
+  });
+
+  test('the collapsed pattern is matched by ROLE too, not name alone', () => {
+    // Same name shape, wrong role -> not a group member -> still refuted.
+    const result = checkGrounding(
+      capture([collapsedTree()]),
+      onlyStep('files', assertStep('button', 'Expand WS-BETA More options', 'present', true)),
+    );
+    expect(result.steps[0]!.grade).toBe('contradicted');
+  });
+
+  test('a listed node still grades normally even when a group is present', () => {
+    const result = checkGrounding(
+      capture([collapsedTree()]),
+      onlyStep('files', assertStep('button', 'Refresh', 'present', true)),
+    );
+    expect(result.steps[0]!.grade).toBe('observed');
+  });
+
+  test('collapsing does NOT imply truncation — the two losses stay distinct', () => {
+    const state = collapsedTree();
+    expect(state.truncated).toBe(false);
+    // Absence of a non-member is evidence precisely because the view is
+    // complete. If collapsing had reused `truncated`, this would be assumed.
+    const result = checkGrounding(
+      capture([state]),
+      onlyStep('files', assertStep('button', 'Nonexistent', 'present', true)),
+    );
+    expect(result.steps[0]!.grade).toBe('contradicted');
+  });
+
+  test('a pattern containing regex metacharacters is matched literally', () => {
+    // Page content becomes the pattern, so a workspace named `a.*` must not
+    // turn into a wildcard that swallows every assertion.
+    const state: CapturedState = {
+      id: 'search',
+      label: 'search',
+      url: 'https://app.example/search',
+      truncated: false,
+      nodes: [],
+      collapsed: [
+        { role: 'button', pattern: 'Download Selected (<name>)', count: 3, examples: ['Download Selected (2)'] },
+      ],
+    };
+
+    const member = checkGrounding(
+      capture([state]),
+      onlyStep('search', assertStep('button', 'Download Selected (7)', 'present', true)),
+    );
+    expect(member.steps[0]!.grade).toBe('assumed');
+
+    // Would match if the parentheses were treated as a regex group.
+    const notMember = checkGrounding(
+      capture([state]),
+      onlyStep('search', assertStep('button', 'Download Selected 7', 'present', true)),
+    );
+    expect(notMember.steps[0]!.grade).toBe('contradicted');
+  });
+});
