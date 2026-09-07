@@ -2015,6 +2015,79 @@ seam. Exact signatures belong with the implementation, not this document.
 
 ---
 
+---
+
+## Is the platform actually app-agnostic? Audited 2026-09-07
+
+`packages/` and `apps/` are supposed to know nothing about the application
+under test; everything DMS-specific is supposed to live in `tests/app/`,
+`config/env/` and `.env`. **That claim is what "pointing this at a second
+application is a config change" rests on, so it was audited rather than
+assumed** — and audited before generation is wired, because app knowledge that
+leaks into a package is a wall hit at application number two and far cheaper to
+move now.
+
+**Result: the split is clean.** Stated plainly, because a clean audit is a real
+finding and this one is load-bearing for the architecture's central claim.
+
+| Checked | Finding |
+| --- | --- |
+| Hostnames (`dmsuiv3`, `aitalkx`) | **Zero** occurrences anywhere in `packages/`, `apps/`, `scripts/` or `config/`. The URL lives only in `.env`, which is gitignored. |
+| `config/env/app.json` | Fully parameterised — `"baseUrl": "${BASE_URL}"`, credentials from `${APP_USERNAME}`/`${APP_PASSWORD}`. Its own comment says *"Point the platform at ANY application by editing .env only — never this file."* |
+| Concrete page objects | All four are under `tests/` (`tests/app/pages`, `tests/demo/pages`). `packages/execution-engine/src/pages` holds only the abstract `BasePage`/`BaseComponent`. |
+| Login flow | `scripts/auth-setup.ts` contains **no selectors at all** — a human logs in by hand, so SSO/MFA/OTP work without the platform knowing the form. |
+| Test inventory | `apps/api` derives it from `playwright test --list`, never a hardcoded list. |
+| Keyword lists | `STOP_WORDS` is generic English plus testing vocabulary; `WRITE_WORDS` is generic English verbs; `DATA_ROLES`/`CHROME_ROLES` are ARIA roles. None names an application concept. |
+| Label proposal | `proposeLabel()` derives from the URL path and the page's first heading. No route table. |
+
+### The three real observations
+
+Nothing here breaks the claim, and all three are worth recording rather than
+quietly passing:
+
+1. **`dataFactory.employee()` in `packages/execution-engine/src/data/factory.ts`
+   is app-domain data, and it is dead.** `EmployeeData` describes an HR app
+   (the bundled demo, not DMS), it sits in a package rather than in `tests/`,
+   and nothing imports it — `dataFactory.employee`, `unique` and `password` have
+   zero call sites. It is not leakage that hurts today, but it is app vocabulary
+   on the agnostic side of the line, and it is the shape that becomes leakage
+   the moment someone reaches for it. Removing it or moving it to `tests/demo/`
+   is a small cleanup, deliberately not bundled into this generation work.
+
+2. **Comments name DmsSynergy, and that is correct.** `packages/shared/src/
+   healing/gate.ts`, `accessibility-snapshot.ts`, `smart-locator.ts` and others
+   cite `docs/dms-findings.md` to record which real bug produced a rule. That is
+   provenance, and this project values it highly enough to keep a findings
+   document. The audit therefore **strips comments before scanning**: what must
+   not appear is app knowledge in *code*.
+
+3. **Two constants were SIZED against DMS measurements**, which is a milder
+   coupling than a hardcoded string and worth knowing about: the AX capture cap
+   (`maxNodes: 1_000`, chosen because "the largest tree was ~400 nodes" across
+   twelve DMS states) and the bounding defaults (3 states, 150 nodes, min group
+   size 4, which the cost section already flags as "proposals to be measured on
+   the first real capture, not tuned constants to be defended"). The values are
+   generic and the reasoning is written down; a second app may want different
+   numbers, and they are options rather than literals.
+
+### The audit is a test, not a memory
+
+`tests/unit/app-agnostic.spec.ts` re-runs it on every unit run: it walks every
+`.ts` under `packages/` and `apps/`, strips comments, and fails on an
+app-specific string, on a concrete page object outside `tests/`, or on an
+`app.json` that hardcodes a target. Rule 3 — a claim with no falsifier is
+decoration — applies to architectural claims exactly as it does to code.
+
+It asserts its own effect (it checks it read a plausible number of files and
+that its detector finds a planted hit), and it is mutation-verified: a hostname,
+a credential, an app label, a leaked page object and a hardcoded `baseUrl` are
+each caught, while a **comment** naming DmsSynergy correctly survives.
+
+The comment stripper is imprecise — a `//` inside a string literal is stripped
+too — and that imprecision is in the safe direction: it can only remove text
+from the scan, so a false pass is impossible while a false failure would be
+obvious.
+
 ## What step 3 does not do
 
 Stated so the boundary survives contact with a later session:
