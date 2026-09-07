@@ -71,6 +71,39 @@ so ranking mutations by convenience tests the design in precisely the wrong
 order. When one mutation is awkward and the rest are easy, do the awkward one
 first. It caught four tests where the easy ones caught one apiece.
 
+### The mutation harness is subject to its own rule
+
+**A mutation run needs two controls before its number means anything.** Learned
+on 2026-09-07: three mutations were reported SURVIVED because the harness's
+`tsc` parser filtered on lines containing `error TS`, and TypeScript puts the
+missing property name on the *continuation* line. The mutations had been caught;
+the instrument was broken.
+
+That direction is the lucky one. A false survivor is loud — it demands
+investigation, which is how it was found. **The inverse is silent:** a matcher
+that fails to match, a renamed test, a dropped parse can just as easily report
+CAUGHT when nothing caught anything, and
+
+> **a harness that reports everything CAUGHT looks perfect.**
+
+That is rule 2 again — a criterion satisfied by knowing nothing — pointed at the
+tool doing the measuring. So every run proves itself first, both ways, the way
+the invisible-character scan proves 2/2 planted hits before reporting clean:
+
+- a **known-CAUGHT** control (a mutation that must be detected); if it is not,
+  detection is broken and every CAUGHT in the run is meaningless;
+- a **known-SURVIVING** control (a comment, or another genuinely cosmetic
+  change); if it is reported caught, the harness is flagging noise, so every
+  CAUGHT could be noise rather than the mutation.
+
+If either control comes out wrong the run is **void and reports nothing**. A
+number from an unverified instrument is worse than no number, because it gets
+believed.
+
+**And keep one harness, current and correctly named.** A stale second copy left
+beside it will eventually be run by someone, against source it no longer
+matches, and hand them a verdict that means nothing.
+
 ### A discriminating property needs a discriminating fixture
 
 > **A test of a DISCRIMINATING property is only real if its fixture would

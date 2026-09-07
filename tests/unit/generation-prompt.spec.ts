@@ -3,6 +3,7 @@ import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import {
   PROMPT_VERSION,
+  boundCaptureForCommand,
   buildPromptInput,
   captureDigest,
   findRepoRoot,
@@ -13,6 +14,7 @@ import {
   type AccessibilityNode,
   type BoundedCapture,
   type CapturedState,
+  type StateCapture,
   type PromptInput,
 } from '@aitp/shared';
 
@@ -823,5 +825,97 @@ test.describe('the builder reads its argument and nothing else (K5) @unit', () =
     }
 
     expect(forbidden.filter((token) => section.includes(token))).toEqual([]);
+  });
+});
+
+/**
+ * K6 — DOES THE CACHE STILL HIT?
+ *
+ * `visitOrder` is part of the key, which is right for correctness: two
+ * different walks are two different pieces of evidence. But it creates a
+ * question in the CACHE-MISS direction, and that direction is silent — if the
+ * order were unstable, the key would never repeat, every generation would pay
+ * full price, and the only symptom would be a bill. Nothing goes red.
+ *
+ * So the property the cache's usefulness now rests on gets guarded, because
+ * nothing else guards it:
+ *
+ * > **Given one capture, `visitOrder` is a pure function of that capture.**
+ *
+ * That is what makes the documented hit scenario — "re-runs during development
+ * are free unless the capture changed" — still true: within one capture file
+ * the walk is fixed, so the key is fixed.
+ *
+ * Measured 2026-09-07, since determinism of the tool is the other half:
+ * `pnpm inspect` run twice against the same live app with the same scripted
+ * walk produced identical visit orders AND identical content digests for all
+ * three states. **The honest limit on that measurement:** the page reached was
+ * the static marketing landing page, and the deep link to a data-bearing page
+ * redirected to `/login`, so it says nothing about whether a page carrying real
+ * workspace rows is stable between sessions days apart. The design already
+ * expects that it is not — "the workspace list changes between sessions" — and
+ * that is the case where content moves the digest regardless of the walk.
+ */
+test.describe('visit order is a pure function of the capture (K6) @unit', () => {
+  const walk = bounded([
+    state('third', [node('button', 'C')]),
+    state('first', [node('button', 'A')]),
+    state('second', [node('button', 'B')]),
+  ]);
+
+  test('K6: the same capture yields the same key every time', () => {
+    // If this were ever false the cache could not hit at all, and nothing
+    // downstream would report it.
+    expect(generationCacheKey(inputFor(walk))).toBe(generationCacheKey(inputFor(walk)));
+  });
+
+  test('K6: visit order follows the capture, not the sorted output', () => {
+    const built = inputFor(walk);
+    const order = Object.fromEntries(built.states.map((s) => [s.id, s.visitOrder]));
+
+    // The walk was third -> first -> second; the LIST is sorted by id. If
+    // visitOrder were read after the sort it would read 0,1,2 in id order and
+    // silently assert a walk that never happened.
+    expect(order).toEqual({ third: 0, first: 1, second: 2 });
+    expect(built.states.map((s) => s.id)).toEqual(['first', 'second', 'third']);
+  });
+
+  test('K6: bounding preserves the session walk, including a pulled-in neighbour', () => {
+    // `visitOrder` now depends on bounding keeping the session's order, and
+    // bounding builds its kept set through a Set and a score sort — neither of
+    // which is the walk. The final `filter` is what preserves it. Nothing
+    // tested that before `visitOrder` made the cache depend on it.
+    const session: StateCapture = {
+      sessionId: 's',
+      states: [
+        // Scores 0 on the command, so it is only ever kept as a neighbour —
+        // and it was visited FIRST.
+        { id: 'lobby', label: 'lobby', url: 'u', nodes: [node('button', 'Lobby')], truncated: false },
+        {
+          id: 'upload',
+          label: 'upload',
+          url: 'u',
+          nodes: [node('button', 'Upload workspace')],
+          truncated: false,
+        },
+      ],
+      transitions: [{ from: 'lobby', to: 'upload', action: 'clicked', verdict: 'consistent' }],
+    };
+
+    const boundedCapture = boundCaptureForCommand(session, 'upload workspace');
+    const built = buildPromptInput({
+      capture: boundedCapture,
+      command: 'upload workspace',
+      existingCaseTitles: [],
+    });
+
+    // Discriminating: the neighbour really was pulled in on the transition
+    // rather than on its own score, so this is not passing trivially.
+    expect(boundedCapture.selection.chosen.find((c) => c.id === 'lobby')?.why).toBe(
+      'transition-neighbour',
+    );
+    // And it keeps its place in the walk despite being chosen last.
+    expect(built.states.find((s) => s.id === 'lobby')!.visitOrder).toBe(0);
+    expect(built.states.find((s) => s.id === 'upload')!.visitOrder).toBe(1);
   });
 });

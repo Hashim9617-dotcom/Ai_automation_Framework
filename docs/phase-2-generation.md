@@ -1170,6 +1170,49 @@ model — the reviewer learns what selection dropped from the selection record,
 and an absolute index would churn the cache whenever an unrelated earlier state
 entered the session.
 
+#### Does the cache still hit?
+
+Putting the walk in the key raises the question in the CACHE-MISS direction,
+and that direction is silent: an unstable order would mean the key never
+repeats, every generation pays full price, and the only symptom is a bill.
+Nothing goes red. So it is answered rather than assumed.
+
+**There is no traversal.** `pnpm inspect` is a human-driven REPL — the operator
+drives the browser and presses Enter, and `captured.push()` appends in that
+order. Nothing crawls, discovers links, or expands a tree, so there is no
+traversal non-determinism to worry about. The order is a *human's choice*,
+which is a different and weaker guarantee.
+
+**Measured 2026-09-07.** `pnpm inspect` run twice against the same live app
+with the same scripted walk produced identical visit orders and identical
+content digests for all three states. The honest limit: the page reached was
+the **static marketing landing page** — the deep link to a data-bearing page
+redirected to `/login` — so this establishes that the *machinery* is
+deterministic, and says nothing about a page carrying real workspace rows
+captured days apart.
+
+**Which does not matter, for a reason that holds independently of that gap.**
+The digest already covers every state id, every node's role/name/enabled/
+selected, collapsed groups and transitions. So `visitOrder` can be the *sole*
+cause of a miss only when two captures hold the same states with byte-identical
+content and a different walk — and in exactly that case the two prompts differ
+in the sequence the model is shown, so serving one for the other would be
+answering a different question. **The miss is correct there, not a defect.**
+Everywhere else, content moves the digest first; the design already expects
+that ("the workspace list changes between sessions").
+
+And the documented hit scenario is untouched: "re-runs during development are
+free unless the capture changed" happens within one capture file, where the
+walk is fixed by construction.
+
+**What this newly depends on is guarded**, because nothing else guarded it:
+given one capture, `visitOrder` is a pure function of that capture. That rests
+on bounding preserving the session's order — which it does through its final
+`filter`, not through the score sort or the neighbour `Set` that build the kept
+set — and on the order being read *before* the id sort. Both now have tests
+(K6), including the case where a state is pulled in as a transition neighbour
+and must still keep its place in the walk.
+
 **The prompt marks it as a hint, not as evidence.** A sequence the model could
 mistake for causation is mistake #2 arriving by another door, so rule 6 of the
 prompt says plainly that `[visited N]` is not evidence that one state leads to
