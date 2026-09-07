@@ -8,6 +8,8 @@ export * from './healing/gate';
 export * from './healing/match';
 export * from './generation/bounding';
 export * from './generation/gate';
+export * from './generation/identity';
+export * from './generation/proposal';
 export * from './generation/grounding';
 export * from './matching/command-matcher';
 export * from './utils/env';

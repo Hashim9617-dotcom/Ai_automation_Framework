@@ -597,7 +597,16 @@ claim about the Workspace step. Designing that in now rather than retrofitting:
 
 - Every captured node belongs to exactly one `stateId`. There is no global node
   pool to check against, and no API that offers one.
-- Every assertion carries the `stateId` it is claimed to hold in.
+- Every assertion's `stateId` is **derived from the cursor, never claimed by
+  the model.** An earlier draft of this line said each assertion "carries the
+  `stateId` it is claimed to hold in", and building the proposal record showed
+  that to be the weaker design: a claimed `stateId` is one more thing the model
+  can get wrong, and one more thing the grader would then have to check. The
+  cursor makes it non-negotiable — the state is a consequence of the declared
+  path, so there is nothing to verify. The record stores the derived value,
+  which is why `ProposalAssertion.claim.stateId` can be `null`: a cursor that
+  went `unknown` has no state to name, and saying so is more honest than
+  echoing whatever the model guessed.
 - `checkGrounding()` walks the case's steps maintaining a **state cursor**,
   starting at the case's declared entry state. Each assertion is graded against
   **the current state's nodes only.**
@@ -891,30 +900,125 @@ promptVersion + normalizedCommand + captureDigest + existingCaseTitlesDigest
 ## The output record
 
 Mirrors `HealingProposal`'s shape and its discipline: evidence travels *with*
-the proposal, so the reviewer never has to go and find it.
+the proposal, so the reviewer never has to go and find it. Five properties
+below are load-bearing rather than cosmetic, each closing a way this step can
+fail without anyone noticing.
 
 ```
 TestCaseProposal {
   id, runId, sourceCommand, generatedAt, model
-  case: TestCase                    // only OBSERVED assertions become steps
-  grounding: [{
-    stepIndex, assertion,
-    grade: 'observed',
-    evidence: { stateId, capturedAt, node: { role, name, enabled } }
+  case: TestCase                     // only OBSERVED assertions become steps
+
+  assertions: [{
+    assertionId,                     // content-derived; see "approval identity"
+    claim:   { stateId, role, name, property, expected },
+    modelSaid: 'observed' | 'assumed',   // the model's CLAIM, kept verbatim
+    grade:     'observed' | 'assumed' | 'contradicted',  // what checkGrounding DERIVED
+    overrodeModel: boolean,          // true when the two disagree
+    evidence: { stateId, capturedAt, node: { role, name, enabled, selected? } } | null,
+    reason,                          // the grader's own words
   }]
-  openQuestions: [{                 // ASSUMED — never inlined into steps
-    question,                       // phrased as a question, not an assertion
-    whyUngrounded: 'no capture of the post-click state' | 'state not captured' | 'capture truncated',
-    wouldAssert                     // what it WOULD assert if confirmed
+
+  openQuestions: [{                  // ASSUMED — never inlined into steps
+    question,                        // phrased as a question, not an assertion
+    whyUngrounded: 'undeclared transition' | 'suspect transition'
+                 | 'state not captured' | 'state excluded by bounding'
+                 | 'capture truncated' | 'property not recorded',
+    wouldAssert                      // what it WOULD assert if confirmed
   }]
-  matcherResult: { rankedZero: true, nearMisses: [...] }
+
+  // WHAT THE MODEL WAS SHOWN, not only what it said.
+  provenance: {
+    promptVersion,
+    captureDigest,                   // the digest of the BOUNDED capture
+    selection: StateSelectionRecord, // available / chosen / excluded, with scores
+    boundingOptions: { maxStates, maxNodesPerState, minGroupSize },
+  }
+
+  gate: GenerationGateVerdict        // why generation fired at all
+  writeRisk: 'read-only' | 'creates-data'
   status: 'pending' | 'approved' | 'rejected'
 }
 ```
 
-Every observed assertion cites the exact node and the exact state it came from.
-That is what makes review fast: the reviewer checks a claim against a quoted
-node, not against their memory of the app.
+### The model's label is a claim, not an answer
+
+`modelSaid` and `grade` are separate fields on purpose, and `overrodeModel`
+records when they differ. `checkGrounding()` re-derives every grade from the
+capture and its verdict wins — the model's own label is evidence about the
+model, never about the application.
+
+Keeping both is what makes the override *auditable*. A rising `overrodeModel`
+rate is a signal about prompt quality that a single collapsed field would hide,
+and a reviewer who sees "the model called this observed; the capture
+contradicts it" learns something a bare `contradicted` does not tell them.
+
+### Approval identity: approvals must LAPSE, never transfer
+
+Approval is **per-assertion, not per-case** — whole-case approval is how one
+wrong assertion rides in on four right ones. That forces a question the record
+has to answer: when a case is regenerated, which approvals still apply?
+
+> **`assertionId` is derived from the assertion's content AND its path**:
+> the entry state, the ordered actions preceding it, and the claim itself
+> (`stateId`, `role`, `name`, `property`, `expected`). Nothing else — not the
+> index, not the case title, not the generation timestamp.
+
+Two consequences, both intended:
+
+- **Content changes → the id changes → the approval lapses.** It cannot carry
+  over onto text a human never read. An approval that silently transfers to
+  different content converts an unreviewed claim into a reviewed one, which is
+  rule 4's failure wearing different clothes.
+- **The path is part of the identity.** "The Folder tab is selected" after
+  *clicked WS-ALPHA* is a different claim from the same sentence after
+  *clicked Next*, so they must not share an approval. Identity built from the
+  claim alone would let one approve the other.
+
+A lapsed approval is **shown as lapsed** during review, not silently dropped —
+otherwise a reviewer believes they approved something that is no longer there.
+The record keeps `approvedAgainstCaptureDigest` for audit, so "approved when
+the app looked like this" is answerable later.
+
+### The cache key
+
+```
+cacheKey = hash(promptVersion, normalizedCommand, captureDigest, existingCaseTitlesDigest)
+```
+
+Rule 3 applies to the key itself: **every component needs its own falsifier.**
+Remove any one of the four and some test must fail, or that component is
+decoration.
+
+`captureDigest` is the one most easily got wrong, and it fails in two opposite
+directions that need testing separately:
+
+| Direction | Failure | What it costs |
+| --- | --- | --- |
+| Two captures differing in something the prompt **uses** produce the SAME digest | a stale proposal is served for an app that changed | the worst failure this cache has — a confident answer about a page that no longer exists |
+| Two captures differing only in something the prompt **ignores** (capture timestamp, session id, directory name, node ordering we normalise away) produce DIFFERENT digests | the cache never hits | paying full price on every run, silently — nothing looks broken |
+
+So the digest is computed over **exactly what the prompt serialises, in the
+order it serialises it**, and nothing else. It is derived from the *bounded*
+capture rather than the session capture: two different commands bound the same
+session differently, and they must not share a cache entry.
+
+### Nothing generated writes into `tests/`
+
+Proposals land in a review area (`artifacts/generated/`), never in `tests/`.
+Only assertions a human approved are emitted, and emission is step 4's job.
+
+**A proposed case that creates data is marked and held.** `writeRisk` is set on
+any proposal whose steps would create, modify or delete application state, and
+such a proposal may not be emitted by the same path as a read-only one. Nothing
+generated may emit a `@write`-tagged test or touch `ALLOW_WRITES` — that flag
+has never been set in this project and a generator is not the thing that gets
+to set it first.
+
+**The emitter asserts its own effect** (CLAUDE.md): after writing, it re-reads
+what it wrote and verifies the content matches before reporting success. A
+generator that reports "emitted 4 cases" while writing none is the same class
+of failure as the scripts that produced that convention.
 
 ---
 
