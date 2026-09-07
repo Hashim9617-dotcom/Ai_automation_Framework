@@ -2027,8 +2027,11 @@ assumed** — and audited before generation is wired, because app knowledge that
 leaks into a package is a wall hit at application number two and far cheaper to
 move now.
 
-**Result: the split is clean.** Stated plainly, because a clean audit is a real
-finding and this one is load-bearing for the architecture's central claim.
+**Result: the split is clean**, by two independent methods — a keyword audit
+(below) and a structural proof that does not depend on any keyword list
+(deleting the DMS suite and rebuilding everything without it). Stated plainly,
+because a clean audit is a real finding and this one is load-bearing for the
+architecture's central claim.
 
 | Checked | Finding |
 | --- | --- |
@@ -2069,6 +2072,53 @@ quietly passing:
    the first real capture, not tuned constants to be defended"). The values are
    generic and the reasoning is written down; a second app may want different
    numbers, and they are options rather than literals.
+
+### The structural proof: delete the DMS suite and see what breaks
+
+**A keyword scan finds only what someone thought to name**, so the audit above
+is bounded by the imagination of whoever wrote its list. The check that is not:
+
+> Delete `tests/app/` entirely. Then typecheck `packages/`, `tests/` and
+> `scripts/`, build `apps/api`, and run everything that does not need a live
+> application. If it all still works, the split is **proven** rather than
+> asserted — and if anything breaks, the break names the leakage precisely.
+
+**Run 2026-09-07 with all 19 files of `tests/app/` deleted. Nothing broke.**
+
+| Check | Result |
+| --- | --- |
+| `tsc` over `packages/**`, `tests/**`, `scripts/**`, `playwright.config.ts` | pass |
+| `pnpm api:build` (`apps/api`) | pass |
+| unit suite (225 tests) | pass |
+| `scripts/eval-generation-fixture.ts` (offline) | pass, still 4/4 |
+| `scripts/eval-healing.ts` (bundled demo app, offline) | pass |
+| `playwright test --list` | pass |
+
+**The experiment was itself verified**, because a check that passes first time
+has not yet been checked (CLAUDE.md). A dependency was planted — a real
+`import type { AppPage } from '../../../../tests/app/pages/app.page'` in
+`packages/shared/src/generation/gate.ts` — and it typechecks cleanly while the
+suite exists, then fails the instant it is deleted:
+
+```
+packages/shared/src/generation/gate.ts(2,30): error TS2307:
+  Cannot find module '../../../../tests/app/pages/app.page'
+```
+
+So the experiment can see a coupling, and saw none.
+
+**What it proves and what it does not.** It proves *build-time and test-time*
+independence: nothing in the agnostic layers imports the DMS suite, and nothing
+reads it from disk on any path exercised above. It does not exercise the
+scripts that need a live application (`pnpm auth`, `pnpm inspect`, `pnpm heal`),
+so their runtime behaviour is covered only by the typecheck — which is
+sufficient here because a grep confirms none of them reads a `tests/app` path,
+but it is a weaker guarantee and should be stated as one.
+
+The one place `tests/app` is named outside itself is `playwright.config.ts`'s
+ignore glob (`**/tests/app/**` when running the demo environment) and a handful
+of unit-test fixture *strings* standing in for inventory file paths. Neither
+requires the directory to exist, which the run confirms.
 
 ### The audit is a test, not a memory
 
