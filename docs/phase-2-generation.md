@@ -1090,9 +1090,27 @@ touches (checked through a recording proxy), its purity across structurally
 equal inputs, and a source scan for external-source tokens. All four routes
 are mutation-verified.
 
-**Its limit, stated so nobody reads more into a green run than is there:** the
-source scan is a list of plausible reads, not a proof of purity. An exotic
-read it does not name would pass.
+**The read-set check is an ABSENCE claim, so rule 1 applies to it too.** A
+recording proxy only sees the paths a fixture actually executes, and the first
+version ran a single fixture that left roughly half the render branches
+unvisited — a read inside `if (state.truncated)`, or in the empty-transitions
+arm, would have gone unrecorded and the test would have reported a clean read
+set anyway. That is the same error as grading a truncated capture as though
+absence were evidence, committed by the test rather than the grader.
+
+So the fixtures are a matrix over the render function's branches, each asserting
+a marker that proves it reached the branch it exists for — a fixture that
+silently stopped covering its branch fails, rather than quietly shrinking the
+completeness this claim rests on. The proxy is also deep, recording nested
+paths (`states[].nodes[].role`), and the allowed set is derived from the object
+itself rather than hand-maintained. Combined with the digest covering every
+field of that shape, the loop closes: **the renderer can only emit what the
+digest has hashed.**
+
+**Two limits, stated so nobody reads more into a green run than is there:** the
+source scan is a list of plausible reads, not a proof of purity — an exotic read
+it does not name would pass. And branch coverage here is by observable marker,
+not by instrumentation.
 
 **Fields absent from `PromptInput` are the ignore-list**, and that is now a
 claim about what a renderer can physically reach rather than about what a hash
@@ -1110,13 +1128,65 @@ states inside the digest while the renderer emitted capture order would assert
 an equivalence the model does not see: two orderings would be two different
 prompts sharing one cache entry, which is the stale-answer failure in
 miniature. So `buildPromptInput()` sorts states by id and the renderer emits
-that order. This is safe because **flow is carried by declared transitions, not
-by list position**; re-capturing the same states in a different order is the
-same question and should not be paid for twice.
+that order.
+
+**But the justification for sorting was too strong, and it nearly cost the only
+remaining flow signal.** The first version of this section said sorting is safe
+because *flow is carried by declared transitions, not by list position* — and
+that has a known exception the design names three sections above:
+`undeclared-transition` is one of the three causes of a thin capture, and
+undeclared transitions happen. **Where a transition is undeclared, capture
+order was the last remaining hint of which state came first.**
+`scripts/inspect-app.ts` appends each state as the operator captures it
+(`states: captured.map(...)`), so the array order IS the human's walk — and
+sorting threw it away *silently*. Nothing would have failed. The model would
+simply have got a flatter picture and generated worse sequences, surfacing
+months later as "generation quality is mediocre" with no test pointing at it.
+
+The fix is not to go back to capture order, which is what made the cache
+order-sensitive by accident in the first place:
+
+> **If order carries information, the information belongs in an explicit FIELD
+> rather than in list position.** `PromptState.visitOrder` records where a
+> state fell in the walk; the list stays sorted by id. Order is canonical and
+> flow survives, and the two stop competing.
+
+Two consequences, both intended and both now tested:
+
+- **Capture order is no longer ignorable, and it should not be.** Two different
+  walks are two different pieces of evidence, so they no longer share a cache
+  entry. That case moved out of K2 and into K1. The cache is order-sensitive
+  again — but for a reason now, rather than as an accident of layout, and the
+  old behaviour was quietly serving one answer for two different captures.
+- **What sorting still buys is a canonical LAYOUT**: the model always meets the
+  states in one stable order, so the only difference between two walks is the
+  declared sequence rather than the page arrangement. That is a separate
+  property with its own falsifier (rule 3), since `visitOrder` would otherwise
+  make the sort untestable decoration.
+
+`visitOrder` is the order of the states that were **sent**, read off the bounded
+capture rather than the session, so gaps left by bounding are invisible to the
+model — the reviewer learns what selection dropped from the selection record,
+and an absolute index would churn the cache whenever an unrelated earlier state
+entered the session.
+
+**The prompt marks it as a hint, not as evidence.** A sequence the model could
+mistake for causation is mistake #2 arriving by another door, so rule 6 of the
+prompt says plainly that `[visited N]` is not evidence that one state leads to
+another and only a declared transition is that.
 
 Node order *inside* a state is left alone for the opposite reason: AX order is
 document order, so it is page structure the model reads, and two orderings are
 genuinely two prompts.
+
+**The exhaustive field map applies at every level, not only the top.** Adding
+`visitOrder` is what exposed that: the first version covered `PromptInput`'s own
+fields and hand-wrote the serialisers for `PromptState`, `PromptNode` and
+`CollapsedGroup` beneath it, so a field added to a nested shape could be
+rendered without ever reaching the digest — the exact failure the top-level map
+exists to prevent, one level down and invisible from the top. All four shapes
+now share one `exhaustiveDigester`, and mutations S6/S7 confirm a nested
+addition fails to compile.
 
 **Every "the prompt ignores this" claim is tested against the rendered prompt,
 not only against the digest.** A digest-only test of an ignored field is

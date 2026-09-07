@@ -304,24 +304,53 @@ test.describe('the prompt digest — differences the prompt IGNORES (K2) @unit',
     );
   });
 
-  test('K2: state ORDER does not change the prompt, because the builder canonicalises it', () => {
-    // This is the case that could have pinned a bug. It is only true because
-    // `buildPromptInput` SORTS states by id, so the model is shown one order
-    // whichever order they were captured in — the flow between them is carried
-    // by declared transitions, not by list position. Were the builder to render
-    // capture order instead, the model's output could depend on it and these
-    // two would have to be different cache entries.
-    const a = bounded([state('a', [node('button', 'A')]), state('b', [node('button', 'B')])]);
-    const b = bounded([state('b', [node('button', 'B')]), state('a', [node('button', 'A')])]);
+  /**
+   * **This case moved out of K2 on 2026-09-07, and the move is the finding.**
+   *
+   * It used to assert that capture order was ignorable, on the grounds that
+   * flow is carried by declared transitions rather than list position. That
+   * justification has a known exception the design itself names: where a
+   * transition is UNDECLARED, capture order was the last remaining hint of
+   * which state came first. Sorting it away lost that silently — nothing
+   * failed, the model just got a flatter picture.
+   *
+   * So the walk is now an explicit `visitOrder` field, and the consequence is
+   * that capture order is no longer ignorable: two different walks are two
+   * different pieces of evidence and must not share one answer. The cache is
+   * order-sensitive again — but for a REASON now, rather than as an accident
+   * of list layout, and what it buys is that flow survives canonicalisation.
+   *
+   * What sorting still buys is below: the rendered layout is canonical.
+   */
+  const orderedA = bounded([
+    state('a', [node('button', 'A')]),
+    state('b', [node('button', 'B')]),
+  ]);
+  const orderedB = bounded([
+    state('b', [node('button', 'B')]),
+    state('a', [node('button', 'A')]),
+  ]);
 
-    expect(promptFor(a)).toBe(promptFor(b));
-    expect(digestFor(a)).toBe(digestFor(b));
+  test('K1: capture order IS the visit sequence, so it changes the prompt', () => {
+    expect(promptFor(orderedA)).not.toBe(promptFor(orderedB));
+    expect(digestFor(orderedA)).not.toBe(digestFor(orderedB));
 
-    // Discriminating: the states really are distinguishable, so this is not
-    // passing because both prompts describe an empty capture.
-    expect(promptFor(a)).toContain('button "A"');
-    expect(promptFor(a)).toContain('button "B"');
-    expect(digestFor(a)).not.toBe(digestFor(BASE));
+    // Discriminating: the difference is the walk, not the content.
+    expect(promptFor(orderedA)).toContain('### state: a  [visited 1]');
+    expect(promptFor(orderedB)).toContain('### state: a  [visited 2]');
+  });
+
+  test('K2: the rendered state LAYOUT is canonical by id, whatever the capture order', () => {
+    // What the sort buys now that `visitOrder` carries the walk: the model
+    // always meets the states in one stable order, so the only difference
+    // between two walks is the declared sequence rather than the page layout.
+    const headings = (capture: BoundedCapture): string[] =>
+      [...promptFor(capture).matchAll(/^### state: (\S+)/gm)].map((m) => m[1]!);
+
+    expect(headings(orderedA)).toEqual(['a', 'b']);
+    expect(headings(orderedB)).toEqual(['a', 'b']);
+    // Discriminating: it really did find both headings.
+    expect(headings(orderedA).length).toBe(2);
   });
 
   test('K2: collapsed-group order does not change the prompt either', () => {
@@ -522,6 +551,25 @@ test.describe('the rendered prompt carries what grading depends on @unit', () =>
     expect(prompt).toContain('"ABCD"');
   });
 
+  test("the human's visit order reaches the model, and is marked as a hint only", () => {
+    // Where a transition is UNDECLARED — one of the three causes of a thin
+    // capture — visit order is the last remaining hint of which state came
+    // first. Sorting states by id for the cache would throw it away silently,
+    // so it travels as a field and must actually be rendered.
+    const walk = bounded([
+      state('later', [node('button', 'B')]),
+      state('earlier', [node('button', 'A')]),
+    ]);
+    const prompt = promptFor(walk);
+
+    expect(prompt).toContain('### state: later  [visited 1]');
+    expect(prompt).toContain('### state: earlier  [visited 2]');
+
+    // And the guard that stops it becoming mistake #2 by another route: a
+    // sequence hint must never be read as a claim about what an action causes.
+    expect(prompt).toContain('NOT evidence that one state leads to');
+  });
+
   test('a capture with no transitions says so rather than staying silent', () => {
     // Silence would leave the model to supply the conventional wizard model,
     // which is mistake #2 exactly.
@@ -584,26 +632,157 @@ test.describe('the builder reads its argument and nothing else (K5) @unit', () =
     expect(renderGenerationPrompt.length).toBe(1);
   });
 
-  test('K5: the renderer reads only declared fields of that argument', () => {
-    const read = new Set<string>();
-    const input = inputFor(BASE);
-    const watched = new Proxy(input, {
+  /**
+   * The read set is an ABSENCE claim — "the renderer touched nothing else" —
+   * so rule 1 applies to this test as it does to the grader:
+   *
+   * > **An absence claim needs a completeness guarantee over whatever it counts
+   * > across.** (Finding 15.)
+   *
+   * A proxy records only the paths the fixture actually executed. The first
+   * version of this test ran ONE fixture and left roughly half the render
+   * branches unvisited — a read inside `if (state.truncated)`, or in the empty-
+   * transitions arm, would have gone unrecorded and the test would have
+   * reported a clean read set anyway. That is the same shape as grading a
+   * truncated capture as though absence were evidence.
+   *
+   * So the fixtures below are a MATRIX over the render function's branches,
+   * and each one asserts a marker proving it reached the branch it is there
+   * for. A fixture that silently stopped exercising its branch fails rather
+   * than quietly shrinking the coverage this claim rests on.
+   */
+  interface Branch {
+    what: string;
+    capture: BoundedCapture;
+    titles?: string[];
+    /** Proof the branch was reached. */
+    shows: string[];
+    /** Proof the opposite arm was not taken. */
+    hides?: string[];
+  }
+
+  const rich = (over: Partial<AccessibilityNode>): BoundedCapture =>
+    bounded([state('s', [node('tab', 'Rich', over)])]);
+
+  const branches: Branch[] = [
+    { what: 'no states at all', capture: bounded([]), shows: ['_No states were captured'] },
+    { what: 'a state present', capture: BASE, shows: ['### state:'] },
+    {
+      what: 'a truncated state',
+      capture: bounded([state('s', [node('button', 'A')], true)]),
+      shows: ['TRUNCATED'],
+    },
+    {
+      what: 'an untruncated state',
+      capture: bounded([state('s', [node('button', 'A')])]),
+      shows: ['### state:'],
+      hides: ['TRUNCATED'],
+    },
+    {
+      what: 'collapsed groups present',
+      capture: withCollapsed(),
+      shows: ['Repeated shapes'],
+    },
+    { what: 'no collapsed groups', capture: BASE, shows: ['### state:'], hides: ['Repeated shapes'] },
+    {
+      what: 'a declared transition',
+      capture: withTransition('suspect'),
+      shows: ['cross-check: suspect'],
+    },
+    { what: 'no transitions', capture: BASE, shows: ['None declared'] },
+    { what: 'existing titles', capture: BASE, shows: ['- Admin lists'] },
+    { what: 'no existing titles', capture: BASE, titles: [], shows: ['_None._'] },
+    {
+      what: 'a node with no flags at all',
+      capture: bounded([state('s', [node('button', 'Plain')])]),
+      shows: ['- button "Plain"'],
+      hides: ['- button "Plain" ('],
+    },
+    { what: 'a disabled node', capture: rich({ enabled: false }), shows: ['(disabled'] },
+    { what: 'a selected node', capture: rich({ selected: false }), shows: ['selected=false'] },
+    { what: 'an expanded node', capture: rich({ expanded: true }), shows: ['expanded=true'] },
+    { what: 'a checked node', capture: rich({ checked: false }), shows: ['checked=false'] },
+    { what: 'a node with a level', capture: rich({ level: 3 }), shows: ['level=3'] },
+    { what: 'a visit order', capture: BASE, shows: ['[visited 1]'] },
+  ];
+
+  /** Every field path actually present on the object — no hand-maintained list to drift. */
+  const pathsPresent = (value: unknown, prefix: string, into: Set<string>): Set<string> => {
+    if (value === null || typeof value !== 'object') return into;
+    if (Array.isArray(value)) {
+      for (const item of value) pathsPresent(item, `${prefix}[]`, into);
+      return into;
+    }
+    for (const [key, child] of Object.entries(value)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      into.add(path);
+      pathsPresent(child, path, into);
+    }
+    return into;
+  };
+
+  /** Records every field path the renderer reads, at any depth. */
+  const watch = <T>(value: T, prefix: string, read: Set<string>): T => {
+    if (value === null || typeof value !== 'object') return value;
+    return new Proxy(value as object, {
       get(target, property, receiver) {
-        if (typeof property === 'string') read.add(property);
-        return Reflect.get(target, property, receiver);
+        const raw = Reflect.get(target, property, receiver);
+        if (typeof property === 'symbol' || typeof raw === 'function') return raw;
+        if (Array.isArray(target)) return watch(raw, `${prefix}[]`, read);
+        const path = prefix ? `${prefix}.${String(property)}` : String(property);
+        read.add(path);
+        return watch(raw, path, read);
       },
-    });
+    }) as T;
+  };
 
-    renderGenerationPrompt(watched);
+  test('K5: the renderer reads only fields that exist on its argument', () => {
+    const read = new Set<string>();
+    const present = new Set<string>();
 
-    // Nothing outside the declared shape was touched.
-    const declared = new Set(Object.keys(input));
-    expect([...read].filter((key) => !declared.has(key))).toEqual([]);
+    for (const branch of branches) {
+      const input = inputFor(branch.capture, COMMAND, branch.titles ?? TITLES);
 
-    // Discriminating: it really did read, so an empty read set would not pass.
-    expect(read.has('states')).toBe(true);
-    expect(read.has('command')).toBe(true);
-    expect(read.has('promptVersion')).toBe(true);
+      // The branch was reached. Without this the matrix could silently stop
+      // covering what it claims to cover, and the read set would narrow with
+      // nothing failing — the completeness guarantee this claim rests on.
+      const rendered = renderGenerationPrompt(input);
+      for (const marker of branch.shows) {
+        expect(rendered, `${branch.what} should show ${marker}`).toContain(marker);
+      }
+      for (const marker of branch.hides ?? []) {
+        expect(rendered, `${branch.what} should not show ${marker}`).not.toContain(marker);
+      }
+
+      pathsPresent(input, '', present);
+      renderGenerationPrompt(watch(input, '', read));
+    }
+
+    // Nothing outside the declared shape was touched, at any depth. Combined
+    // with the digest covering every field of that shape, the loop closes:
+    // the renderer can only emit what the digest has hashed.
+    expect([...read].filter((path) => !present.has(path)).sort()).toEqual([]);
+
+    // Discriminating: it really did read, at every level, so an empty or
+    // shallow read set would not pass.
+    for (const path of [
+      'promptVersion',
+      'command',
+      'states',
+      'states[].id',
+      'states[].visitOrder',
+      'states[].truncated',
+      'states[].nodes',
+      'states[].nodes[].role',
+      'states[].nodes[].enabled',
+      'states[].collapsed',
+      'states[].collapsed[].pattern',
+      'transitions',
+      'transitions[].verdict',
+      'existingCaseTitles',
+    ]) {
+      expect(read.has(path), `expected the renderer to read ${path}`).toBe(true);
+    }
 
     // And the one field the prompt does NOT read: `commandKey` exists purely
     // to coarsen the cache key. If this ever flips, the rewording behaviour

@@ -25,7 +25,7 @@ import type { CollapsedGroup } from './grounding';
  *    compile until its contribution to the digest is declared.
  *
  * Divergence is then impossible by construction. The remaining judgement — is
- * a field's digest form right? — is a visible line in `PROMPT_INPUT_DIGEST`,
+ * a field's digest form right? — is a visible line in the prompt-input digest map,
  * not an omission nobody can see.
  */
 
@@ -47,6 +47,33 @@ export interface PromptNode {
 
 export interface PromptState {
   id: string;
+  /**
+   * Where this state fell in the human's walk, zero-based — an explicit FIELD
+   * rather than a position in a list.
+   *
+   * `pnpm inspect` appends each state as the operator captures it, so the
+   * capture's array order IS the visit order. Sorting states by id for the
+   * cache would have thrown that away silently: nothing would fail, the model
+   * would simply get a flatter picture and generate worse sequences, and it
+   * would surface months later as "generation quality is mediocre" with no
+   * test pointing at it.
+   *
+   * The justification for sorting — *flow is carried by declared transitions,
+   * not by list position* — has a known exception, and the design names it:
+   * `undeclared-transition` is one of the three causes of a thin capture.
+   * Where a transition is undeclared, visit order was the last remaining hint
+   * of which state came first.
+   *
+   * So order stops competing with canonicalisation: the sequence becomes data,
+   * and the list stays sorted by id.
+   *
+   * **It is the order of the states that were SENT**, taken from the bounded
+   * capture rather than the session, so gaps left by bounding are not visible
+   * here. That is deliberate — the reviewer learns what selection dropped from
+   * the selection record, and an absolute index would churn the cache whenever
+   * an unrelated earlier state entered the session.
+   */
+  visitOrder: number;
   truncated: boolean;
   /**
    * In capture order, deliberately NOT sorted. AX order is document order, so
@@ -78,7 +105,7 @@ export interface PromptInput {
   promptVersion: string;
   /** The operator's own words, rendered verbatim — the model needs the phrasing. */
   command: string;
-  /** The command's cache identity: stop-worded, sorted. See `PROMPT_INPUT_DIGEST`. */
+  /** The command's cache identity: stop-worded, sorted. See the prompt-input digest map. */
   commandKey: string;
   /** Sorted by id. See `buildPromptInput` on why order is canonicalised here. */
   states: PromptState[];
@@ -121,8 +148,12 @@ export function buildPromptInput(input: {
   promptVersion?: string;
 }): PromptInput {
   const states: PromptState[] = input.capture.states
-    .map((state) => ({
+    // `visitOrder` is read off the position BEFORE sorting — that position is
+    // the only place the human's walk is recorded, and the sort is about to
+    // destroy it. Captured as a field, it survives canonicalisation.
+    .map((state, visitOrder) => ({
       id: state.id,
+      visitOrder,
       truncated: state.truncated,
       nodes: state.nodes.map(promptNode),
       collapsed: [...(state.collapsed ?? [])].sort((a, b) =>
@@ -158,44 +189,89 @@ export function normalizeCommand(command: string): string {
   return tokenize(command).sort().join(' ');
 }
 
-const serialiseNode = (node: PromptNode): string =>
-  [
-    node.role,
-    node.name,
-    node.enabled ? 'e1' : 'e0',
-    node.selected === undefined ? '' : `s${node.selected ? 1 : 0}`,
-    node.expanded === undefined ? '' : `x${node.expanded ? 1 : 0}`,
-    node.checked === undefined ? '' : `c${node.checked ? 1 : 0}`,
-    node.level === undefined ? '' : `l${node.level}`,
-  ].join('|');
-
-const serialiseState = (state: PromptState): string =>
-  [
-    state.id,
-    state.truncated ? 't1' : 't0',
-    state.nodes.map(serialiseNode).join('~'),
-    state.collapsed
-      .map((g) => `${g.role}|${g.pattern}|${g.count}|${g.examples.join(',')}`)
-      .join('~'),
-  ].join('#');
-
-const serialiseTransition = (t: PromptTransition): string =>
-  `${t.from}>${t.to}:${t.action}:${t.verdict}`;
-
 /**
- * How each field of `PromptInput` enters the digest — exhaustively.
+ * How each field of a type enters the digest — exhaustively, at every level.
  *
- * `Required<PromptInput>` is the point: add a field to `PromptInput` and this
- * object stops compiling until you say what it contributes. That is the
- * structural half of the guarantee, and it is why the digest can no longer
- * fall behind the prompt by omission.
+ * `Required<T>` is the point: add a field to `T` and the map stops compiling
+ * until you say what it contributes.
+ *
+ * **This is applied to the NESTED shapes too, and that is not symmetry for its
+ * own sake.** The first version covered only `PromptInput`'s own fields and
+ * hand-wrote the serialisers for `PromptState`, `PromptNode` and
+ * `CollapsedGroup` beneath it. Adding `visitOrder` to `PromptState` is what
+ * exposed the hole: it compiled, it rendered, and nothing required it to reach
+ * the digest — the exact failure the top-level map exists to prevent, one
+ * level down and invisible from the top.
  */
-type PromptInputDigestFields = {
-  [K in keyof Required<PromptInput>]: (value: Required<PromptInput>[K]) => string;
+type FieldDigests<T> = {
+  [K in keyof Required<T>]: (value: Required<T>[K] | undefined) => string;
 };
 
-const PROMPT_INPUT_DIGEST: PromptInputDigestFields = {
-  promptVersion: (v) => v,
+/**
+ * Builds an exhaustive digester.
+ *
+ * The compile-time map catches a field added to the TYPE. The runtime check
+ * catches a field added to the OBJECT — by a JavaScript caller, or by a cast —
+ * and follows the repo convention that a thing which scans asserts its own
+ * effect rather than reporting a comfortable answer.
+ */
+function exhaustiveDigester<T extends object>(
+  what: string,
+  fields: FieldDigests<T>,
+): (value: T) => string {
+  const names = Object.keys(fields).sort();
+  return (value: T): string => {
+    const uncovered = Object.keys(value).filter((key) => !names.includes(key));
+    if (uncovered.length > 0) {
+      throw new Error(
+        `${what}: [${uncovered.join(', ')}] can reach the prompt but not the digest. ` +
+          'A field the model sees and the cache key does not serves a stale answer for a ' +
+          'changed prompt.',
+      );
+    }
+    return names
+      .map((key) => {
+        const serialise = fields[key as keyof T] as (input: unknown) => string;
+        return `${key}=${serialise(value[key as keyof T])}`;
+      })
+      .join('|');
+  };
+}
+
+const serialiseNode = exhaustiveDigester<PromptNode>('prompt node', {
+  role: (v) => `${v}`,
+  name: (v) => `${v}`,
+  enabled: (v) => (v ? 'e1' : 'e0'),
+  selected: (v) => (v === undefined ? '' : `s${v ? 1 : 0}`),
+  expanded: (v) => (v === undefined ? '' : `x${v ? 1 : 0}`),
+  checked: (v) => (v === undefined ? '' : `c${v ? 1 : 0}`),
+  level: (v) => (v === undefined ? '' : `l${v}`),
+});
+
+const serialiseCollapsed = exhaustiveDigester<CollapsedGroup>('collapsed group', {
+  role: (v) => `${v}`,
+  pattern: (v) => `${v}`,
+  count: (v) => `${v}`,
+  examples: (v) => (v ?? []).join(','),
+});
+
+const serialiseState = exhaustiveDigester<PromptState>('prompt state', {
+  id: (v) => `${v}`,
+  visitOrder: (v) => `${v}`,
+  truncated: (v) => (v ? 't1' : 't0'),
+  nodes: (v) => (v ?? []).map(serialiseNode).join('~'),
+  collapsed: (v) => (v ?? []).map(serialiseCollapsed).join('~'),
+});
+
+const serialiseTransition = exhaustiveDigester<PromptTransition>('prompt transition', {
+  from: (v) => `${v}`,
+  to: (v) => `${v}`,
+  action: (v) => `${v}`,
+  verdict: (v) => `${v}`,
+});
+
+const digestPromptInput = exhaustiveDigester<PromptInput>('promptInputDigest', {
+  promptVersion: (v) => `${v}`,
 
   /**
    * The ONE field whose digest form is deliberately coarser than its rendered
@@ -207,42 +283,16 @@ const PROMPT_INPUT_DIGEST: PromptInputDigestFields = {
    * exhaustiveness check still covers it and the decision stays visible.
    */
   command: () => '',
-  commandKey: (v) => v,
+  commandKey: (v) => `${v}`,
 
-  states: (v) => v.map(serialiseState).join('\n'),
-  transitions: (v) => v.map(serialiseTransition).join('\n'),
-  existingCaseTitles: (v) => v.join('\n'),
-};
+  states: (v) => (v ?? []).map(serialiseState).join('\n'),
+  transitions: (v) => (v ?? []).map(serialiseTransition).join('\n'),
+  existingCaseTitles: (v) => (v ?? []).join('\n'),
+});
 
-const DIGEST_FIELD_NAMES = Object.keys(PROMPT_INPUT_DIGEST).sort();
-
-/**
- * The digest of exactly what the prompt renders.
- *
- * The compile-time map above catches a field added to the TYPE. This runtime
- * check catches a field added to the OBJECT — by a JavaScript caller, or by a
- * cast — and it follows the repo convention that a thing which scans must
- * assert its own effect rather than report a comfortable answer. A digest that
- * quietly skipped an unknown field would be the exact failure this file exists
- * to make impossible.
- */
+/** The digest of exactly what the prompt renders. */
 export function promptInputDigest(input: PromptInput): string {
-  const uncovered = Object.keys(input).filter((key) => !DIGEST_FIELD_NAMES.includes(key));
-  if (uncovered.length > 0) {
-    throw new Error(
-      `promptInputDigest: [${uncovered.join(', ')}] can reach the prompt but not the digest. ` +
-        'Add each to PROMPT_INPUT_DIGEST — a field the model sees and the cache key does not ' +
-        'serves a stale answer for a changed prompt.',
-    );
-  }
-
-  const parts = DIGEST_FIELD_NAMES.map((key) => {
-    const field = key as keyof PromptInput;
-    const serialise = PROMPT_INPUT_DIGEST[field] as (value: unknown) => string;
-    return `${key}=${serialise(input[field])}`;
-  });
-
-  return sha(parts.join('\n'));
+  return sha(digestPromptInput(input));
 }
 
 /**
@@ -257,8 +307,8 @@ export function captureDigest(capture: BoundedCapture): string {
   const input = buildPromptInput({ capture, command: '', existingCaseTitles: [] });
   return sha(
     [
-      `states=${PROMPT_INPUT_DIGEST.states(input.states)}`,
-      `transitions=${PROMPT_INPUT_DIGEST.transitions(input.transitions)}`,
+      `states=${input.states.map(serialiseState).join('\n')}`,
+      `transitions=${input.transitions.map(serialiseTransition).join('\n')}`,
     ].join('\n'),
   );
 }
@@ -289,7 +339,7 @@ const renderNode = (node: PromptNode): string => {
 };
 
 const renderState = (state: PromptState): string => {
-  const lines = [`### state: ${state.id}`];
+  const lines = [`### state: ${state.id}  [visited ${state.visitOrder + 1}]`];
 
   if (state.truncated) {
     lines.push(
@@ -355,6 +405,10 @@ export function renderGenerationPrompt(input: PromptInput): string {
     '   silent about it). Prefer `assumed` when unsure; a question costs a reader a minute, a',
     '   wrong `observed` costs them a green test that asserts something untrue.',
     '5. A transition marked `suspect` failed its cross-check. It cannot ground anything.',
+    '6. `[visited N]` is the order the human walked these states. It is a HINT about sequence,',
+    '   useful for ordering steps sensibly — it is NOT evidence that one state leads to',
+    '   another. Only a declared transition is that. Do not turn a visit order into a claim',
+    '   about what an action causes.',
   );
 
   sections.push(
