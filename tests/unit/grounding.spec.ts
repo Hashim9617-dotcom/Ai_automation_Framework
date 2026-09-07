@@ -488,3 +488,135 @@ test.describe('checkGrounding — malformed capture @unit', () => {
     expect(result.overall).not.toBe('observed');
   });
 });
+
+/**
+ * R1 — TWO DISTINCT FAULTS NEED TWO DISTINCT REASONS.
+ *
+ * Several genuinely different faults produce an identical-looking outcome:
+ * `assumed`, with `stateId: null`, and a case that reaches review as a
+ * question rather than a proposal. They do not have the same fix.
+ *
+ * The design names three causes of a thin capture and says the third is the
+ * dangerous one, because "a relevance heuristic that picks wrong produces an
+ * `ASSUMED` that looks IDENTICAL to a genuinely undeclared transition" — and a
+ * reviewer who cannot tell them apart follows the note to the wrong fix, and
+ * re-captures a flow that was captured perfectly well.
+ *
+ * One shared reason covering both is the unfalsifiable-explanation shape this
+ * project already removed from the `navigate` note: it always sounds right and
+ * never tells anyone what to do. So each fault carries its own code.
+ */
+test.describe('checkGrounding — distinct faults get distinct reasons (R1) @unit', () => {
+  const GHOST: StateCapture = {
+    sessionId: 'x',
+    states: [
+      { id: 'a', label: 'a', url: 'https://app.example/a', nodes: [], truncated: false },
+      { id: 'b', label: 'b', url: 'https://app.example/b', nodes: [], truncated: false },
+    ],
+    transitions: [{ from: 'a', to: 'ghost', action: 'clicked away', verdict: 'consistent' }],
+  };
+
+  /** The transition chain broke: nothing was ever declared for this action. */
+  const chainBroken = checkGrounding(capture([WORKSPACE, FOLDER], []), {
+    entryState: 'workspace',
+    steps: [
+      { kind: 'action', description: 'clicked "WS-ALPHA"' },
+      assertStep('tab', 'Folder', 'selected', true),
+    ],
+  });
+
+  /** Bounding dropped a state a declared transition still refers to. */
+  const stateDropped = checkGrounding(GHOST, {
+    entryState: 'a',
+    steps: [
+      { kind: 'action', description: 'clicked away' },
+      assertStep('button', 'X', 'present', true),
+    ],
+  });
+
+  test('R1: both faults look identical in grade and stateId', () => {
+    // The premise. Without this the test below would be discriminating on
+    // something a reviewer could already see, and would prove nothing.
+    expect(chainBroken.steps[1]!.grade).toBe('assumed');
+    expect(stateDropped.steps[1]!.grade).toBe('assumed');
+    expect(chainBroken.steps[1]!.stateId).toBeNull();
+    expect(stateDropped.steps[1]!.stateId).toBeNull();
+  });
+
+  test('R1: a broken transition chain and a dropped state are told apart', () => {
+    expect(chainBroken.steps[1]!.why).toBe('undeclared-transition');
+    expect(stateDropped.steps[1]!.why).toBe('cursor-state-not-in-capture');
+    expect(chainBroken.steps[1]!.why).not.toBe(stateDropped.steps[1]!.why);
+  });
+
+  test('R1: the fix each one points at survives into the prose', () => {
+    // The code is what a tool reads; the sentence is what a human reads. Both
+    // must name the same fault, or the record disagrees with itself.
+    expect(chainBroken.steps[1]!.reason).toContain('no declared transition');
+    expect(stateDropped.steps[1]!.reason).toContain('does not contain');
+  });
+
+  test('R1: a suspect transition is its own fault, not a missing one', () => {
+    // Re-capturing to declare an action that IS already declared would find
+    // nothing to do. The fix is to resolve the cross-check disagreement.
+    const flagged: DeclaredTransition = { ...CONSISTENT, verdict: 'suspect' };
+    const suspect = checkGrounding(capture([WORKSPACE, FOLDER], [flagged]), {
+      entryState: 'workspace',
+      steps: [
+        { kind: 'action', description: flagged.action },
+        assertStep('tab', 'Folder', 'selected', true),
+      ],
+    });
+
+    expect(suspect.steps[1]!.grade).toBe('assumed');
+    expect(suspect.steps[1]!.why).toBe('suspect-transition');
+    expect(suspect.steps[1]!.why).not.toBe(chainBroken.steps[1]!.why);
+  });
+
+  test('R1: an uncaptured entry state is its own fault too', () => {
+    // Nothing about the transitions is wrong here — the case simply starts
+    // somewhere that was never captured, or that bounding dropped.
+    const noEntry = checkGrounding(capture([WORKSPACE], []), {
+      entryState: 'never-captured',
+      steps: [assertStep('tab', 'Workspace', 'selected', true)],
+    });
+
+    expect(noEntry.steps[0]!.grade).toBe('assumed');
+    expect(noEntry.steps[0]!.why).toBe('entry-state-not-captured');
+    expect(noEntry.steps[0]!.reason).toContain('never-captured');
+  });
+
+  test('R1: the ROOT cause survives to every downstream assertion', () => {
+    // `unknown` is absorbing, so without carrying the cause forward every step
+    // after the first would report the same "cursor unknown" — one explanation
+    // for three faults, which is the shape being removed.
+    const downstream = checkGrounding(capture([WORKSPACE, FOLDER], []), {
+      entryState: 'workspace',
+      steps: [
+        { kind: 'action', description: 'clicked something undeclared' },
+        assertStep('tab', 'Folder', 'selected', true),
+        assertStep('button', 'Root folder', 'present', true),
+      ],
+    });
+
+    expect(downstream.steps[1]!.why).toBe('undeclared-transition');
+    expect(downstream.steps[2]!.why).toBe('undeclared-transition');
+  });
+
+  test('R1: the two silences inside a captured state stay distinct', () => {
+    // Truncation ("we stopped looking") and an unrecorded property ("we looked
+    // and the capture cannot express this") are both `assumed` in a known
+    // state, and they also have different fixes.
+    const truncatedState = checkGrounding(
+      capture([state('t', [{ role: 'button', name: 'A', enabled: true }], true)]),
+      { entryState: 't', steps: [assertStep('button', 'Missing', 'present', true)] },
+    );
+    const unrecorded = checkGrounding(capture([state('u', [{ role: 'tab', name: 'A', enabled: true }])]), {
+      entryState: 'u',
+      steps: [assertStep('tab', 'A', 'selected', true)],
+    });
+
+    expect(truncatedState.steps[0]!.why).toBe('capture-truncated');
+    expect(unrecorded.steps[0]!.why).toBe('property-not-recorded');
+  });
+});

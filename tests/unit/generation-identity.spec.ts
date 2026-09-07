@@ -1,253 +1,70 @@
 import { test, expect } from '@playwright/test';
 import {
-  PROMPT_VERSION,
   assertionId,
   assertionIdsFor,
-  captureDigest,
-  existingCaseTitlesDigest,
-  generationCacheKey,
-  normalizeCommand,
+  checkGrounding,
   type AccessibilityNode,
-  type BoundedCapture,
+  type AssertStep,
+  type AssertionBasis,
+  type CandidateCase,
   type CapturedState,
+  type StateCapture,
 } from '@aitp/shared';
 
 /**
- * Expectations derive from `docs/phase-2-generation.md`, "The cache key" and
- * "Approval identity" — not from reading `identity.ts` (rule 4).
+ * Expectations derive from `docs/phase-2-generation.md`, "Approval identity:
+ * approvals must LAPSE, never transfer" — not from reading `identity.ts`
+ * (rule 4).
  *
- * Both things here fail SILENTLY when wrong, in opposite directions, so each
- * is tested both ways:
+ *   A1  content is part of the identity, so changed content LAPSES approval
+ *   A2  the PATH is part of the identity — same claim, different route
+ *   A3  the GROUNDING BASIS is part of the identity — state and grade
+ *   A4  duplicates do not share one approval
+ *   A5  the step index is NOT part of the identity
  *
- *   K1  captures differing in what the prompt USES -> DIFFERENT digests
- *       (a miss serves a stale proposal for a changed app)
- *   K2  captures differing only in what the prompt IGNORES -> SAME digest
- *       (a miss means the cache never hits and every run pays, silently)
- *   K3  every key component has its own falsifier (rule 3 applied to the key)
- *   A1  an assertion's id is content-derived, so changed content LAPSES approval
- *   A2  the PATH is part of the identity — same claim, different route, different id
+ * A3 and A4 are the two gaps content+path leaves. Both let one approval cover
+ * something a reviewer never agreed to, which is rule 4's failure — an
+ * unreviewed claim becoming a reviewed one — wearing different clothes.
  */
 
-const node = (
-  role: string,
-  name: string,
-  extra: Partial<AccessibilityNode> = {},
-): AccessibilityNode => ({ role, name, enabled: true, ...extra });
+const claim: AssertStep = {
+  kind: 'assert',
+  role: 'tab',
+  name: 'Folder',
+  property: 'selected',
+  expected: true,
+};
 
-const state = (id: string, nodes: AccessibilityNode[], truncated = false): CapturedState => ({
-  id,
-  label: id,
-  url: `https://app.example/${id}`,
-  nodes,
-  truncated,
+const basis = (over: Partial<AssertionBasis> = {}): AssertionBasis => ({
+  entryState: 'workspace',
+  precedingActions: [],
+  claim,
+  stateId: 'workspace',
+  grade: 'observed',
+  occurrence: 0,
+  ...over,
 });
 
-const bounded = (
-  states: CapturedState[],
-  overrides: Partial<BoundedCapture> = {},
-): BoundedCapture => ({
-  sessionId: 'session-a',
-  states,
-  transitions: [],
-  selection: { keywords: ['x'], available: [], chosen: [], excluded: [] },
-  ...overrides,
-});
-
-const BASE = bounded([state('workspace', [node('tab', 'Workspace', { selected: true })])]);
-
-test.describe('capture digest — differences the prompt USES (K1) @unit', () => {
-  // Each pair differs in exactly ONE thing the prompt renders, so a digest
-  // that ignored that thing would visibly collide.
-  const cases: Array<{ what: string; changed: BoundedCapture }> = [
-    {
-      what: 'a node name',
-      changed: bounded([state('workspace', [node('tab', 'Folder', { selected: true })])]),
-    },
-    {
-      what: 'a node role',
-      changed: bounded([state('workspace', [node('button', 'Workspace', { selected: true })])]),
-    },
-    {
-      what: 'a selected value',
-      changed: bounded([state('workspace', [node('tab', 'Workspace', { selected: false })])]),
-    },
-    {
-      what: 'enabled',
-      changed: bounded([
-        state('workspace', [node('tab', 'Workspace', { selected: true, enabled: false })]),
-      ]),
-    },
-    {
-      what: 'the truncation flag',
-      changed: bounded([state('workspace', [node('tab', 'Workspace', { selected: true })], true)]),
-    },
-    {
-      what: 'a state id',
-      changed: bounded([state('folder', [node('tab', 'Workspace', { selected: true })])]),
-    },
-    {
-      what: 'an added node',
-      changed: bounded([
-        state('workspace', [node('tab', 'Workspace', { selected: true }), node('button', 'Next')]),
-      ]),
-    },
-    {
-      what: 'a declared transition',
-      changed: bounded([state('workspace', [node('tab', 'Workspace', { selected: true })])], {
-        transitions: [{ from: 'workspace', to: 'folder', action: 'clicked', verdict: 'consistent' }],
-      }),
-    },
-    {
-      what: 'a transition verdict',
-      changed: bounded([state('workspace', [node('tab', 'Workspace', { selected: true })])], {
-        transitions: [{ from: 'workspace', to: 'folder', action: 'clicked', verdict: 'suspect' }],
-      }),
-    },
-    {
-      what: 'a collapsed group',
-      changed: bounded([
-        {
-          ...state('workspace', [node('tab', 'Workspace', { selected: true })]),
-          collapsed: [
-            { role: 'treeitem', pattern: 'Expand <name> More', count: 9, examples: ['Expand A More'] },
-          ],
-        },
-      ]),
-    },
-  ];
-
-  for (const c of cases) {
-    test(`K1: ${c.what} changes the digest`, () => {
-      expect(captureDigest(c.changed)).not.toBe(captureDigest(BASE));
-    });
-  }
-});
-
-test.describe('capture digest — differences the prompt IGNORES (K2) @unit', () => {
-  test('K2: the session id does not change the digest', () => {
-    const other = bounded([state('workspace', [node('tab', 'Workspace', { selected: true })])], {
-      sessionId: 'a-completely-different-session',
-    });
-    expect(captureDigest(other)).toBe(captureDigest(BASE));
-  });
-
-  test('K2: the selection record does not change the digest', () => {
-    // Bounding's bookkeeping is provenance for humans; the model never sees it.
-    const other = bounded([state('workspace', [node('tab', 'Workspace', { selected: true })])], {
-      selection: {
-        keywords: ['totally', 'different'],
-        available: [{ id: 'workspace', score: 9 }],
-        chosen: [{ id: 'workspace', score: 9, why: 'score' }],
-        excluded: [{ id: 'other', score: 0, why: 'below-cut' }],
-      },
-    });
-    expect(captureDigest(other)).toBe(captureDigest(BASE));
-  });
-
-  test('K2: a state label and url do not change the digest', () => {
-    const other = bounded([
-      {
-        ...state('workspace', [node('tab', 'Workspace', { selected: true })]),
-        label: 'Some Human Label',
-        url: 'https://elsewhere.example/x?token=abc',
-      },
-    ]);
-    expect(captureDigest(other)).toBe(captureDigest(BASE));
-  });
-
-  test('K2: state ORDER does not change the digest', () => {
-    // Same content rendered in a different order is the same prompt.
-    const a = bounded([state('a', [node('button', 'A')]), state('b', [node('button', 'B')])]);
-    const b = bounded([state('b', [node('button', 'B')]), state('a', [node('button', 'A')])]);
-    expect(captureDigest(a)).toBe(captureDigest(b));
-    // Discriminating: the states really are distinguishable, so this is not
-    // passing because both digests are of an empty capture.
-    expect(captureDigest(a)).not.toBe(captureDigest(BASE));
-  });
-});
-
-test.describe('the cache key — every component is load-bearing (K3) @unit', () => {
-  const parts = {
-    promptVersion: PROMPT_VERSION,
-    command: 'test the upload workspace step',
-    capture: BASE,
-    existingCaseTitles: ['Admin lists > Users list loads'],
-  };
-
-  test('K3: promptVersion is part of the key', () => {
-    expect(generationCacheKey({ ...parts, promptVersion: 'gen-999' })).not.toBe(
-      generationCacheKey(parts),
-    );
-  });
-
-  test('K3: the command is part of the key', () => {
-    expect(generationCacheKey({ ...parts, command: 'something else entirely' })).not.toBe(
-      generationCacheKey(parts),
-    );
-  });
-
-  test('K3: the capture is part of the key', () => {
-    const changed = bounded([state('workspace', [node('tab', 'Folder', { selected: true })])]);
-    expect(generationCacheKey({ ...parts, capture: changed })).not.toBe(generationCacheKey(parts));
-  });
-
-  test('K3: the existing-case titles are part of the key', () => {
-    expect(
-      generationCacheKey({ ...parts, existingCaseTitles: [...parts.existingCaseTitles, 'New test'] }),
-    ).not.toBe(generationCacheKey(parts));
-  });
-
-  test('equivalent phrasings of a command share one entry', () => {
-    // Otherwise the cache never hits on ordinary rewording.
-    expect(normalizeCommand('test the upload workspace step')).toBe(
-      normalizeCommand('Workspace upload step'),
-    );
-    expect(generationCacheKey({ ...parts, command: 'Workspace upload step' })).toBe(
-      generationCacheKey(parts),
-    );
-  });
-
-  test('a genuinely different command does NOT share an entry', () => {
-    // The discriminating half of the test above.
-    expect(normalizeCommand('upload workspace')).not.toBe(normalizeCommand('admin users list'));
-  });
-
-  test('title order does not change the titles digest, but content does', () => {
-    expect(existingCaseTitlesDigest(['a', 'b'])).toBe(existingCaseTitlesDigest(['b', 'a']));
-    expect(existingCaseTitlesDigest(['a', 'b'])).not.toBe(existingCaseTitlesDigest(['a', 'c']));
-  });
-});
-
-test.describe('assertion identity — approvals lapse, never transfer (A1-A2) @unit', () => {
-  const claim = {
-    kind: 'assert' as const,
-    role: 'tab',
-    name: 'Folder',
-    property: 'selected' as const,
-    expected: true,
-  };
-
-  test('A1: the same claim by the same path has a stable id', () => {
-    expect(assertionId('workspace', ['clicked "WS-ALPHA"'], claim)).toBe(
-      assertionId('workspace', ['clicked "WS-ALPHA"'], claim),
-    );
+test.describe('assertion identity — content and path (A1-A2) @unit', () => {
+  test('A1: the same claim on the same basis has a stable id', () => {
+    expect(assertionId(basis())).toBe(assertionId(basis()));
   });
 
   test('A1: changing the asserted VALUE changes the id — approval lapses', () => {
-    expect(assertionId('workspace', [], { ...claim, expected: false })).not.toBe(
-      assertionId('workspace', [], claim),
+    expect(assertionId(basis({ claim: { ...claim, expected: false } }))).not.toBe(
+      assertionId(basis()),
     );
   });
 
   test('A1: changing the target changes the id', () => {
-    expect(assertionId('workspace', [], { ...claim, name: 'Workspace' })).not.toBe(
-      assertionId('workspace', [], claim),
+    expect(assertionId(basis({ claim: { ...claim, name: 'Workspace' } }))).not.toBe(
+      assertionId(basis()),
     );
-    expect(assertionId('workspace', [], { ...claim, role: 'button' })).not.toBe(
-      assertionId('workspace', [], claim),
+    expect(assertionId(basis({ claim: { ...claim, role: 'button' } }))).not.toBe(
+      assertionId(basis()),
     );
-    expect(assertionId('workspace', [], { ...claim, property: 'present' })).not.toBe(
-      assertionId('workspace', [], claim),
+    expect(assertionId(basis({ claim: { ...claim, property: 'present' } }))).not.toBe(
+      assertionId(basis()),
     );
   });
 
@@ -255,45 +72,154 @@ test.describe('assertion identity — approvals lapse, never transfer (A1-A2) @u
     // "Folder is selected" after clicking a workspace tile is a different
     // claim from the same sentence after clicking Next. One must not approve
     // the other.
-    const viaTile = assertionId('workspace', ['clicked "WS-ALPHA"'], claim);
-    const viaNext = assertionId('workspace', ['clicked Next'], claim);
-    expect(viaTile).not.toBe(viaNext);
+    expect(assertionId(basis({ precedingActions: ['clicked "WS-ALPHA"'] }))).not.toBe(
+      assertionId(basis({ precedingActions: ['clicked Next'] })),
+    );
   });
 
   test('A2: the entry state is part of the identity', () => {
-    expect(assertionId('folder', [], claim)).not.toBe(assertionId('workspace', [], claim));
+    expect(assertionId(basis({ entryState: 'folder' }))).not.toBe(assertionId(basis()));
   });
 
   test('A2: action ORDER matters', () => {
-    expect(assertionId('s', ['a', 'b'], claim)).not.toBe(assertionId('s', ['b', 'a'], claim));
+    expect(assertionId(basis({ precedingActions: ['a', 'b'] }))).not.toBe(
+      assertionId(basis({ precedingActions: ['b', 'a'] })),
+    );
+  });
+});
+
+test.describe('assertion identity — the grounding basis (A3) @unit', () => {
+  test('A3: the same text graded in a DIFFERENT state gets a different id', () => {
+    // An assertion approved while standing in state A must not carry to the
+    // same sentence graded in state B: that is a different claim spelled the
+    // same way, and the approval would cross a state boundary — the exact
+    // thing per-assertion approval exists to prevent.
+    expect(assertionId(basis({ stateId: 'upload.folder-step' }))).not.toBe(
+      assertionId(basis({ stateId: 'upload.workspace-step' })),
+    );
   });
 
-  test('assertionIdsFor threads the preceding actions to each assertion', () => {
-    const ids = assertionIdsFor({
+  test('A3: an unknown cursor is its own basis, distinct from any named state', () => {
+    expect(assertionId(basis({ stateId: null }))).not.toBe(assertionId(basis()));
+  });
+
+  test('A3: a REGRADE lapses the approval', () => {
+    // What was approved changed: a reviewer accepted a fact and would now be
+    // holding an open question. An id blind to the grade lets that survive.
+    const observed = assertionId(basis({ grade: 'observed' }));
+    const assumed = assertionId(basis({ grade: 'assumed' }));
+    const contradicted = assertionId(basis({ grade: 'contradicted' }));
+    expect(new Set([observed, assumed, contradicted]).size).toBe(3);
+  });
+});
+
+test.describe('assertion identity — duplicates (A4) @unit', () => {
+  test('A4: two identical assertions in one case get two distinct ids', () => {
+    expect(assertionId(basis({ occurrence: 0 }))).not.toBe(assertionId(basis({ occurrence: 1 })));
+  });
+});
+
+/**
+ * The same rules again, but through `assertionIdsFor` — the function proposals
+ * actually use. A basis-level test can pass while the walker never varies the
+ * basis, which would leave every rule above true and unused.
+ */
+test.describe('assertionIdsFor threads the whole basis (A1-A5) @unit', () => {
+  const node = (
+    role: string,
+    name: string,
+    extra: Partial<AccessibilityNode> = {},
+  ): AccessibilityNode => ({ role, name, enabled: true, ...extra });
+
+  const state = (id: string, nodes: AccessibilityNode[]): CapturedState => ({
+    id,
+    label: id,
+    url: `https://app.example/${id}`,
+    nodes,
+    truncated: false,
+  });
+
+  const capture: StateCapture = {
+    sessionId: 's',
+    states: [
+      state('workspace', [node('tab', 'Workspace', { selected: true }), node('tab', 'Folder', { selected: false })]),
+      state('folder', [node('tab', 'Folder', { selected: true })]),
+    ],
+    transitions: [
+      { from: 'workspace', to: 'folder', action: 'clicked "WS-ALPHA"', verdict: 'consistent' },
+    ],
+  };
+
+  const idsFor = (candidate: CandidateCase) =>
+    assertionIdsFor(candidate, checkGrounding(capture, candidate));
+
+  test('the preceding actions reach each assertion', () => {
+    const ids = idsFor({
       entryState: 'workspace',
       steps: [
         { kind: 'action', description: 'clicked "WS-ALPHA"' },
         claim,
-        { kind: 'action', description: 'clicked Root folder' },
         { ...claim, name: 'Upload' },
       ],
     });
 
     expect(ids.length).toBe(2);
     expect(ids[0]!.precedingActions).toEqual(['clicked "WS-ALPHA"']);
-    expect(ids[1]!.precedingActions).toEqual(['clicked "WS-ALPHA"', 'clicked Root folder']);
-    // Discriminating: the two assertions differ, so identical ids would be a bug.
+    expect(ids[1]!.precedingActions).toEqual(['clicked "WS-ALPHA"']);
     expect(ids[0]!.assertionId).not.toBe(ids[1]!.assertionId);
   });
 
-  test('an id does NOT depend on the step index', () => {
+  test('A3: the same assertion before and after a transition gets different ids', () => {
+    // The cursor moves from `workspace` to `folder`, so the same sentence is
+    // graded against two different node sets. This is A3 through the walker:
+    // the path differs too, but the derived stateId is what makes them two
+    // different CLAIMS rather than two spellings of one.
+    const ids = idsFor({
+      entryState: 'workspace',
+      steps: [claim, { kind: 'action', description: 'clicked "WS-ALPHA"' }, claim],
+    });
+
+    expect(ids.length).toBe(2);
+    expect(ids[0]!.stateId).toBe('workspace');
+    expect(ids[1]!.stateId).toBe('folder');
+    expect(ids[0]!.grade).toBe('contradicted');
+    expect(ids[1]!.grade).toBe('observed');
+    expect(ids[0]!.assertionId).not.toBe(ids[1]!.assertionId);
+  });
+
+  test('A4: two identical assertions in one case get two distinct ids', () => {
+    // Same text, same path, same cursor, same grade — everything a reviewer
+    // reads is identical. One id would let a single approval cover both.
+    const ids = idsFor({ entryState: 'folder', steps: [claim, claim] });
+
+    expect(ids.length).toBe(2);
+    expect(ids[0]!.stateId).toBe(ids[1]!.stateId);
+    expect(ids[0]!.grade).toBe(ids[1]!.grade);
+    expect(ids[0]!.occurrence).toBe(0);
+    expect(ids[1]!.occurrence).toBe(1);
+    expect(ids[0]!.assertionId).not.toBe(ids[1]!.assertionId);
+  });
+
+  test('A5: an id does NOT depend on the step index', () => {
     // Otherwise inserting an unrelated assertion earlier in the case would
     // lapse every approval below it, for no reason a human would recognise.
-    const withPrefix = assertionIdsFor({
-      entryState: 'workspace',
-      steps: [{ ...claim, name: 'Workspace' }, claim],
+    // The occurrence counter must not reintroduce this: it only advances for a
+    // genuine duplicate, so an unrelated neighbour leaves it at zero.
+    const withPrefix = idsFor({
+      entryState: 'folder',
+      steps: [{ ...claim, name: 'Something Else', property: 'present' }, claim],
     });
-    const withoutPrefix = assertionIdsFor({ entryState: 'workspace', steps: [claim] });
+    const withoutPrefix = idsFor({ entryState: 'folder', steps: [claim] });
+
+    expect(withPrefix[1]!.occurrence).toBe(0);
     expect(withPrefix[1]!.assertionId).toBe(withoutPrefix[0]!.assertionId);
+  });
+
+  test('a grounding result for a different case is refused, not silently used', () => {
+    // Identity now depends on the grading, so pairing the wrong one would
+    // stamp an id from a basis that was never measured.
+    const candidate: CandidateCase = { entryState: 'folder', steps: [claim, claim] };
+    const other = checkGrounding(capture, { entryState: 'folder', steps: [claim] });
+    expect(() => assertionIdsFor(candidate, other)).toThrow(/different case/);
   });
 });

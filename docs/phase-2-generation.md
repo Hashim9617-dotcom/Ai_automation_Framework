@@ -659,6 +659,34 @@ transition. Without the exclusion record specified below, a reviewer seeing
 "this is a question, not a case" cannot tell which of the three happened — and
 would follow this very note to the wrong fix.
 
+**Specified 2026-09-07, in review: distinct faults carry distinct REASON
+CODES, not one shared sentence.** The grader's prose said different things for
+these cases, but prose is what a human classifies and what a record loses; the
+cause needs to be machine-readable or it collapses the moment it flows into the
+proposal's `whyUngrounded`. One shared explanation covering several faults is
+the unfalsifiable-explanation shape already removed from the `navigate` note:
+it always sounds right and never tells anyone what to do.
+
+Every `StepGrade` therefore carries a `why` code alongside its sentence, and
+`OpenQuestion.whyUngrounded` is that code rather than free text. The two the
+design cares most about telling apart:
+
+| Code | The fault | Where the fix belongs |
+| --- | --- | --- |
+| `undeclared-transition` | nothing was declared for this action | capture |
+| `suspect-transition` | the declaration and the observed delta disagree | capture |
+| `entry-state-not-captured` | the case starts in a state that is not here | capture, or bounding |
+| **`cursor-state-not-in-capture`** | the chain is intact and a declared transition points at a state this capture does not hold | **bounding** |
+
+The last is the one the note above warns about, and it is why a shared reason
+is not merely imprecise: sending someone to re-declare a transition they
+already declared correctly is the cost of getting it wrong.
+
+`unknown` is absorbing, so the **root cause is carried forward** to every
+downstream assertion rather than degrading into "cursor unknown". Otherwise the
+first step names the fault and every step after it reports the shape it left
+behind.
+
 This is what makes the prerequisite chain mechanical rather than aspirational.
 Before P2, no transitions exist, so the cursor goes `unknown` at the first
 action step and mistake #2's assertions are all `ASSUMED` — a question. After
@@ -959,12 +987,37 @@ Approval is **per-assertion, not per-case** — whole-case approval is how one
 wrong assertion rides in on four right ones. That forces a question the record
 has to answer: when a case is regenerated, which approvals still apply?
 
-> **`assertionId` is derived from the assertion's content AND its path**:
-> the entry state, the ordered actions preceding it, and the claim itself
-> (`stateId`, `role`, `name`, `property`, `expected`). Nothing else — not the
-> index, not the case title, not the generation timestamp.
+> **`assertionId` is derived from the assertion's content, its path, AND its
+> grounding basis**: the entry state, the ordered actions preceding it, the
+> claim itself (`role`, `name`, `property`, `expected`), the `stateId` the
+> cursor derived, the `grade` it was given, and which occurrence of an
+> otherwise identical basis it is. Nothing else — not the step index, not the
+> case title, not the generation timestamp.
 
-Two consequences, both intended:
+**Revised 2026-09-07, in review.** The first version of this rule said "content
+AND its path… nothing else", and left two ways for one approval to cover
+something a reviewer never agreed to:
+
+- **The grounding basis was missing.** An assertion approved while the cursor
+  stood in state A carried silently to the same text graded in state B, where
+  it is a different claim spelled the same way. A regrade survived too: what
+  was approved as an `observed` fact could become an `assumed` question with
+  the approval still attached. Excluding the step index was right; excluding
+  the basis was not.
+- **Duplicates shared one id.** Two identical assertions in one case were one
+  approval covering both.
+
+Note what the widened basis implies, and that it is the intended direction: **a
+bounding change that shifts the cursor LAPSES the approval.** The basis moved,
+so the approval is stale, and a re-ask costs a reviewer one look — far less
+than an approval that quietly outlived the evidence it was given for.
+
+The occurrence counter is deliberately **not** the step index: it only ever
+advances for a genuine duplicate, so inserting an unrelated assertion earlier
+in a case does not lapse every approval below it for a reason no human would
+recognise.
+
+Four consequences, all intended:
 
 - **Content changes → the id changes → the approval lapses.** It cannot carry
   over onto text a human never read. An approval that silently transfers to
@@ -974,6 +1027,10 @@ Two consequences, both intended:
   *clicked WS-ALPHA* is a different claim from the same sentence after
   *clicked Next*, so they must not share an approval. Identity built from the
   claim alone would let one approve the other.
+- **The state and the grade are part of the identity**, for the reasons above:
+  they are the basis a reviewer was actually shown.
+- **Two identical assertions are two approvals**, because they are two things a
+  reviewer must accept separately.
 
 A lapsed approval is **shown as lapsed** during review, not silently dropped —
 otherwise a reviewer believes they approved something that is no longer there.
@@ -983,12 +1040,111 @@ the app looked like this" is answerable later.
 ### The cache key
 
 ```
-cacheKey = hash(promptVersion, normalizedCommand, captureDigest, existingCaseTitlesDigest)
+cacheKey = hash(promptInput)      // the ONE canonical object the prompt is rendered from
 ```
 
 Rule 3 applies to the key itself: **every component needs its own falsifier.**
-Remove any one of the four and some test must fail, or that component is
-decoration.
+Remove any one and some test must fail, or that component is decoration. The
+components are unchanged — `promptVersion`, the normalised command, the bounded
+capture, the existing case titles — but they are now *fields of the prompt
+input* rather than arguments assembled beside it.
+
+**Revised 2026-09-07, in review. The digest must be DERIVED from the prompt
+input, not assembled alongside it.** The earlier arrangement built the digest
+from the same capture the prompt was built from, which is a discipline rather
+than a guarantee: add a field to the prompt, forget the digest, and the cache
+serves a stale answer for a changed question — silently, with every existing
+test green. No test could catch it, because a cache-key test can only pin what
+the digest does today; the field that was never added is invisible to all of
+them.
+
+So the arrangement is structural:
+
+1. `buildPromptInput()` produces one canonical `PromptInput`.
+2. **`renderGenerationPrompt()` takes that object and nothing else**, so the
+   model cannot be shown anything the digest has not seen.
+3. `promptInputDigest()` hashes that same object through an **exhaustive,
+   compile-time-checked field map**, so a field added to `PromptInput` fails to
+   compile until its contribution to the digest is declared. (Verified by
+   mutation on 2026-09-07: adding a rendered field and leaving the digest alone
+   fails `tsc` before any test runs.)
+
+Divergence is then impossible by construction rather than by vigilance. What
+remains a judgement — *is a field's digest form right?* — is a visible line in
+the field map, not an omission nobody can see.
+
+**And the guarantee holds only while that object is the builder's ONLY source,
+so that is stated as a rule rather than left as a property of today's code:**
+
+> **`renderGenerationPrompt` takes exactly one argument and reads nothing
+> else.** No second parameter, no module-level data, no `process.env`, no
+> reach back into the capture, no clock and no randomness. Every value it
+> emits comes off its `PromptInput`.
+
+That is the actual guarantee. The field map constrains what `PromptInput` may
+*contain*; it says nothing about where the renderer may *read from*, and a
+second source would let data enter the prompt without entering the digest —
+the same silent divergence, through a side door. So the rule is pinned by
+tests rather than by review: the renderer's arity, the exact set of fields it
+touches (checked through a recording proxy), its purity across structurally
+equal inputs, and a source scan for external-source tokens. All four routes
+are mutation-verified.
+
+**Its limit, stated so nobody reads more into a green run than is there:** the
+source scan is a list of plausible reads, not a proof of purity. An exotic
+read it does not name would pass.
+
+**Fields absent from `PromptInput` are the ignore-list**, and that is now a
+claim about what a renderer can physically reach rather than about what a hash
+function happens to skip: `sessionId`, `capturedAt`, a state's `label` and
+`url`, and bounding's `selection` record are all missing on purpose.
+
+One field is deliberately coarser in the digest than in the prompt, and it is
+written out in the field map rather than omitted: the **raw command** is
+rendered verbatim (the model needs the operator's phrasing) while the key uses
+the normalised form, so rewordings share one entry.
+
+**State order is canonicalised in the PROMPT, not just in the digest** — the
+design was previously silent here, and the silence was load-bearing. Sorting
+states inside the digest while the renderer emitted capture order would assert
+an equivalence the model does not see: two orderings would be two different
+prompts sharing one cache entry, which is the stale-answer failure in
+miniature. So `buildPromptInput()` sorts states by id and the renderer emits
+that order. This is safe because **flow is carried by declared transitions, not
+by list position**; re-capturing the same states in a different order is the
+same question and should not be paid for twice.
+
+Node order *inside* a state is left alone for the opposite reason: AX order is
+document order, so it is page structure the model reads, and two orderings are
+genuinely two prompts.
+
+**Every "the prompt ignores this" claim is tested against the rendered prompt,
+not only against the digest.** A digest-only test of an ignored field is
+exactly rule 4's trap: it pins whatever the digest does, and cannot notice that
+the equivalence it asserts is false at the prompt.
+
+**A K1 case that names a FIELD must pair two captures differing in that field
+alone.** Mutation testing on 2026-09-07 found two cases here that could not
+fail — the discriminating-fixture trap, in the exact shape CLAUDE.md records:
+
+- *"a transition verdict"* compared a capture with **no** transitions against
+  one with a `suspect` transition. Dropping `verdict` from the serialiser left
+  the two still differing on `from>to:action`, so the test passed and the
+  verdict's presence in the digest was never load-bearing. A `suspect`
+  transition cannot ground anything, so a digest blind to it would serve a
+  proposal built on evidence the cross-check rejected.
+- *"a collapsed group's examples"* had the same shape against a capture with no
+  collapsed groups.
+
+Both read sensibly and proved nothing. Only a case naming a whole feature
+("a declared transition at all", "a collapsed group at all") may use the bare
+baseline, because there the absence *is* the difference under test.
+
+The same pass found a canonicalisation with no falsifier at all — the builder
+sorted collapsed groups and nothing failed when that sort was removed. Rule 3:
+it either earns a test or comes out. It earned one, because bounding derives
+those groups from a `Map` and their order is an artifact of role insertion
+rather than of the page.
 
 `captureDigest` is the one most easily got wrong, and it fails in two opposite
 directions that need testing separately:
@@ -1014,6 +1170,25 @@ such a proposal may not be emitted by the same path as a read-only one. Nothing
 generated may emit a `@write`-tagged test or touch `ALLOW_WRITES` — that flag
 has never been set in this project and a generator is not the thing that gets
 to set it first.
+
+**And it must be able to say "read-only", or it is not a classifier.** Erring
+toward holding is right — a false `creates-data` costs a held proposal a human
+waves through, a false `read-only` costs a generated test that writes to a live
+customer system, and those are not symmetric. But rule 2 applies to the safe
+direction too:
+
+> **A criterion that can be satisfied by knowing nothing is not a criterion.**
+
+A classifier returning `creates-data` unconditionally passes every positive
+test that can be written for it — perfectly safe, perfectly useless, and it
+holds the entire read-only suite behind a review queue nobody clears. So the
+criterion has a positive half that ignorance fails: **a plainly read-only case
+must be classified `read-only`**, and that half is mutation-verified against an
+always-hold implementation rather than assumed (done 2026-09-07).
+
+The word list stays deliberately broad and deliberately not clever, so known
+false holds remain — `Address book` trips `add`. That is recorded as a decision
+with a test, not left to be rediscovered as a defect.
 
 **The emitter asserts its own effect** (CLAUDE.md): after writing, it re-reads
 what it wrote and verifies the content matches before reporting success. A

@@ -272,3 +272,82 @@ test.describe('proposal — write risk is marked and held (M5) @unit', () => {
     expect(proposal.status).toBe('pending');
   });
 });
+
+/**
+ * M6 — WRITE RISK NEEDS A NEGATIVE CASE OR IT IS UNTESTED.
+ *
+ * Erring toward holding is the right posture: a false "creates-data" costs a
+ * held proposal a human waves through, a false "read-only" costs a generated
+ * test that writes to a live customer system. Those are not symmetric.
+ *
+ * But that posture has a failure mode of its own, and it is design rule 2 in
+ * `docs/phase-2-generation.md`:
+ *
+ * > **A criterion that can be satisfied by knowing nothing is not a criterion.**
+ *
+ * A classifier that returned `creates-data` unconditionally would satisfy
+ * every positive test in this file — it would be perfectly safe and perfectly
+ * useless, holding all four hundred read-only cases in the suite behind a
+ * review queue nobody clears. So the criterion needs a half that ignorance
+ * fails: a plainly read-only case must be classified read-only.
+ */
+test.describe('proposal — write risk has a negative case (M6) @unit', () => {
+  /**
+   * Read-only by every reading: it navigates and looks. Nothing here creates,
+   * modifies or deletes anything, so a classifier that holds it is not being
+   * careful — it is not looking.
+   */
+  const plainlyReadOnly: ModelCase = {
+    title: 'the folder step shows its destination picker',
+    entryState: 'admin.create-role',
+    steps: [
+      { kind: 'action', description: 'clicked the Roles tab' },
+      { kind: 'assert', role: 'heading', name: 'Select destination folder', property: 'present', expected: true, modelSaid: 'observed' },
+      { kind: 'assert', role: 'button', name: 'Clear', property: 'enabled', expected: true, modelSaid: 'observed' },
+      { kind: 'assert', role: 'tab', name: 'Folder', property: 'selected', expected: true, modelSaid: 'observed' },
+    ],
+  };
+
+  test('M6: a plainly read-only case is classified read-only', () => {
+    // THE test an always-hold classifier fails. Verified by mutation on
+    // 2026-09-07: replacing the body of assessWriteRisk with a bare
+    // `return 'creates-data'` fails this and only this.
+    expect(assessWriteRisk(plainlyReadOnly)).toBe('read-only');
+  });
+
+  test('M6: read-only survives every part of the case being inspected', () => {
+    // Discriminating against a classifier that reads only the title, or only
+    // the steps: one write verb in EITHER place must flip it, and none in
+    // either must not.
+    expect(assessWriteRisk({ ...plainlyReadOnly, title: 'creates a destination folder' })).toBe(
+      'creates-data',
+    );
+    expect(
+      assessWriteRisk({
+        ...plainlyReadOnly,
+        steps: [...plainlyReadOnly.steps, { kind: 'action', description: 'clicked Save' }],
+      }),
+    ).toBe('creates-data');
+    expect(assessWriteRisk(plainlyReadOnly)).toBe('read-only');
+  });
+
+  test('M6: read-only reaches the proposal record, not just the classifier', () => {
+    // Otherwise the field could be hard-wired to `creates-data` downstream and
+    // every classifier test above would still pass.
+    expect(build(plainlyReadOnly).writeRisk).toBe('read-only');
+  });
+
+  test('M6: the classifier holds on ambiguity, deliberately', () => {
+    // A known and accepted false hold, recorded so it reads as a decision
+    // rather than as a defect: the word list is matched at word boundaries and
+    // is deliberately not clever, so "Address book" trips `add`. The cost is a
+    // review click; the cost of the opposite mistake is a write to a live
+    // customer system.
+    expect(
+      assessWriteRisk({
+        ...plainlyReadOnly,
+        steps: [{ kind: 'assert', role: 'link', name: 'Address book', property: 'present', expected: true, modelSaid: 'observed' }],
+      }),
+    ).toBe('creates-data');
+  });
+});

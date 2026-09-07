@@ -122,11 +122,51 @@ export interface CandidateCase {
   steps: CaseStep[];
 }
 
+/**
+ * Why a step graded the way it did — the fault, not the prose.
+ *
+ * These exist because several genuinely different faults produce the same
+ * observable outcome (`assumed`, with a null `stateId`) and have OPPOSITE
+ * fixes. A single shared explanation covering all of them is the
+ * unfalsifiable-explanation shape this design removed elsewhere: it always
+ * sounds right and never tells anyone what to do.
+ *
+ * The two that are easiest to conflate, and must not be:
+ *
+ * - `undeclared-transition` / `suspect-transition` / `entry-state-not-captured`
+ *   — the transition CHAIN broke. The fix is in capture: go and declare the
+ *   action, or re-declare the one whose cross-check failed.
+ * - `cursor-state-not-in-capture` — the chain is intact and a declared
+ *   transition points at a state this capture does not hold. The fix is in
+ *   BOUNDING: selection dropped a state something still refers to.
+ *
+ * Sending someone to re-capture a flow that was captured perfectly well is the
+ * cost of getting this wrong, so the distinction is carried as a code rather
+ * than left to be read out of a sentence.
+ */
+export type GroundingReason =
+  | 'observed-present'
+  | 'observed-absent'
+  | 'observed-property-matches'
+  | 'observed-transition'
+  | 'contradicted-present'
+  | 'contradicted-absent'
+  | 'contradicted-property-differs'
+  | 'entry-state-not-captured'
+  | 'undeclared-transition'
+  | 'suspect-transition'
+  | 'cursor-state-not-in-capture'
+  | 'capture-truncated'
+  | 'collapsed-group'
+  | 'property-not-recorded';
+
 export interface StepGrade {
   stepIndex: number;
   grade: Grade;
   /** The state the cursor stood in, or null when it was unknown. */
   stateId: string | null;
+  /** The fault, machine-readable. See `GroundingReason`. */
+  why: GroundingReason;
   reason: string;
 }
 
@@ -161,6 +201,22 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
   const byId = new Map(capture.states.map((state) => [state.id, state]));
   let cursor: string | null = byId.has(candidate.entryState) ? candidate.entryState : null;
 
+  /**
+   * Why the cursor is unknown, carried forward from the step that lost it.
+   *
+   * `unknown` is absorbing, so without this every downstream step would report
+   * the same "cursor unknown" — one explanation covering three faults with
+   * three different fixes. The root cause is what a reviewer needs and it is
+   * only known at the moment it happens.
+   */
+  let fault: { why: GroundingReason; at: string } | null =
+    cursor === null
+      ? {
+          why: 'entry-state-not-captured',
+          at: `the case's entry state "${candidate.entryState}" is not in this capture`,
+        }
+      : null;
+
   const steps: StepGrade[] = [];
 
   for (const [stepIndex, step] of candidate.steps.entries()) {
@@ -170,7 +226,8 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
           stepIndex,
           grade: 'assumed',
           stateId: null,
-          reason: 'cursor already unknown; this action cannot re-anchor it',
+          why: fault!.why,
+          reason: `cursor already unknown (${fault!.at}); this action cannot re-anchor it`,
         });
         continue;
       }
@@ -187,20 +244,30 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
         // grade that is merely unexplained.
         const from = cursor;
         cursor = null;
+        fault = {
+          why: 'undeclared-transition',
+          at: `no declared transition from "${from}" for the action at step ${stepIndex}`,
+        };
         steps.push({
           stepIndex,
           grade: 'assumed',
           stateId: null,
+          why: fault.why,
           reason: `no declared transition from "${from}" for this action — resulting state unknown`,
         });
         continue;
       }
       if (match.verdict === 'suspect') {
         cursor = null;
+        fault = {
+          why: 'suspect-transition',
+          at: `the transition taken at step ${stepIndex} is marked suspect`,
+        };
         steps.push({
           stepIndex,
           grade: 'assumed',
           stateId: null,
+          why: fault.why,
           reason: 'the declared transition failed its cross-check; it cannot ground anything',
         });
         continue;
@@ -210,6 +277,7 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
         stepIndex,
         grade: 'observed',
         stateId: cursor,
+        why: 'observed-transition',
         reason: `declared transition to "${match.to}", cross-check consistent`,
       });
       continue;
@@ -220,7 +288,8 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
         stepIndex,
         grade: 'assumed',
         stateId: null,
-        reason: 'cursor unknown — nothing can be grounded here',
+        why: fault!.why,
+        reason: `cursor unknown — ${fault!.at}, so nothing can be grounded here`,
       });
       continue;
     }
@@ -233,10 +302,19 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
       // on malformed input rather than throw — this used to crash with
       // "Cannot read properties of undefined". Grading `assumed` says exactly
       // what is true: we do not know what is on screen here.
+      //
+      // A DIFFERENT FAULT from the one above, with a different fix, so it
+      // gets its own code. The chain is intact — a human declared this
+      // transition and its cross-check passed — and the state it leads to is
+      // simply not in the set that was sent. That points at bounding's
+      // relevance heuristic, not at capture. Telling someone to go and
+      // re-declare a transition they already declared correctly is the cost of
+      // sharing one reason between the two.
       steps.push({
         stepIndex,
         grade: 'assumed',
         stateId: null,
+        why: 'cursor-state-not-in-capture',
         reason: `the cursor points at "${cursor}", which this capture does not contain — nothing can be grounded against a state that is not here`,
       });
       continue;
@@ -253,6 +331,7 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
           stepIndex,
           grade: 'assumed',
           stateId: cursor,
+          why: 'capture-truncated',
           reason: `no ${step.role} named "${step.name}" — but this capture was truncated, so absence proves nothing`,
         });
         continue;
@@ -270,16 +349,19 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
           stepIndex,
           grade: 'assumed',
           stateId: cursor,
+          why: 'collapsed-group',
           reason: `no ${step.role} named "${step.name}" listed individually, but it matches the collapsed group "${group.pattern}" (${group.count} nodes) — unlisted, not absent`,
         });
         continue;
       }
 
       // Genuinely absent from a complete view: this is evidence.
+      const assertsAbsence = step.property === 'present' && !step.expected;
       steps.push({
         stepIndex,
-        grade: step.property === 'present' && !step.expected ? 'observed' : 'contradicted',
+        grade: assertsAbsence ? 'observed' : 'contradicted',
         stateId: cursor,
+        why: assertsAbsence ? 'observed-absent' : 'contradicted-absent',
         reason: `no ${step.role} named "${step.name}" in "${cursor}"`,
       });
       continue;
@@ -292,6 +374,7 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
         stepIndex,
         grade: step.expected ? 'observed' : 'contradicted',
         stateId: cursor,
+        why: step.expected ? 'observed-present' : 'contradicted-present',
         reason: `${step.role} "${step.name}" is present in "${cursor}"`,
       });
       continue;
@@ -307,15 +390,18 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
         stepIndex,
         grade: 'assumed',
         stateId: cursor,
+        why: 'property-not-recorded',
         reason: `the capture does not record "${step.property}" for ${step.role} "${step.name}"`,
       });
       continue;
     }
 
+    const propertyMatches = actual === step.expected;
     steps.push({
       stepIndex,
-      grade: actual === step.expected ? 'observed' : 'contradicted',
+      grade: propertyMatches ? 'observed' : 'contradicted',
       stateId: cursor,
+      why: propertyMatches ? 'observed-property-matches' : 'contradicted-property-differs',
       reason: `${step.role} "${step.name}" has ${step.property}=${actual}, asserted ${step.expected}`,
     });
   }

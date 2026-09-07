@@ -1,167 +1,166 @@
 import { createHash } from 'node:crypto';
-import { tokenize } from '../matching/command-matcher';
-import type { AccessibilityNode } from '../types/ai';
-import type { BoundedCapture } from './bounding';
-import type { AssertStep, CandidateCase, CaseStep } from './grounding';
+import type { AssertStep, CandidateCase, CaseStep, Grade, GroundingResult } from './grounding';
 
 /**
- * Digests and identities for generation.
+ * Approval identity.
  *
- * Two things live here, and both fail silently when wrong — which is why each
- * gets tested in BOTH directions rather than only the obvious one.
+ * The cache key and the capture digest used to live here too; they now live in
+ * `prompt.ts`, derived from the same object the prompt is rendered from, so
+ * they cannot fall behind it. See that file's header.
  */
 
 const sha = (input: string): string => createHash('sha256').update(input).digest('hex').slice(0, 16);
 
-/** The prompt's contract version. Bumping it invalidates every cache entry. */
-export const PROMPT_VERSION = 'gen-1';
-
 /**
- * A digest of exactly what the prompt serialises, in the order it serialises
- * it — and nothing else.
+ * The full basis of one approval.
  *
- * Both directions matter, and they fail oppositely:
- *
- * - Include too little, and two captures the prompt would render differently
- *   share a key: a stale proposal is served for an app that changed. That is
- *   the worst failure this cache has, because the answer is confident and
- *   about a page that no longer exists.
- * - Include too much — a capture timestamp, a session id, a directory name —
- *   and the key never repeats: the cache never hits and every run pays full
- *   price, with nothing appearing broken.
- *
- * So: state ids, their nodes' role/name/enabled/selected, collapsed group
- * shapes, truncation flags, and declared transitions. Deliberately NOT
- * `sessionId`, `capturedAt`, `url`, or `label` — none reaches the model.
+ * Approval is per-assertion, so the id must cover everything a human was
+ * actually looking at when they approved. Anything it omits is something that
+ * can change under an approval without lapsing it — which converts an
+ * unreviewed claim into a reviewed one.
  */
-export function captureDigest(capture: BoundedCapture): string {
-  const node = (n: AccessibilityNode): string =>
-    [
-      n.role,
-      n.name,
-      n.enabled ? 'e1' : 'e0',
-      n.selected === undefined ? '' : `s${n.selected ? 1 : 0}`,
-      n.expanded === undefined ? '' : `x${n.expanded ? 1 : 0}`,
-      n.checked === undefined ? '' : `c${n.checked ? 1 : 0}`,
-    ].join('|');
-
-  const states = capture.states
-    .map((state) =>
-      [
-        state.id,
-        state.truncated ? 't1' : 't0',
-        state.nodes.map(node).join('~'),
-        (state.collapsed ?? [])
-          .map((g) => `${g.role}|${g.pattern}|${g.count}`)
-          .sort()
-          .join('~'),
-      ].join('#'),
-    )
-    // Sorted: two bounded captures holding the same states in a different
-    // order render the same prompt content, so they must share a key.
-    .sort()
-    .join('\n');
-
-  const transitions = capture.transitions
-    .map((t) => `${t.from}>${t.to}:${t.action}:${t.verdict}`)
-    .sort()
-    .join('\n');
-
-  return sha(`${states}\n--\n${transitions}`);
-}
-
-/**
- * Normalises a command so equivalent phrasings share a cache entry.
- *
- * Reuses the matcher's `tokenize` (lowercase, stop words removed) and sorts,
- * so "test the upload flow" and "Upload flow test" are one entry rather than
- * two — the model would be asked the same question either way.
- */
-export function normalizeCommand(command: string): string {
-  return tokenize(command).sort().join(' ');
-}
-
-/** Adding or renaming a test changes what "we already have this" means. */
-export function existingCaseTitlesDigest(titles: string[]): string {
-  return sha([...titles].sort().join('\n'));
-}
-
-export interface CacheKeyParts {
-  promptVersion: string;
-  command: string;
-  capture: BoundedCapture;
-  existingCaseTitles: string[];
-}
-
-/**
- * Every component is load-bearing: remove any one and some test must fail, or
- * it is decoration (rule 3 applied to the key itself).
- */
-export function generationCacheKey(parts: CacheKeyParts): string {
-  return `gen:${sha(
-    [
-      parts.promptVersion,
-      normalizeCommand(parts.command),
-      captureDigest(parts.capture),
-      existingCaseTitlesDigest(parts.existingCaseTitles),
-    ].join('::'),
-  )}`;
+export interface AssertionBasis {
+  /** The state the case starts in. */
+  entryState: string;
+  /** The ordered actions preceding this assertion — the path taken to reach it. */
+  precedingActions: string[];
+  /** The assertion itself: role, name, property, expected. */
+  claim: AssertStep;
+  /**
+   * The state the cursor stood in when this was graded, or `null` when the
+   * cursor was unknown.
+   *
+   * The same sentence graded in two different states is two different claims
+   * spelled the same way, and an approval must not cross that boundary. It is
+   * also why a bounding change that shifts the cursor SHOULD lapse the
+   * approval: the basis moved, so the approval is stale — a lapsed approval is
+   * shown as lapsed and re-asked, which costs a reviewer one look.
+   */
+  stateId: string | null;
+  /**
+   * The grade the assertion carried when it was approved.
+   *
+   * A regrade from `observed` to `assumed` changes what a reviewer approved —
+   * they accepted a fact and would now be holding an open question. Omitting
+   * the grade lets that survive silently, which is the same failure as
+   * omitting the text.
+   */
+  grade: Grade;
+  /**
+   * Which occurrence of an otherwise identical basis this is, counted within
+   * one case.
+   *
+   * Deliberately NOT the step index: inserting an unrelated assertion earlier
+   * in a case must not lapse every approval below it, for a reason no human
+   * would recognise. This only ever increments for a genuine duplicate, so it
+   * is stable against edits elsewhere in the case.
+   */
+  occurrence: number;
 }
 
 /**
  * Identity of one assertion, for per-assertion approval.
  *
- * Derived from the assertion's CONTENT and its PATH — the entry state, the
- * ordered actions preceding it, and the claim itself. Nothing else: not the
- * index, not the case title, not the generation timestamp.
+ * > Derived from the assertion's CONTENT, its PATH, and its GROUNDING BASIS.
+ * > Not the step index, not the case title, not the generation timestamp.
  *
- * Two consequences, both intended:
+ * Three consequences, all intended:
  *
- * - Content changes, so the id changes, so an approval LAPSES rather than
- *   carrying over onto text a human never read. An approval that silently
- *   transfers to different content converts an unreviewed claim into a
- *   reviewed one.
- * - The path is part of the identity, because "the Folder tab is selected"
- *   after *clicked WS-ALPHA* is a different claim from the same sentence
- *   after *clicked Next*. Identity from the claim alone would let one approve
- *   the other.
+ * - **Content changes -> the id changes -> the approval lapses.** It cannot
+ *   carry over onto text a human never read.
+ * - **The path and the state are part of the identity.** "The Folder tab is
+ *   selected" after *clicked WS-ALPHA* is a different claim from the same
+ *   sentence after *clicked Next*, and the same sentence graded in state A is
+ *   a different claim from the same sentence graded in state B. Identity from
+ *   the claim alone would let any of them approve the others.
+ * - **Duplicates do not share an approval.** Two identical assertions in one
+ *   case are two things a reviewer must accept separately; one id would let a
+ *   single approval cover both.
  */
-export function assertionId(
-  entryState: string,
-  precedingActions: string[],
-  claim: AssertStep,
-): string {
+export function assertionId(basis: AssertionBasis): string {
   return sha(
     [
-      entryState,
-      ...precedingActions,
+      basis.entryState,
+      ...basis.precedingActions,
       '::',
-      claim.role,
-      claim.name,
-      claim.property,
-      claim.expected ? '1' : '0',
+      basis.claim.role,
+      basis.claim.name,
+      basis.claim.property,
+      basis.claim.expected ? '1' : '0',
+      '::',
+      basis.stateId ?? '<unknown>',
+      basis.grade,
+      `#${basis.occurrence}`,
     ].join('|'),
   );
 }
 
-/** Walks a case, giving each assertion its id along with the path that led to it. */
+export interface AssertionIdentity extends AssertionBasis {
+  stepIndex: number;
+  assertionId: string;
+}
+
+/**
+ * Walks a case alongside its grading, giving each assertion its id and the
+ * full basis that produced it.
+ *
+ * Takes the `GroundingResult` because two thirds of the basis — the state the
+ * cursor stood in and the grade — are things only the grader knows. Deriving
+ * the id without them was the gap: it made an approval survive a regrade and a
+ * state change, both of which move the ground under a reviewer's decision.
+ */
 export function assertionIdsFor(
   candidate: CandidateCase,
-): Array<{ stepIndex: number; assertionId: string; precedingActions: string[] }> {
-  const out: Array<{ stepIndex: number; assertionId: string; precedingActions: string[] }> = [];
+  grounding: GroundingResult,
+): AssertionIdentity[] {
+  const out: AssertionIdentity[] = [];
   const actions: string[] = [];
+  const seen = new Map<string, number>();
 
   for (const [stepIndex, step] of candidate.steps.entries()) {
     if (step.kind === 'action') {
       actions.push(step.description);
       continue;
     }
-    out.push({
-      stepIndex,
-      assertionId: assertionId(candidate.entryState, [...actions], step),
-      precedingActions: [...actions],
-    });
+
+    const graded = grounding.steps.find((entry) => entry.stepIndex === stepIndex);
+    if (!graded) {
+      // Every step is graded, so a gap means the grading belongs to a
+      // different case. Failing loudly beats silently identifying an assertion
+      // by a basis that was never measured.
+      throw new Error(
+        `assertionIdsFor: step ${stepIndex} has no grade — this grounding result is for a different case`,
+      );
+    }
+
+    const precedingActions = [...actions];
+    const partial = {
+      entryState: candidate.entryState,
+      precedingActions,
+      claim: step,
+      stateId: graded.stateId,
+      grade: graded.grade,
+    };
+
+    // The occurrence counter keys on everything else in the basis, so it only
+    // ever advances for a true duplicate.
+    const key = JSON.stringify([
+      partial.entryState,
+      partial.precedingActions,
+      step.role,
+      step.name,
+      step.property,
+      step.expected,
+      partial.stateId,
+      partial.grade,
+    ]);
+    const occurrence = seen.get(key) ?? 0;
+    seen.set(key, occurrence + 1);
+
+    const basis: AssertionBasis = { ...partial, occurrence };
+    out.push({ ...basis, stepIndex, assertionId: assertionId(basis) });
   }
+
   return out;
 }
 

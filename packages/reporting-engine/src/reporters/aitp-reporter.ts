@@ -227,7 +227,14 @@ function archiveIfNotClean(run: Run, reportsDir: string, log: Logger): void {
     runId: run.id,
     failed,
     flaky,
-    archiveDir: path.relative(artifactsDir, archiveDir),
+    // Relative to the CWD, like every other path this reporter logs, and not
+    // to `artifactsDir` — that printed `runs\run_<id>` for a directory that is
+    // actually at `artifacts\runs\run_<id>`, so the one line telling someone
+    // where the evidence went named a path they could not open. These
+    // artifacts exist precisely because a rare failure has to be diagnosable
+    // later; a log that misdirects the person looking for them costs the whole
+    // point of archiving.
+    archiveDir: path.relative(process.cwd(), archiveDir),
   });
 
   cpSync(reportsDir, path.join(archiveDir, 'reports'), { recursive: true });

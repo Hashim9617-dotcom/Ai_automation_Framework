@@ -1,7 +1,14 @@
 import type { BoundedCapture } from './bounding';
 import type { GenerationGateVerdict } from './gate';
-import { assertionIdsFor, captureDigest } from './identity';
-import { checkGrounding, type AssertStep, type CandidateCase, type Grade } from './grounding';
+import { assertionIdsFor } from './identity';
+import { captureDigest } from './prompt';
+import {
+  checkGrounding,
+  type AssertStep,
+  type CandidateCase,
+  type Grade,
+  type GroundingReason,
+} from './grounding';
 
 /**
  * Turning a model's draft case into a reviewable proposal.
@@ -32,12 +39,24 @@ export interface ProposalAssertion {
   grade: Grade;
   overrodeModel: boolean;
   evidence: { stateId: string; role: string; name: string } | null;
+  /** The fault, machine-readable. See `GroundingReason`. */
+  why: GroundingReason;
   reason: string;
 }
 
 export interface OpenQuestion {
   question: string;
-  whyUngrounded: string;
+  /**
+   * The FAULT, machine-readable — not a sentence a reader has to classify.
+   *
+   * Several faults produce an identical-looking open question and have
+   * opposite fixes (re-capture the flow, versus widen bounding's selector).
+   * Carrying the grader's code means a reviewer is never left choosing between
+   * them by reading prose.
+   */
+  whyUngrounded: GroundingReason;
+  /** The grader's own words, for a human reading one question. */
+  whyUngroundedDetail: string;
   wouldAssert: string;
 }
 
@@ -112,7 +131,9 @@ export function buildProposal(input: {
   };
 
   const graded = checkGrounding(capture, candidate);
-  const ids = assertionIdsFor(candidate);
+  // Identity is derived from the GRADING as well as the content: the state the
+  // cursor stood in and the grade are part of an approval's basis.
+  const ids = assertionIdsFor(candidate, graded);
 
   const assertions: ProposalAssertion[] = [];
   const openQuestions: OpenQuestion[] = [];
@@ -145,6 +166,7 @@ export function buildProposal(input: {
         grade.grade === 'observed' && derivedStateId
           ? { stateId: derivedStateId, role: step.role, name: step.name }
           : null,
+      why: grade.why,
       reason: grade.reason,
     };
     assertions.push(assertion);
@@ -152,7 +174,8 @@ export function buildProposal(input: {
     if (grade.grade === 'assumed') {
       openQuestions.push({
         question: `Does ${step.role} "${step.name}" have ${step.property}=${step.expected}?`,
-        whyUngrounded: grade.reason,
+        whyUngrounded: grade.why,
+        whyUngroundedDetail: grade.reason,
         wouldAssert: `${step.role} "${step.name}" ${step.property}=${step.expected}`,
       });
     }
