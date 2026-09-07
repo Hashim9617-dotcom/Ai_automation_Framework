@@ -100,6 +100,45 @@ If either control comes out wrong the run is **void and reports nothing**. A
 number from an unverified instrument is worse than no number, because it gets
 believed.
 
+#### Three outcomes, not two: "did not compile" is not "was caught"
+
+The controls run once at the start. They prove the harness *can* detect and
+does not *always* claim detection — they say nothing about a per-mutation
+verdict reached for the wrong reason, and a mutation that never compiled is
+exactly that. So each mutation declares what should catch it:
+
+| Verdict | Meaning |
+| --- | --- |
+| **caught by a test** | it compiled, and a named test failed. Report which. |
+| **caught by the type system** | declared per mutation, for one whose whole point is that it CANNOT BE EXPRESSED. |
+| **void** | it did not compile and was not declared structural. Not a pass — the mutation needs rewriting before it means anything. |
+
+**Measured here, because the failure mode is not the obvious guess:** Playwright
+transpiles without typechecking, so a *type* error in a mutation is invisible
+and 203 tests still pass; a *syntax* error aborts Babel before any test runs,
+leaving an empty failure list. Both read as SURVIVED, which sends someone
+hunting for a missing test that is not missing. The false-CAUGHT direction shows
+up on the structural side, where any `tsc` error merely *containing* the expected
+string counts.
+
+**This found a live one on 2026-09-07.** The `writeRisk: always hold` mutation —
+reported CAUGHT, and cited as the verification that the classifier was tested —
+inserted an early `return` that made the loop below unreachable, so TypeScript
+stopped narrowing the discriminated union and the file did not compile. It ran
+anyway under transpile-only and the right test did fail, so the *conclusion* was
+correct; but it was reached from code `tsc` rejects, and nothing could tell that
+apart from a genuine catch. Rewritten to widen the word list instead, which is
+the same mutation expressed so it compiles.
+
+Add a **third control** alongside the other two: a deliberately non-compiling
+behavioural mutation that must be reported VOID. Otherwise the void path itself
+can be silently broken, and malformed patches go back to being counted.
+
+Two harness bugs were caught by these controls rather than by inspection, which
+is the argument for having them: the `tsc` parser dropped continuation lines, and
+`expect.every()` over an empty array is vacuously true, so a mutation declared
+*expected to survive* read as caught.
+
 **And keep one harness, current and correctly named.** A stale second copy left
 beside it will eventually be run by someone, against source it no longer
 matches, and hand them a verdict that means nothing.

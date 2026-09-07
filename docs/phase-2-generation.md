@@ -1191,6 +1191,18 @@ redirected to `/login` — so this establishes that the *machinery* is
 deterministic, and says nothing about a page carrying real workspace rows
 captured days apart.
 
+> **A scripted headless capture cannot reach an authenticated page.** `pnpm
+> inspect` is driven by a human at a browser: piped stdin supplies the labels
+> and the transition answers, but nothing drives navigation, and passing
+> `/files` as the start URL landed on `/login` — the saved session did not carry
+> to a deep link. So **any automated capture comparison is bounded to public
+> pages** unless it first drives the login flow itself. That is what stops this
+> particular measurement being repeatable in CI, and it is a property of the
+> tool rather than of the measurement: `pnpm inspect` was deliberately built
+> around a human observer (P2: "a human who just performed the click is the most
+> reliable observer available"), so automating it is a change of design, not a
+> change of script.
+
 **Which does not matter, for a reason that holds independently of that gap.**
 The digest already covers every state id, every node's role/name/enabled/
 selected, collapsed groups and transitions. So `visitOrder` can be the *sole*
