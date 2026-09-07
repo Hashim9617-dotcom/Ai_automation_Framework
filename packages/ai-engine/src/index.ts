@@ -12,3 +12,4 @@ export * from './healing/prompts';
 export * from './healing/engine';
 export * from './healing/enrich';
 export * from './phase2/pending';
+export * from './generation/engine';
