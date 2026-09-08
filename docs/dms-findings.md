@@ -874,3 +874,124 @@ different way of being useless.
 
 **Not an app defect.** Entirely our own reasoning, in our own verification
 step.
+
+## Finding 16 — Global Search discards a successful 200 and tears down its own form
+
+**Severity: high.** The feature fails for the user while the server is working
+correctly. An app-side defect, not a test bug — see the date-field observation
+below, which is what settles it.
+
+**Area:** Global Search (`/search`).
+**Environment:** https://dmsuiv3.aitalkx.com, Chromium 151, observed 7–8 Sep 2026.
+**Frequency:** Roughly 6 attempts in 10, on both a fast and a slow run. Not tied
+to load.
+
+**What happens.** Run a search on the Global Search page. The spinner appears,
+the API returns a normal 200 with the full result payload, and then the entire
+search form resets itself: the query is cleared, the date range is cleared, and
+the page returns to its "Welcome to Search" empty state. The results are never
+displayed. The user sees their search silently disappear.
+
+**Steps to reproduce.**
+
+1. Sign in and open /search.
+2. Type a term that has matches — we used `pension` (28 documents).
+3. Click Search.
+4. Watch the page for ~10 seconds.
+
+**Observed.** Times from the start of a screen recording of a failing run:
+
+| Time | Screen state |
+| --- | --- |
+| ~4s | Query `pension` in the search box. Date range populated: Sep 8, 2025 → Sep 8, 2026. |
+| 4–8s | Spinner: "Searching documents… Fetching results from across your organization." |
+| ~7.7s | ReadGlobalSearchData returns 200, application/json, 82 KB. |
+| ~9s | The form resets. Search box empty (placeholder showing). Date range empty — From and To show bare placeholders, not their defaults. Page shows "Welcome to Search". |
+| 9–28s | No change. Results never render. |
+
+**Expected.** The 28 matching documents render, with the "28 total" summary chip.
+
+**Evidence that the server side is fine.**
+
+```
+GET https://kptcldevfile-api.aitalkx.com/api/Action/ReadGlobalSearchData
+      ?serachstr=pension&logicalOperator=0&searchType=0
+      &fromDate=2025-09-08&toDate=2026-09-08
+200 OK · application/json · 82 KB · 5.1s
+```
+
+- The query string carries the correct search term.
+- The response is a normal 200 with a full-sized payload.
+- No JavaScript errors and no console output of any kind from the application
+  during the whole 28 seconds. The failure is completely silent.
+- All 22 requests on the page returned 200. No 429, no failed request.
+
+**The detail that identifies this as an application fault.** The date-range
+fields are cleared too, and our automation never touches them. They were
+populated by the application's own default (Sep 8, 2025 → Sep 8, 2026) before
+the search, and after the response they are blank — not reset to that default,
+but empty. No user action and no test action can produce that. It is the search
+form's own state being torn down after the response arrives.
+
+That single observation is what moves this from "our flaky test" to "their
+bug", and it is worth stating plainly why: every other symptom here is
+compatible with the suite being at fault. A cleared query could be our typing;
+a missing render could be our waiting. A cleared field **we never touch**, which
+the app itself had populated, cannot be. This document has retracted three
+findings (5, 8, 9) that looked exactly this convincing and turned out to be our
+own error, so the bar for calling something an app defect is an observation the
+suite is incapable of producing — and this is one.
+
+It is the same test Finding 12 applied in the other direction: there, an exact
+workspace count was abandoned because *another actor* could move it, and the
+assertion was rewritten onto the one fact no other actor could falsify. Here the
+reasoning runs the same way and lands on the app: the date fields are the one
+piece of state no actor on our side could have touched.
+
+**Five hypotheses were wrong before the recording settled it**, and that history
+is the reason the conclusion is trustworthy rather than merely confident:
+**worker contention**, **hydration clearing the input**, **rate limiting**, **an
+empty query being sent**, and **a render crash**. Each was refuted by an
+artifact rather than by argument:
+
+| Suspected cause | Ruled out by |
+| --- | --- |
+| Rate limiting | Every request on the page returned 200. No 429 anywhere. |
+| Concurrency / parallel sessions | Re-running with a single worker made it worse, not better. |
+| Slow response | Timings are binary: a successful attempt renders in 7–9s, a failing one never renders at all, even given 20s+. A latency problem would produce a spread. |
+| Automation typing too early | The request carries serachstr=pension, so the query reached application state correctly. |
+| A rendering crash | No JavaScript error and no console message is produced. |
+
+Note the shape of the "slow response" refutation in particular: the timings are
+**binary**, not spread. "It is sometimes slow" and "it sometimes never happens"
+look identical in a single measurement and are told apart only by the
+distribution across runs.
+
+**Impact.** A user searching for a document sees their query and filters vanish
+with no error and no explanation. Because the response is a successful 200,
+nothing is logged server-side either — this will not appear in any error
+dashboard.
+
+Seen on roughly 6 of 10 attempts from a single session. Not caused by load.
+
+**Evidence we can supply.**
+
+- The full Playwright trace (trace.zip) with network, console and DOM snapshots
+- The screen recording of a failing run
+- The failure-time accessibility snapshot showing the emptied form
+
+**Request these through the QA team rather than by email** — the trace and
+recording contain a live session token and document titles from the instance.
+That is the same reason `artifacts/` is gitignored repo-wide (see
+`docs/WHERE-WE-ARE.md`), and it is why this finding is written out here in full:
+the artifacts live under `artifacts/runs/`, which prunes itself at newest-10 and
+14 days, while this document is committed. The evidence expires; the finding
+should not.
+
+**One small thing noticed alongside.** The API query parameter is spelled
+`serachstr` rather than `searchstr`. Harmless today, but worth correcting before
+anything else integrates against this endpoint.
+
+**Not fixed** — this lives in the application's search component, not in
+`tests/app/`. Found by automated regression run `run_7a1d2fd645ea40fa`, DMS
+suite, 8 Sep 2026.
