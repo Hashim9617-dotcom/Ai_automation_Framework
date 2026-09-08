@@ -57,6 +57,7 @@ const run = (
 
 test.describe('the row identity survives to the report (E1) @unit', () => {
   test('E1: every report line names the composite, never the Test Case ID alone', async () => {
+    // wrong: a report keyed on the Test Case ID alone prints "TC_001" twice, naming two different rows identically.
     // 470 rows carry only 56 distinct Test Case IDs, so TC_001 names about
     // eight different rows. "TC_001 failed" cannot be acted on.
     // One row FAILS on purpose. The passed list prints `rowId` directly, so a
@@ -94,6 +95,7 @@ test.describe('the arithmetic balances (E2) @unit', () => {
     );
 
   test('E2: rows read equals the five buckets summed', async () => {
+    // wrong: a bucket that stopped being counted leaves the sum at 3 while rowsRead stays 4.
     const { tally } = await mixed();
     expect(tally.rowsRead).toBe(4);
     expect(tally.passed + tally.failed + tally.refused + tally.held + tally.unreadable).toBe(4);
@@ -106,6 +108,7 @@ test.describe('the arithmetic balances (E2) @unit', () => {
   });
 
   test('E2: a shrinking denominator is REFUSED, not reported', async () => {
+    // wrong: without the bucket-sum check this doctored tally is accepted and reports 3 of 3, hiding a refusal.
     // The oldest reporting bug there is: drop refusals and 470 rows with 60
     // refusals reports "410 read, 410 passed, 100%" — arithmetically
     // consistent, reads as success, a lie about sixty rows.
@@ -121,6 +124,7 @@ test.describe('the arithmetic balances (E2) @unit', () => {
   });
 
   test('E2: a row counted twice is refused', async () => {
+    // wrong: without the duplicate check, five results against four rows read pass as balanced.
     const { results, tally } = await mixed();
     const doubled = [...results, results[0]!];
     expect(() =>
@@ -129,6 +133,7 @@ test.describe('the arithmetic balances (E2) @unit', () => {
   });
 
   test('E2: the report states the sum, so a reader can check it', async () => {
+    // wrong: a report that printed only totals gives a reader no way to notice the buckets do not add up.
     const outcome = await mixed();
     expect(renderAuthoredReport(outcome, 'Final Test cases')).toContain(
       `${outcome.tally.passed} + ${outcome.tally.failed} + ${outcome.tally.refused} + ${outcome.tally.held} + ${outcome.tally.unreadable} = ${outcome.tally.rowsRead}`,
@@ -138,6 +143,7 @@ test.describe('the arithmetic balances (E2) @unit', () => {
 
 test.describe('two failure kinds, two owners, never merged (E3) @unit', () => {
   test('E3: a failing row goes to the app team, a refused row to the QA', async () => {
+    // wrong: a merged owner sends both to the same place, and the QA reads an app bug as their own mistake.
     const outcome = await run(
       [
         resolved({ rowId: 'SI_1 / TC_1' }),
@@ -157,6 +163,7 @@ test.describe('two failure kinds, two owners, never merged (E3) @unit', () => {
   });
 
   test('E3: the status-to-owner mapping is total and unambiguous', () => {
+    // wrong: a mapping with a hole leaves some status undefined, and a row reaches the report with no owner at all.
     // Not "we remember to set the right owner": a Record over the status union
     // makes every status have exactly one owner, and adding a status without
     // one does not compile.
@@ -166,6 +173,7 @@ test.describe('two failure kinds, two owners, never merged (E3) @unit', () => {
   });
 
   test('E3: the report puts them in DIFFERENT sections', async () => {
+    // wrong: a merged report puts the refused row inside "For the app team", where nobody who can fix it will look.
     // Merging them in the prose is as bad as merging them in the data.
     const outcome = await run(
       [
@@ -190,6 +198,7 @@ test.describe('two failure kinds, two owners, never merged (E3) @unit', () => {
   });
 
   test('E3: an orphaned row lands in the QA section with its content', async () => {
+    // wrong: without the clauses the QA sees "row 208 skipped" and the recoverable test case stays lost.
     // Row 208. Presented so the case can be recovered, not as a skip count.
     const outcome = await run([], [
       {
@@ -214,6 +223,7 @@ test.describe('two failure kinds, two owners, never merged (E3) @unit', () => {
   });
 
   test('E3: the pre-flight grade is CONTEXT, never the verdict', async () => {
+    // wrong: a grade treated as a verdict marks this row failed without ever running it.
     // A row the capture disagrees with is still executed — the capture says
     // what could be checked in advance, the running app decides.
     const outcome = await run([resolved({ outcome: 'app-disagrees', summary: 'capture says no' })]);
@@ -226,6 +236,7 @@ test.describe('write risk gates EXECUTION (E4) @unit', () => {
   const destructive = resolved({ rowId: 'SI_9 / TC_1', writeRisk: 'creates-data' });
 
   test('E4: a creates-data row is HELD and nothing runs', async () => {
+    // wrong: an ungated row runs, the executor is called, and the run writes to a live customer system.
     let ran = 0;
     const counting: StepExecutor = async () => {
       ran += 1;
@@ -239,6 +250,7 @@ test.describe('write risk gates EXECUTION (E4) @unit', () => {
   });
 
   test('E4: held is REPORTED, never a silent omission', async () => {
+    // wrong: a silently dropped hold leaves the row out of the report entirely and the totals still look right.
     const outcome = await run([destructive]);
     const markdown = renderAuthoredReport(outcome, 'Final Test cases');
     expect(markdown).toContain('## Held — not run');
@@ -247,6 +259,7 @@ test.describe('write risk gates EXECUTION (E4) @unit', () => {
   });
 
   test('E4: with ALLOW_WRITES explicitly set, it runs', async () => {
+    // wrong: a gate that holds unconditionally passes every other E4 test while making the flag meaningless.
     // The discriminating half: a gate that held everything unconditionally
     // would pass the tests above while making the flag meaningless.
     const outcome = await run([destructive], [], alwaysOk, true);
@@ -254,6 +267,7 @@ test.describe('write risk gates EXECUTION (E4) @unit', () => {
   });
 
   test('E4: nothing in a row can turn ALLOW_WRITES on', async () => {
+    // wrong: a runner that read the flag from row content lets this title switch writes on and the row runs.
     // A sheet cannot escalate its own privileges. `allowWrites` reaches the
     // runner as a parameter from the environment; no field of a row is
     // consulted, so no cell value can reach it.
@@ -269,6 +283,7 @@ test.describe('write risk gates EXECUTION (E4) @unit', () => {
 
 test.describe('the sheet is never written to (E5) @unit', () => {
   test('E5: no execution-path code writes to the workbook', () => {
+    // wrong: code that opened the workbook to "update the Status column" leaves a forbidden term in the scanned source.
     // The reader already cannot write — it takes text, not a path. The
     // EXECUTION path is where a helpful change would try to "update the Status
     // column", and the sheet has an Actual Result and a Status column sitting
@@ -291,6 +306,7 @@ test.describe('the sheet is never written to (E5) @unit', () => {
   });
 
   test('E5: the report is written to OUR directory, and names it', () => {
+    // wrong: a writer that ignored outputDir puts the file somewhere the caller did not choose — possibly beside the sheet.
     const dir = mkdtempSync(path.join(tmpdir(), 'aitp-report-'));
     const written = writeAuthoredReport(
       { results: [], tally: { rowsRead: 0, passed: 0, failed: 0, refused: 0, held: 0, unreadable: 0 } },
@@ -305,6 +321,7 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
   const dir = () => mkdtempSync(path.join(tmpdir(), 'aitp-report-'));
 
   test('E6: a written report is re-read and verified', async () => {
+    // wrong: a writer that reported success without writing returns a path to a file that is not there.
     const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' }), resolved({ rowId: 'SI_2 / TC_1', sheetRow: 4 })]);
     const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'Final Test cases' });
 
@@ -316,6 +333,7 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
   });
 
   test('E6: every row read appears in the file on disk', async () => {
+    // wrong: a renderer that dropped a section leaves one of these four ids absent from the file while the count still says 4.
     // The check a count alone cannot make: 470 lines with one row written twice
     // still counts to 470. Asserted against the FILE rather than the string we
     // meant to write.
@@ -341,6 +359,7 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
   });
 
   test('E6: a report missing a row is REFUSED — verified against DISK', async () => {
+    // wrong: without the missing-row check this file, with SI_2 deleted from it, is accepted as a complete report.
     // The guard could not be tested while it lived inside the writer: no input
     // makes the renderer legitimately omit a row, so nothing could make it
     // fire, and a mutation removing it broke nothing. Extracted so it has a
@@ -364,6 +383,7 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
   });
 
   test('E6: verification reads the FILE, not the string we meant to write', async () => {
+    // wrong: a verifier checking its own in-memory markdown finds this emptied file perfectly fine.
     // The discriminating half. A verifier that checked its own in-memory
     // markdown would pass every test above while catching no failed write.
     const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })]);
@@ -374,6 +394,7 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
   });
 
   test('E6: an unbalanced tally never reaches a file', async () => {
+    // wrong: without the balance check a report claiming 99 rows read is written to disk and quoted as fact.
     const outcome = await run([resolved()]);
     expect(() =>
       writeAuthoredReport(
@@ -384,6 +405,7 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
   });
 
   test('E6: the verification reads the file, so a truncated write is caught', async () => {
+    // wrong: a writer that never re-read would report success on the emptied file and leave it empty.
     // Discriminating: proves the check is against disk rather than memory.
     const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })]);
     const target = dir();

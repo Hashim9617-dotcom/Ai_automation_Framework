@@ -176,13 +176,47 @@ Two corollaries:
 > **A test of a DISCRIMINATING property is only real if its fixture would
 > produce a different result under the wrong behaviour.**
 
-**State the counterfactual before using the fixture.** Four occurrences is
-enough to stop calling this a recurring accident and make it a step:
+**State the counterfactual AT AUTHORING TIME, in the test.** Discovering it when
+a mutation survives is discovering it too late — the test has already been read,
+reviewed and trusted by then.
 
-> Before a fixture is used to prove a property, **write down what it would look
-> like under the WRONG behaviour, and confirm that differs from what it looks
-> like now.** If you cannot say what would change, the fixture proves nothing
-> and no implementation — correct or broken — could ever fail it.
+> **Every test that proves a property carries a one-line `// wrong:` comment
+> saying what THIS fixture would produce under the WRONG behaviour** — written
+> when the test is written, not when a mutation survives.
+>
+> **If you cannot write that sentence, the fixture is wrong.** That is what
+> makes the rule cheap: the sentence is not documentation, it is the check.
+> Being unable to finish it is the finding.
+
+Enforced by `tests/unit/counterfactual.spec.ts`, whose file list is the honest
+record of which suites have been through this — extending that list is a
+visible act, not a silent assumption.
+
+#### Two species, and they need different fixes
+
+The distinction matters because reaching for the wrong fix wastes the
+discovery:
+
+| Species | Symptom | Fix |
+| --- | --- | --- |
+| **The fixture cannot discriminate** | the test runs the right code with data that gives the same answer either way | **the input is too weak — change the input** |
+| **The guard sits where nothing can trigger it** | no input can reach the failing case at all | **the input cannot help — extract the guard somewhere a test can hand it the failing case** |
+
+The second is the nastier one because it looks identical from outside: the guard
+is there, it is correct, it runs on every call, and **it would read as working
+forever.**
+
+Both species, found on 2026-09-08 in one mutation pass over the report writer:
+
+- *First species* — E1 built its fixture from only PASSING rows, but the passed
+  list prints `rowId` directly while every other section goes through a shared
+  heading. The fixture never reached the code under test. Fixed by adding a
+  failing row.
+- *Second species* — E6's missing-row check and its read-from-disk both lived
+  inside `writeAuthoredReport`, and **no input can make the renderer omit a
+  row**, so nothing could ever make either fire. No fixture would have helped.
+  Fixed by extracting `verifyReportOnDisk()`, which a test can hand a file with
+  a row deleted.
 
 The four, because the mechanism differs each time and only the shape repeats:
 
