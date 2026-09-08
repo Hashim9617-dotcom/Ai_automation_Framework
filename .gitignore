@@ -28,3 +28,12 @@ blob-report/
 .DS_Store
 Thumbs.db
 *.log
+
+# QA test-case workbooks. The "Final Test cases" sheet carries live credentials
+# in its Test Data column (measured: 12 cells, row 3 onward), so a workbook must
+# never enter the repo. Enforced by tests/unit/no-workbooks.spec.ts as well —
+# "we remembered not to commit it" is not a control.
+*.xlsx
+*.xlsm
+*.xls
+*.ods

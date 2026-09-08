@@ -45,39 +45,187 @@ parties who can answer it.
 
 ---
 
-## 0. The schema is PROVISIONAL. These are assumptions, written down as such.
+## 0. The schema, MEASURED from the real file
 
-**The schema must come from the QA team's actual sheet.** The same rule that
-governs expectations governs this: inventing a plausible schema and building to
-it is reading the implementation, one level up. Until a real sheet is available:
+**Superseded 2026-09-08.** The provisional schema is gone. Everything below was
+measured from the workbook itself, and **re-verified rather than taken on
+trust** — the numbers came with the file, and checking them is the same
+discipline that makes every other expectation here external.
 
-> **Everything in this section is an ASSUMPTION, marked PROVISIONAL, and the
-> column mapping is CONFIGURATION rather than code.** Changing it must be a
-> config edit, never a reader rewrite.
+> Verification method: the workbook is a zip of XML. It was extracted to a
+> scratch directory outside the repo and parsed directly. **No cell value from
+> the Test Data column has ever been printed**, in this document or in any
+> terminal output — only counts, shapes and masked forms.
 
-### What was assumed
+### The workbook holds five competing test-case sheets. The sheet name is REQUIRED.
 
-| Assumption | Why it was chosen | What happens if it is wrong |
-| --- | --- | --- |
-| **One row is one test case**, not one step | the classic manual-test-case sheet shape | grouping becomes `row-is-step`, keyed on a case id — a reader *option*, not a rewrite. The seam is already there. |
-| A cell holding **several steps, one per line** | follows from the above | `stepSeparator` is configurable |
-| Columns `id`, `title`, `steps`, `expected` | the minimum a runnable case needs | rename freely in config; none of these strings appears in the reader's logic |
-| Optional `priority`, `tags` | present in most sheets, not required to run | ignored if absent |
-| Source format **CSV** | the universal export from every sheet tool, and it needs no dependency | `.xlsx` or a Sheets API is a new *adapter* behind the same interface — and a dependency decision to make deliberately, then |
+Measured — 13 sheets, of which these are test-case-shaped with different
+layouts:
 
-**`id` is assumed to exist and to be the QA's own identifier.** If the real
-sheet has no id column, the reader synthesises `row-<n>` from the 1-based sheet
-row and **records that it did so**, because a synthesised id is not traceable
-back to anything the QA recognises and they need to know that before it appears
-in a report.
+```
+Test cases · cucumber Test case · Automation test cases · Final Test cases
+Cucumbr Test case · Cucumber - Sheet2 Format
+```
 
-### What is deliberately NOT assumed
+> **`Final Test cases` is the authoritative sheet, and the name is required
+> input. A missing or unknown sheet name is a REFUSAL, never a default.**
 
-Nothing about the *prose* inside a step cell. The resolver's grammar is
-described in §2 and is deliberately small; a real sheet will change it, and it is
-better to refuse a sentence we do not understand than to guess at it.
+Defaulting to the first sheet, or to the one that looks right, would silently
+read `SOC DMS Issue sheet` — a different layout entirely — and every row would
+be garbage that looks like data. Guessing which of five competing sheets is
+authoritative is exactly the class of decision this design refuses everywhere
+else.
 
----
+### Columns, BY POSITION — header names are not unique
+
+| # | Header | Read? | # | Header | Read? |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Module | input | 12 | **And** | input |
+| 2 | Feature | input | 13 | **Then** | input |
+| 3 | **Scenario ID** | identity | 14 | Test Data | input, **redacted** |
+| 4 | **Test Case ID** | identity | 15 | Actual Result | **output — never read** |
+| 5 | Scenario Name | input | 16 | Status | **output — never read** |
+| 6 | Test Objective | input | 17 | Issue No. | **output — never read** |
+| 7 | Test Type | input | 18 | Type | input |
+| 8 | Priority | input | 19 | `SOC DMS ` | **output — never read** |
+| 9 | Preconditions | input | 20 | Issue No. | **output — never read** |
+| 10 | **Given** | input | 21 | Status 4 | **output — never read** |
+| 11 | **When** | input | 22 | Status 5 | **output — never read** |
+
+**Measured and confirmed: `"Issue No."` appears at BOTH column 17 and column
+20**, and **column 19 is `"SOC DMS "` with a trailing space.**
+
+> **Map by POSITION, and validate against the trimmed name.** A name-keyed
+> reader is ambiguous on this file — it takes whichever `Issue No.` it finds
+> first — and a trailing space turns an exact-name lookup into a silent miss.
+
+*A note on how that trailing space was nearly missed, because it generalises:*
+the first verification pass **trimmed every cell as it parsed**, so it printed
+`"SOC DMS"` and reported no padding. The parser's own normalisation hid the
+thing being verified. **A verification pass must not apply the normalisation it
+is trying to check** — the second pass re-read the header untrimmed and found
+it immediately.
+
+### It is Gherkin-shaped, so the resolver has real structure
+
+This is the largest change from the provisional design, and it is good news:
+the steps are not free prose.
+
+| Column | Role |
+| --- | --- |
+| **Given** (10) | precondition and navigation |
+| **When** (11) | action |
+| **And** (12) | action *or* assertion — see §2a |
+| **Then** (13) | **the assertion `checkGrounding()` grades** |
+
+Measured fill rate on the 470 identified rows: Given, When, And and Then are
+each populated on **470 of 470**. The structure is not aspirational; every row
+has it.
+
+The provisional grammar's job therefore shrinks: it no longer has to decide
+*whether* a sentence is an action or an assertion from the sentence alone,
+because the column says so. It only has to do that inside a split `And` cell.
+
+### Identity is the COMPOSITE key (Scenario ID, Test Case ID)
+
+**Measured, and this is the one that would have silently destroyed the report:**
+
+| | Count |
+| --- | --- |
+| rows carrying both ids | **470** |
+| distinct `Test Case ID` alone | **56** |
+| distinct `(Scenario ID, Test Case ID)` | **470** |
+| collisions on the composite key | **0** |
+
+`TC_001` recurs in every scenario. **Keying on `Test Case ID` alone collapses
+470 rows into 56** — and the reader's existing duplicate-id check would have
+thrown on the second row rather than producing 56 silent merges, which is the
+right failure but for the wrong reason and with a useless message.
+
+> **The row id is `"<Scenario ID> / <Test Case ID>"`, and every report says it
+> that way — never `TC_001` alone.** Uniqueness of the composite is asserted at
+> load, and a collision **refuses the whole sheet**: a duplicate identity means
+> no row's result can be trusted, so the run stops rather than proceeding with
+> a report nobody can rely on.
+
+### Rows that are not test cases
+
+Measured: 477 rows total, 1 header, **470 usable**, and **6 that are not** —
+which reconciles a small discrepancy in the numbers I was given. Precisely:
+
+- **4 rows are entirely blank.**
+- **2 rows are non-blank but carry no ids** — row 15 (only column 7 filled) and
+  row 208 (columns 2, 12 and 13, with `Feature` holding `3628`).
+
+Those last two matter: a **non-blank row without an identity is REPORTED as
+unreadable, never skipped.** A blank row is sheet padding and is accounted for
+without being reported as a failure. Both paths are covered by the existing
+row-conservation invariant (§4).
+
+### Still assumed, and marked as such
+
+- The **grammar inside a clause** — `click X`, `X is selected`. The real
+  sentences are natural English written by a QA (*"User should be successfully
+  logged in to the DMS portal and the dashboard should be visible"*), and the
+  grammar will not cover most of them. That is intended: it refuses what it
+  cannot read, so coverage grows by widening a function rather than by
+  loosening a verdict.
+- **One row is one test case.** Confirmed for this sheet by the 1:1 composite
+  key.
+
+### What is NOT a hazard in this sheet — verified, and deliberately not defended against
+
+No merged cells. No newlines inside the Given/When/And/Then/Test Data cells.
+Building defences against those here would be adding untested code for a
+condition that does not occur.
+
+> **`Automation test cases` DOES use blank-means-same-as-above grouping.** If
+> that sheet is ever supported, blank means *inherit*, not *missing* — and that
+> is **a different reader**, not a flag on this one. A reader that tries to
+> serve both layouts will get one of them subtly wrong.
+
+## 0a. The sheet carries live credentials
+
+**Measured: 12 cells in the Test Data column carry a keyed credential or an
+email address**, in the shape `mail id : <value>  Password : <value>`. Row 3
+onwards. **Zero such cells appear outside column 14.**
+
+Three consequences, and the third has a trap in it.
+
+1. **The workbook is never committed.** Its path pattern is gitignored, and a
+   guard fails if a workbook lands in the repo — the same shape as the
+   agnostic guard, because "we remembered not to commit it" is not a control.
+2. **The reader redacts before anything leaves it** — logs, the report, and
+   above all the prompt. The existing stripper
+   (`packages/shared/src/utils/redact.ts`, already applied on the RCA path) is
+   the precedent and is extended rather than duplicated, so there is one secret
+   pattern in the codebase rather than two that drift.
+3. **Redaction must key on the PAIR, not on the word.** This is the trap:
+
+   > Measured: **51 Given/When/And/Then clauses mention "password" or "email"
+   > as ordinary prose** — *"A validation message should come that the user
+   > Password is not correct."* A word-based redactor destroys 51 real
+   > assertions, which is a silent, permanent loss of exactly the content this
+   > whole door exists to run.
+
+   So a value is redacted when it follows a credential key (`Password : …`,
+   `mail id : …`), or when it is shaped like an email address. A bare mention
+   of the word is left alone. Both halves are tested, because a redactor that
+   redacts everything and one that redacts nothing both look plausible from a
+   distance — and only a test that asserts the prose SURVIVES can tell the
+   difference.
+
+## 0b. Reading `.xlsx` without a new dependency
+
+An `.xlsx` is a zip of XML. The reader unzips with `node:zlib` (built in) and
+parses the two parts it needs — `sharedStrings.xml` and the target worksheet.
+
+That is a deliberate choice over adding a spreadsheet library, and the reasons
+are narrow enough to state: this repo has no such dependency today, the format
+subset needed is small and fully specified, and there is a real 477-row file to
+test the parser against. **If it proves fragile on the next sheet, a vetted
+dependency is the fallback** — and because parsing sits behind the same
+grid-shaped seam as the CSV adapter, that is a swap rather than a rewrite.
 
 ## 1. Where the sheet path enters the machinery — VERIFIED, not assumed
 
@@ -210,6 +358,39 @@ property is not its coverage but its failure mode: it refuses what it does not
 understand instead of guessing, so widening it later is safe.
 
 ---
+
+## 2a. The `And` column mixes actions and assertions
+
+**Measured: 37 of the 470 `And` cells join two clauses with `&`.** For example
+(shape only): *"User clicks on the sign-in button." & "verify the user
+successful login"* — the first half is an action, the second an assertion.
+
+The column tells us the role of `When` and `Then` cells outright. `And` is the
+one place that information is missing, so it is the one place a classification
+decision has to be made:
+
+> **Split on the separator and classify each half independently. A half that
+> cannot be classified with confidence is a REFUSAL naming the row and the
+> clause — never a guess in either direction.**
+
+The asymmetry that makes this dangerous is worth stating: getting it wrong
+**turns an assertion into a click, or a click into an assertion, and neither
+fails loudly.** An assertion mistaken for an action is silently never checked —
+the test goes green having verified nothing. An action mistaken for an assertion
+is graded against a state the test never reached. Both produce a plausible
+result, which is why the only safe response to an unclear half is to stop.
+
+Classification uses the clause's own leading verb, and only where it is
+unambiguous: `verify`/`expect`/`check`/`assert`/`should` mark an assertion,
+`click`/`press`/`tap`/`enter`/`select`/`navigate` mark an action. **Anything
+else is refused.** That list is small on purpose — widening it later is safe
+because the failure mode is a refusal, whereas a heuristic that guesses at the
+margin is wrong silently and forever.
+
+Note the `&` in *"And correct password" & "Click on the sign-in button…"* — the
+first half is a fragment continuing the previous clause, not an action. It has
+no classifying verb, so it refuses, which is the correct outcome: a human has to
+say what that row means.
 
 ## 3. Two kinds of failure, two kinds of report
 

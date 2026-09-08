@@ -12,6 +12,8 @@ export * from './generation/identity';
 export * from './generation/prompt';
 export * from './generation/proposal';
 export * from './generation/grounding';
+export * from './authored/xlsx';
+export * from './authored/final-test-cases';
 export * from './authored/sheet';
 export * from './authored/resolver';
 export * from './matching/command-matcher';
