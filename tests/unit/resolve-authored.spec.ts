@@ -155,6 +155,33 @@ test.describe('the one place classification is needed (C2) @unit', () => {
     expect(resolved.steps).toEqual([]);
   });
 
+  test('C2: an unclassified half that WOULD resolve is still refused', () => {
+    // The discriminating fixture, and the counterfactual stated before it is
+    // used: under a resolver that GUESSED a kind, this row resolves to "ok",
+    // because "Sign in" is quoted and resolves to exactly one node. Under the
+    // correct behaviour it is refused. The earlier fixture ("And correct
+    // password") could not tell the two apart — it has no resolvable target, so
+    // a guessing resolver refuses it anyway, for a different reason.
+    const resolved = resolveAuthoredRow(
+      rowOf([
+        {
+          text: 'the "Sign in" button',
+          source: 'and',
+          kind: 'unclassified',
+          why: 'no leading action or assertion verb',
+        },
+      ]),
+      CAPTURE,
+      'login',
+    );
+
+    expect(resolved.outcome).toBe('row-unclear');
+    expect(resolved.refusals[0]!.why).toBe('unparseable-step');
+    expect(resolved.refusals[0]!.reason).toContain('SI_001 / TC_001');
+    // Proof the fixture is discriminating: the target really does resolve.
+    expect(extractTarget('the "Sign in" button')).toBe('Sign in');
+  });
+
   test('C2: a classified And-half alongside it still resolves on its own merits', () => {
     // Discriminating: refusal is per clause, and the "&" split produced two
     // halves of which only one is unclear.
