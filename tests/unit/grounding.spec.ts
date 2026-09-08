@@ -620,3 +620,89 @@ test.describe('checkGrounding — distinct faults get distinct reasons (R1) @uni
     expect(unrecorded.steps[0]!.why).toBe('property-not-recorded');
   });
 });
+
+/**
+ * G1 — A PROPERTY MAY NOT BE ATTRIBUTED FROM AN ARBITRARY MATCH.
+ *
+ * Found 2026-09-08 while verifying that door B could reuse this grader
+ * (`docs/phase-2-authored-cases.md` §1a). The grader read properties off
+ * `matches[0]` — document order — whenever several nodes shared a role and an
+ * accessible name. Two `button "Delete"` is the NORMAL shape of a data table,
+ * not an edge case, and nothing in the result hinted that a choice had been
+ * made.
+ *
+ * The healing engine already refuses exactly this (`matches.length !== 1`
+ * discards a proposal) and its reasoning transfers verbatim: `matchCount === 1`
+ * is partly a claim that no OTHER node matches, so attributing a value read
+ * from an arbitrary one of several is not a weaker guarantee — it is a false
+ * one.
+ *
+ * Narrow on purpose. Where every candidate carries the same value no choice is
+ * being made, and refusing there would manufacture a question out of an
+ * unambiguous fact.
+ */
+test.describe('checkGrounding — ambiguous targets (G1) @unit', () => {
+  const twoNamed = (first: boolean, second: boolean): StateCapture =>
+    capture([
+      state('list', [
+        { role: 'button', name: 'Delete', enabled: first },
+        { role: 'button', name: 'Delete', enabled: second },
+        { role: 'button', name: 'Only One', enabled: true },
+      ]),
+    ]);
+
+  test('G1: candidates that DISAGREE cannot attribute a value', () => {
+    const result = checkGrounding(
+      twoNamed(true, false),
+      onlyStep('list', assertStep('button', 'Delete', 'enabled', true)),
+    );
+
+    expect(result.steps[0]!.grade).toBe('assumed');
+    expect(result.steps[0]!.why).toBe('ambiguous-target');
+    expect(result.steps[0]!.reason).toContain('2 nodes match');
+    // Never `observed`: that is the whole point. A false observation here
+    // becomes a green test asserting something nobody established.
+    expect(result.overall).not.toBe('observed');
+  });
+
+  test('G1: candidates that AGREE are answerable whichever one was meant', () => {
+    // The discriminating half. Without it, a grader that refused EVERY
+    // multi-match would also pass the test above, and it would manufacture a
+    // question out of an unambiguous fact.
+    const result = checkGrounding(
+      twoNamed(true, true),
+      onlyStep('list', assertStep('button', 'Delete', 'enabled', true)),
+    );
+
+    expect(result.steps[0]!.grade).toBe('observed');
+    expect(result.steps[0]!.why).toBe('observed-property-matches');
+  });
+
+  test('G1: agreeing candidates still refute a wrong expectation', () => {
+    const result = checkGrounding(
+      twoNamed(false, false),
+      onlyStep('list', assertStep('button', 'Delete', 'enabled', true)),
+    );
+    expect(result.steps[0]!.grade).toBe('contradicted');
+  });
+
+  test('G1: PRESENCE is unaffected — present is present, however many', () => {
+    // Multiplicity does not bear on a presence claim, and no node is singled
+    // out to decide it. Refusing here would be over-applying the rule.
+    const result = checkGrounding(
+      twoNamed(true, false),
+      onlyStep('list', assertStep('button', 'Delete', 'present', true)),
+    );
+    expect(result.steps[0]!.grade).toBe('observed');
+  });
+
+  test('G1: a single match is graded exactly as before', () => {
+    // Discriminating against a change that quietly widened: the ordinary path
+    // must be untouched.
+    const result = checkGrounding(
+      twoNamed(true, false),
+      onlyStep('list', assertStep('button', 'Only One', 'enabled', true)),
+    );
+    expect(result.steps[0]!.grade).toBe('observed');
+  });
+});

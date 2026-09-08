@@ -156,6 +156,7 @@ export type GroundingReason =
   | 'undeclared-transition'
   | 'suspect-transition'
   | 'cursor-state-not-in-capture'
+  | 'ambiguous-target'
   | 'capture-truncated'
   | 'collapsed-group'
   | 'property-not-recorded';
@@ -370,6 +371,9 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
     const node = matches[0]!;
 
     if (step.property === 'present') {
+      // Multiplicity does not affect a presence claim: present is present, and
+      // no node was singled out to decide it. Only the property lookups below
+      // have to attribute a value to a particular node.
       steps.push({
         stepIndex,
         grade: step.expected ? 'observed' : 'contradicted',
@@ -380,7 +384,47 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
       continue;
     }
 
-    const actual = step.property === 'enabled' ? node.enabled : node.selected;
+    const read = (candidate: AccessibilityNode): boolean | undefined =>
+      step.property === 'enabled' ? candidate.enabled : candidate.selected;
+
+    /**
+     * The candidates DISAGREE, so no value can be attributed.
+     *
+     * This used to read the property off `matches[0]` — document order — and
+     * grade against it, silently. Two `button "Delete"` in a table is the
+     * NORMAL shape of a data grid, not an edge case, and the reviewer saw no
+     * hint that a choice had been made.
+     *
+     * The healing engine already refuses exactly this (`matches.length !== 1`
+     * discards a proposal), and its reasoning applies verbatim: attributing a
+     * value read from an arbitrary one of several nodes is not a weaker
+     * guarantee, it is a FALSE one.
+     *
+     * Deliberately narrow: when every candidate carries the same value, no
+     * choice is being made and the claim is answerable whichever node the
+     * author meant. Refusing there would manufacture a question out of an
+     * unambiguous fact. Where an ACTION must be performed on one specific
+     * element, multiplicity is disqualifying regardless — that is the
+     * resolver's rule (docs/phase-2-authored-cases.md §2), not the grader's.
+     */
+    if (matches.length > 1) {
+      const values = new Set(matches.map(read));
+      if (values.size > 1) {
+        steps.push({
+          stepIndex,
+          grade: 'assumed',
+          stateId: cursor,
+          why: 'ambiguous-target',
+          reason:
+            `${matches.length} nodes match ${step.role} "${step.name}" in "${cursor}" and they ` +
+            `disagree on "${step.property}" (${[...values].map((v) => String(v)).sort().join(', ')}) — ` +
+            'no value can be attributed without knowing which one was meant',
+        });
+        continue;
+      }
+    }
+
+    const actual = read(node);
 
     if (actual === undefined) {
       // The capture does not record this property at all. Not a disagreement
