@@ -16,6 +16,7 @@ export * from './authored/xlsx';
 export * from './authored/final-test-cases';
 export * from './authored/sheet';
 export * from './authored/resolver';
+export * from './authored/resolve-authored';
 export * from './matching/command-matcher';
 export * from './utils/env';
 export * from './utils/id';

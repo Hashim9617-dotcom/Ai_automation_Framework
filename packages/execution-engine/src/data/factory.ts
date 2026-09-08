@@ -8,36 +8,16 @@ import { faker } from '@faker-js/faker';
 const seed = process.env.TEST_DATA_SEED ? Number(process.env.TEST_DATA_SEED) : undefined;
 if (seed !== undefined && Number.isFinite(seed)) faker.seed(seed);
 
-export interface EmployeeData {
-  firstName: string;
-  lastName: string;
-  fullName: string;
-  email: string;
-  employeeId: string;
-  phone: string;
-  jobTitle: string;
-  department: string;
-  hireDate: string;
-}
+/**
+ * Re-exported so tests can build their own DOMAIN data on the same seed.
+ *
+ * Domain vocabulary — employees, invoices, patients — belongs in `tests/`,
+ * with the application it describes. What belongs here is the seeding, so a
+ * failing run still reproduces exactly wherever the data was shaped.
+ */
+export { faker };
 
 export const dataFactory = {
-  employee(overrides: Partial<EmployeeData> = {}): EmployeeData {
-    const firstName = faker.person.firstName();
-    const lastName = faker.person.lastName();
-    return {
-      firstName,
-      lastName,
-      fullName: `${firstName} ${lastName}`,
-      email: faker.internet.email({ firstName, lastName }).toLowerCase(),
-      employeeId: `EMP${faker.number.int({ min: 10_000, max: 99_999 })}`,
-      phone: faker.phone.number({ style: 'international' }),
-      jobTitle: faker.person.jobTitle(),
-      department: faker.commerce.department(),
-      hireDate: faker.date.recent({ days: 365 }).toISOString().slice(0, 10),
-      ...overrides,
-    };
-  },
-
   /** Unique string safe for fields that must not collide across parallel workers. */
   unique(prefix = 'aitp'): string {
     return `${prefix}-${Date.now().toString(36)}-${faker.string.alphanumeric(6).toLowerCase()}`;

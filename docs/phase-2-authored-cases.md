@@ -456,6 +456,87 @@ first half is a fragment continuing the previous clause, not an action. It has
 no classifying verb, so it refuses, which is the correct outcome: a human has to
 say what that row means.
 
+## 2b. The column's clause kind is AUTHORITATIVE. Never re-derive it.
+
+The QA wrote `Given`, `When`, `And`, `Then` as column headers. **That is a human
+stating what kind of clause this is** — an external source of truth in exactly
+the sense rule 4 means, formed before and independently of anything the platform
+or a model observes.
+
+> **The column wins, always.** `clauses[].kind` is carried through the pipeline,
+> never recomputed, never overridden. No model output, confidence score or
+> tie-break may change it.
+
+The reason is not redundancy, it is authority. If the resolver classifies the
+text again, the model can *disagree* with the column — and the moment any rule
+exists for resolving that disagreement, **the model has become the authority
+over the human who wrote the sheet.** There is no safe tie-break, because every
+tie-break is that. The only correct design is not to hold the election.
+
+This mirrors `checkGrounding()` pointed the other way, and the symmetry is worth
+seeing:
+
+| | Authority | Model's role |
+| --- | --- | --- |
+| Grading an assertion | the CAPTURE — `checkGrounding()` re-derives and overrides | the model's `observed`/`assumed` label is a claim to be checked |
+| Classifying a clause | the COLUMN — the QA said so | the model does not classify at all |
+
+In both cases the model proposes and something external judges. What changes is
+which external thing.
+
+### What that leaves the resolver
+
+**Exactly one place needs classification**: the 37 `&`-joined halves inside the
+`And` column, where the sheet genuinely does not say which half is which. That
+decision is made once, in the reader, at load time — and an unclassifiable half
+is a REFUSAL naming the row and the clause, never a guess (§2a).
+
+Everything else shrinks:
+
+> **The resolver maps a clause to an ELEMENT in the capture. It does not decide
+> what the clause IS.**
+
+That is a much narrower model-facing job than it first looked: a smaller prompt,
+less to get wrong, and less to pay for. It also means most of the resolver is
+deterministic — the kind comes from the column, the grade comes from the
+capture, and the only judgement left is "which element does this sentence point
+at", which is refused when ambiguous rather than guessed.
+
+## 2c. Credentials never come from the sheet
+
+Test Data column credentials are redacted at read (§0a) and **must never reach
+authentication. Auth comes from `.env`, always.**
+
+**This became more important, not less.** The account was briefly rotated and
+has now been rotated back, so the sheet's credentials are live again. While they
+were dead, a bug where the resolver authenticated from the sheet would have
+failed loudly on the first run. **The same bug now succeeds silently** — the
+tests pass, nobody looks, and the platform is quietly authenticating from a
+spreadsheet that gets emailed around.
+
+That asymmetry is why it is a TEST rather than a comment, and why it is
+mutation-verified on both sides: a resolver that reads credentials from the
+sheet must fail a named test, and one that reads them from the environment must
+pass it. A single-sided check would be satisfied by a resolver that reads
+neither.
+
+## 2d. Row 208 is a QA-facing output, not a skip count
+
+The reader distinguishes `stray-cells` from `content-without-identity` (§0), and
+that distinction has to survive into what a human is handed:
+
+> **A row carrying real clauses but no identity is reported with its content,
+> as something to fix.** Not "2 rows skipped".
+
+Row 208 holds a `Feature`, a real `And` and a real `Then` — a test case someone
+started and never gave an ID. Handing back *"row 208: you are losing a test case;
+here is the And and the Then it contains; give it a Scenario ID and a Test Case
+ID"* is a minute of a QA's time and recovers real coverage. A skip count is a
+number nobody acts on.
+
+That is the difference between a tool that tolerates bad input and one that
+improves the sheet it reads, and it costs almost nothing to be the second.
+
 ## 3. Two kinds of failure, two kinds of report
 
 > *"The app did not do what the row expected"* and *"we could not understand the

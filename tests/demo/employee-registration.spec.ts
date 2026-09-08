@@ -1,6 +1,7 @@
 import { test, expect } from '@aitp/execution-engine';
 import { LoginPage } from './pages/login.page';
 import { EmployeesPage } from './pages/employees.page';
+import { employeeData } from '../support/employee-data';
 
 /**
  * The flow the AI Command Box has to be able to produce on its own in Phase 2
@@ -16,7 +17,7 @@ test.describe('Employee registration', { tag: ['@regression', '@pim'] }, () => {
 
   test('registers a new employee and shows it in the directory', async ({ makePage, data }) => {
     const employees = makePage(EmployeesPage);
-    const employee = data.employee({ department: 'Engineering' });
+    const employee = employeeData({ department: 'Engineering' });
 
     expect(await employees.isDirectoryEmpty()).toBe(true);
 
@@ -37,7 +38,7 @@ test.describe('Employee registration', { tag: ['@regression', '@pim'] }, () => {
 
   test('rejects a duplicate employee ID', async ({ makePage, data }) => {
     const employees = makePage(EmployeesPage);
-    const employee = data.employee();
+    const employee = employeeData();
     const payload = {
       firstName: employee.firstName,
       lastName: employee.lastName,
@@ -57,7 +58,7 @@ test.describe('Employee registration', { tag: ['@regression', '@pim'] }, () => {
 
   test('requires the mandatory fields', { tag: '@smoke' }, async ({ makePage, data }) => {
     const employees = makePage(EmployeesPage);
-    const employee = data.employee();
+    const employee = employeeData();
 
     await employees.register({
       firstName: employee.firstName,

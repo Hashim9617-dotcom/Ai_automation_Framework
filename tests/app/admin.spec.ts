@@ -2,6 +2,7 @@ import { test, expect } from '@aitp/execution-engine';
 import { UsersPage } from './pages/admin/users.page';
 import { UserRolesPage } from './pages/admin/user-roles.page';
 import { UserGroupsPage } from './pages/admin/user-groups.page';
+import { employeeData } from '../support/employee-data';
 
 /**
  * Admin — Users, Roles and Groups.
@@ -146,7 +147,7 @@ test.describe('Admin creation', { tag: ['@regression', '@admin', '@write'] }, ()
     test.skip(!ALLOW_WRITES, 'Set ALLOW_WRITES=true to run tests that create data.');
 
     const users = makePage(UsersPage);
-    const person = data.employee();
+    const person = employeeData();
     const username = data.unique('aitp-user');
 
     await users.open();

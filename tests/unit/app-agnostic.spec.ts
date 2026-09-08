@@ -45,6 +45,38 @@ const APP_SPECIFIC = [
   'pension',
 ];
 
+/**
+ * DOMAIN vocabulary: nouns belonging to one application rather than to a
+ * testing platform.
+ *
+ * Distinct from `APP_SPECIFIC` above, and the distinction is what the audit was
+ * missing. A hostname or a credential is obviously out of place. `employee`,
+ * `invoice`, `patient` are not obviously anything — they read as ordinary code
+ * until a second application arrives and inherits them.
+ *
+ * Added 2026-09-08, prompted by `dataFactory.employee()`: HR data with
+ * `employeeId`, `jobTitle` and `hireDate` sitting in the engine, passed over by
+ * the identifier audit twice because it contains no hostname, no credential and
+ * no label from the app under test. It has since moved to
+ * `tests/support/employee-data.ts`, with the application it describes.
+ *
+ * Short and concrete on purpose. It does not try to define "domain" in general;
+ * it names the vocabularies this repo has actually touched, and grows when a
+ * new one appears. Words that also occur in ordinary platform prose — a prompt
+ * explaining that captures contain "workspace names and document titles" — are
+ * deliberately NOT here: a guard that cries wolf gets switched off.
+ */
+const DOMAIN_VOCABULARY = [
+  'employee',
+  'Employee',
+  'payroll',
+  'Payroll',
+  'invoice',
+  'Invoice',
+  'patient',
+  'Patient',
+];
+
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     if (entry === 'node_modules' || entry === 'dist' || entry === '.turbo') continue;
@@ -118,5 +150,54 @@ test.describe('packages/ and apps/ are app-agnostic @unit', () => {
     expect(parsed.baseUrl).toBe('${BASE_URL}');
     expect(parsed.apiBaseUrl.startsWith('${API_BASE_URL')).toBe(true);
     for (const term of APP_SPECIFIC) expect(appEnv).not.toContain(term);
+  });
+});
+
+/**
+ * The keyword audit finds app IDENTIFIERS. This finds app NOUNS.
+ *
+ * `dataFactory.employee()` passed the identifier audit twice: it contains no
+ * hostname, no credential, no label from the app under test. It was still
+ * HR-domain vocabulary sitting in `packages/`, and the only reason it was ever
+ * noticed is that a human read the file.
+ *
+ * A guard that only catches what looks obviously foreign is a guard that
+ * catches the easy half. Domain nouns are the hard half precisely because they
+ * read as ordinary code.
+ */
+test.describe('packages/ and apps/ carry no DOMAIN vocabulary @unit', () => {
+  const files = AGNOSTIC_DIRS.flatMap((dir) => walk(path.join(ROOT, dir)));
+
+  test('the domain scan can see a planted noun', () => {
+    // Asserts its own effect, and the control uses the exact symbol that got
+    // past the identifier audit twice.
+    const planted = stripComments('export function employee() { return 1; }');
+    expect(DOMAIN_VOCABULARY.filter((term) => planted.includes(term))).toEqual(['employee']);
+    expect(files.length).toBeGreaterThan(40);
+  });
+
+  test('no domain noun appears in the CODE of packages/ or apps/', () => {
+    const hits: string[] = [];
+    for (const file of files) {
+      const code = stripComments(readFileSync(file, 'utf8'));
+      for (const term of DOMAIN_VOCABULARY) {
+        if (code.includes(term)) hits.push(`${path.relative(ROOT, file)}: ${term}`);
+      }
+    }
+    expect(hits).toEqual([]);
+  });
+
+  test('the vocabulary it names is still absent where it was removed from', () => {
+    // Discriminating: the symbol this rule was written for really did live
+    // here, so a scan that found nothing anywhere would not prove much.
+    const factory = readFileSync(
+      path.join(ROOT, 'packages/execution-engine/src/data/factory.ts'),
+      'utf8',
+    );
+    expect(stripComments(factory)).not.toContain('employee');
+    // And what stayed behind is genuinely generic, so the move was a move
+    // rather than a deletion of something useful.
+    expect(factory).toContain('unique');
+    expect(factory).toContain('password');
   });
 });

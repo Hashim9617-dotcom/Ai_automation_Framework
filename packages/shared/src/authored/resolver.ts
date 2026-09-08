@@ -80,7 +80,7 @@ export interface ResolvedRow {
 const norm = (value: string): string => value.replace(/\s+/g, ' ').trim().toLowerCase();
 
 /** Roles a click can plausibly land on. ARIA, not application vocabulary. */
-const CLICKABLE_ROLES = ['button', 'link', 'tab', 'menuitem', 'treeitem', 'option', 'checkbox'];
+export const CLICKABLE_ROLES = ['button', 'link', 'tab', 'menuitem', 'treeitem', 'option', 'checkbox'];
 
 const STATE_WORDS: Record<string, { property: AssertStep['property']; expected: boolean }> = {
   selected: { property: 'selected', expected: true },
@@ -140,7 +140,7 @@ function stripQuotes(value: string): string {
 }
 
 /** Every node in the entry state whose accessible name matches the target. */
-function findCandidates(state: CapturedState, target: string, roles?: string[]) {
+export function findCandidates(state: CapturedState, target: string, roles?: string[]) {
   return state.nodes.filter(
     (node) => norm(node.name) === norm(target) && (!roles || roles.includes(node.role)),
   );
