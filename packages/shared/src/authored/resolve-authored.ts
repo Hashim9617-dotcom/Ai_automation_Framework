@@ -77,6 +77,15 @@ export interface ResolvedAuthoredRow extends ResolvedRow {
   testCaseId: string;
   /** The kinds actually used, in order — taken from the columns, never derived. */
   clauseKinds: string[];
+  /**
+   * The element the RESOLVER chose for each step, carried to the executor.
+   *
+   * Re-deriving it from the prose at execution time would be the clause-kind
+   * mistake one layer down: two components interpreting the same sentence can
+   * disagree, silently — and worse here, because the resolver refused ambiguity
+   * against the capture and a fresh interpretation would not (§10.0).
+   */
+  targets: Array<{ stepIndex: number; role: string; name: string }>;
 }
 
 export function resolveAuthoredRow(
@@ -91,6 +100,7 @@ export function resolveAuthoredRow(
     sheetRow: authored.sheetRow,
     title: authored.scenarioName || authored.objective || authored.rowId,
     clauseKinds: authored.clauses.map((clause) => clause.kind),
+    targets: [] as ResolvedAuthoredRow['targets'],
     writeRisk: assessWriteRisk({
       title: authored.scenarioName,
       entryState,
@@ -125,6 +135,7 @@ export function resolveAuthoredRow(
   }
 
   const steps: CaseStep[] = [];
+  const targets: ResolvedAuthoredRow['targets'] = [];
   const refusals: StepRefusal[] = [];
 
   for (const [stepIndex, clause] of authored.clauses.entries()) {
@@ -187,11 +198,15 @@ export function resolveAuthoredRow(
         });
         continue;
       }
+      targets.push({ stepIndex: steps.length, role: candidates[0]!.role, name: target });
       steps.push({ kind: 'action', description: clause.text });
       continue;
     }
 
     const { property, expected } = assertedProperty(clause.text);
+    if (candidates[0]) {
+      targets.push({ stepIndex: steps.length, role: candidates[0].role, name: target });
+    }
     steps.push({
       kind: 'assert',
       role: candidates[0]?.role ?? 'generic',
@@ -229,6 +244,7 @@ export function resolveAuthoredRow(
       outcome: 'app-disagrees',
       owner: 'app-team',
       steps,
+      targets,
       grades,
       refusals: [],
       summary: `${authored.rowId}: the app disagrees with this row — ${contradicted.reason}`,
@@ -242,6 +258,7 @@ export function resolveAuthoredRow(
       outcome: 'capture-thin',
       owner: 'capture',
       steps,
+      targets,
       grades,
       refusals: [],
       summary: `${authored.rowId}: the capture cannot answer this row — ${assumed.why}`,

@@ -39,14 +39,34 @@ const resolved = (over: Partial<ResolvedAuthoredRow> = {}): ResolvedAuthoredRow 
   refusals: [],
   grades: [],
   clauseKinds: ['action'],
+  targets: [{ stepIndex: 0, role: 'button', name: 'Sign in' }],
   writeRisk: 'read-only',
   summary: 'resolved',
   ...over,
 });
 
 /** Deterministic executor. The browser lives behind this seam, not in the sums. */
-const alwaysOk: StepExecutor = async () => ({ ok: true, detail: 'ok' });
-const alwaysFails: StepExecutor = async () => ({ ok: false, detail: 'the button was not there' });
+const alwaysOk: StepExecutor = async () => ({ kind: 'passed', observed: 'the element was there' });
+const alwaysFails: StepExecutor = async () => ({
+  kind: 'failed',
+  observed: 'the button was not in the expected state',
+  evidence: { screenshot: 'artifacts/runs/run_x/shot.png', trace: 'artifacts/runs/run_x/trace.zip' },
+});
+/** The live page does not have it — the CAPTURE is stale, not the app broken. */
+const targetMissing: StepExecutor = async () => ({
+  kind: 'target-not-on-page',
+  observed: 'no such element on the live page',
+  evidence: { screenshot: 'artifacts/runs/run_x/shot.png' },
+});
+/** Healing has a suggestion. It must never move the verdict. */
+const missingWithProposal: StepExecutor = async () => ({
+  kind: 'target-not-on-page',
+  observed: 'no such element on the live page',
+  healingProposal: 'a button named "Approve Request" resolves to exactly one node',
+  evidence: { screenshot: 'artifacts/runs/run_x/shot.png' },
+});
+/** Claims success while observing nothing — the vacuous pass. */
+const passesObservingNothing: StepExecutor = async () => ({ kind: 'passed', observed: '' });
 
 const run = (
   rows: ResolvedAuthoredRow[],
@@ -136,7 +156,7 @@ test.describe('the arithmetic balances (E2) @unit', () => {
     // wrong: a report that printed only totals gives a reader no way to notice the buckets do not add up.
     const outcome = await mixed();
     expect(renderAuthoredReport(outcome, 'Final Test cases')).toContain(
-      `${outcome.tally.passed} + ${outcome.tally.failed} + ${outcome.tally.refused} + ${outcome.tally.held} + ${outcome.tally.unreadable} = ${outcome.tally.rowsRead}`,
+      `${outcome.tally.passed} + ${outcome.tally.failed} + ${outcome.tally.refused} + ${outcome.tally.held} + ${outcome.tally.unreadable} + ${outcome.tally.staleCapture} = ${outcome.tally.rowsRead}`,
     );
   });
 });
@@ -240,7 +260,7 @@ test.describe('write risk gates EXECUTION (E4) @unit', () => {
     let ran = 0;
     const counting: StepExecutor = async () => {
       ran += 1;
-      return { ok: true, detail: 'ok' };
+      return { kind: 'passed' as const, observed: 'the element was there' };
     };
     const outcome = await run([destructive], [], counting, false);
 
@@ -309,7 +329,7 @@ test.describe('the sheet is never written to (E5) @unit', () => {
     // wrong: a writer that ignored outputDir puts the file somewhere the caller did not choose — possibly beside the sheet.
     const dir = mkdtempSync(path.join(tmpdir(), 'aitp-report-'));
     const written = writeAuthoredReport(
-      { results: [], tally: { rowsRead: 0, passed: 0, failed: 0, refused: 0, held: 0, unreadable: 0 } },
+      { results: [], tally: { rowsRead: 0, passed: 0, failed: 0, refused: 0, held: 0, unreadable: 0, staleCapture: 0 } },
       { outputDir: dir, sheetName: 'Final Test cases' },
     );
     expect(written.file.startsWith(dir)).toBe(true);
@@ -417,3 +437,150 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
     expect(readFileSync(again.file, 'utf8').length).toBeGreaterThan(0);
   });
 });
+/**
+ * §10 — the browser-backed executor. A live page fails in more ways than the
+ * seam's boolean could carry, and two of those ways are not app failures.
+ */
+test.describe('resolved, but not on the live page (E7) @unit', () => {
+  test('E7: a missing target is stale-capture, not failed', async () => {
+    // wrong: folded into `failed`, this row goes to the app team, who hunt for a
+    // bug that does not exist — the element is missing only from OUR capture.
+    const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })], [], targetMissing);
+    expect(outcome.results[0]!.status).toBe('stale-capture');
+    expect(outcome.results[0]!.owner).toBe('capture');
+  });
+
+  test('E7: stale-capture is its own bucket in the arithmetic', async () => {
+    // wrong: left out of the sum, six buckets add to less than rowsRead and the
+    // balance check throws instead of the run reporting at all.
+    const outcome = await run(
+      [resolved({ rowId: 'SI_1 / TC_1' }), resolved({ rowId: 'SI_2 / TC_1', sheetRow: 4 })],
+      [],
+      targetMissing,
+    );
+    expect(outcome.tally.staleCapture).toBe(2);
+    expect(
+      outcome.tally.passed +
+        outcome.tally.failed +
+        outcome.tally.refused +
+        outcome.tally.held +
+        outcome.tally.unreadable +
+        outcome.tally.staleCapture,
+    ).toBe(outcome.tally.rowsRead);
+  });
+
+  test('E7: it gets its own report section naming the fix', async () => {
+    // wrong: rendered under "For the app team", it reaches people who cannot act
+    // on it, and whoever captures — the one person who can — never sees it.
+    const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })], [], targetMissing);
+    const markdown = renderAuthoredReport(outcome, 'Final Test cases');
+    expect(markdown).toContain('## The capture is out of date');
+    expect(markdown).toContain('pnpm inspect');
+    expect(markdown.indexOf('## For the app team')).toBe(-1);
+  });
+});
+
+test.describe('healing may propose, never substitute (E8) @unit', () => {
+  test('E8: a proposal does not change the verdict', async () => {
+    // wrong: with substitution allowed this reports `passed`, and a QA reads that
+    // their case passed when the element they wrote about was never there.
+    const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })], [], missingWithProposal);
+    expect(outcome.results[0]!.status).toBe('stale-capture');
+    expect(outcome.results[0]!.healingProposal).toContain('Approve Request');
+  });
+
+  test('E8: the same row without a proposal reaches the same verdict', async () => {
+    // wrong: if the proposal moved the verdict these two would differ — identical
+    // statuses are what prove it was never consulted.
+    const withProposal = await run([resolved()], [], missingWithProposal);
+    const without = await run([resolved()], [], targetMissing);
+    expect(withProposal.results[0]!.status).toBe(without.results[0]!.status);
+  });
+
+  test('E8: the report labels it a suggestion, not a result', async () => {
+    // wrong: printed as a plain line, a reader takes the healed name for what was
+    // actually clicked.
+    const outcome = await run([resolved()], [], missingWithProposal);
+    expect(renderAuthoredReport(outcome, 'x')).toContain('suggestion (not applied)');
+  });
+});
+
+test.describe('a Then clause needs positive evidence (E9) @unit', () => {
+  const thenRow = resolved({
+    rowId: 'SI_1 / TC_1',
+    steps: [
+      { kind: 'assert', role: 'heading', name: 'Dashboard', property: 'present', expected: true },
+    ],
+    targets: [{ stepIndex: 0, role: 'heading', name: 'Dashboard' }],
+    clauseKinds: ['assert'],
+  });
+
+  test('E9: an assertion that observed nothing is REFUSED, not passed', async () => {
+    // wrong: accepted as a pass, this row reports success on the strength of
+    // nothing having thrown — a criterion satisfied by knowing nothing.
+    const outcome = await run([thenRow], [], passesObservingNothing);
+    expect(outcome.results[0]!.status).toBe('refused');
+    expect(outcome.results[0]!.owner).toBe('qa');
+    expect(outcome.results[0]!.detail).toContain('cannot be verified as written');
+  });
+
+  test('E9: an assertion that DID observe something passes', async () => {
+    // wrong: a rule that refused every assertion would pass the test above while
+    // making it impossible for any Then clause to succeed at all.
+    const outcome = await run([thenRow], [], alwaysOk);
+    expect(outcome.results[0]!.status).toBe('passed');
+    expect(outcome.results[0]!.observed).toEqual(['the element was there']);
+  });
+
+  test('E9: an ACTION observing nothing is not held to the same rule', async () => {
+    // wrong: applied to actions too, a click reporting no observation is refused,
+    // and almost every row in the sheet comes back unverifiable.
+    const outcome = await run([resolved()], [], passesObservingNothing);
+    expect(outcome.results[0]!.status).toBe('passed');
+  });
+
+  test('E9: every row carries what was observed', async () => {
+    // wrong: without `observed`, a reader cannot tell an assertion that checked
+    // something from one that merely did not throw.
+    const outcome = await run([thenRow], [], alwaysOk);
+    expect(outcome.results[0]!.observed!.length).toBeGreaterThan(0);
+  });
+});
+
+test.describe('every non-passing row carries its evidence (E10) @unit', () => {
+  test('E10: a failed row carries the failing clause, screenshot and trace', async () => {
+    // wrong: without evidence the app team gets a row id and a sentence, and the
+    // investigation starts from nothing — which is what made Finding 16 take two days.
+    const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })], [], alwaysFails);
+    const evidence = outcome.results[0]!.evidence!;
+    expect(evidence.failingClause).toContain('Sign in');
+    expect(evidence.screenshot).toContain('shot.png');
+    expect(evidence.trace).toContain('trace.zip');
+  });
+
+  test('E10: the failing clause is present even when the executor supplies none', async () => {
+    // wrong: relying on the executor for it, a terse executor produces rows whose
+    // evidence names no clause at all.
+    const bare: StepExecutor = async () => ({ kind: 'failed', observed: 'no' });
+    const outcome = await run([resolved()], [], bare);
+    expect(outcome.results[0]!.evidence!.failingClause).toContain('Sign in');
+  });
+
+  test('E10: a PASSING row carries no evidence', async () => {
+    // wrong: attaching evidence to everything buries the rows that need it and
+    // multiplies the artifacts retained for a run that went fine.
+    const outcome = await run([resolved()], [], alwaysOk);
+    expect(outcome.results[0]!.evidence).toBeUndefined();
+  });
+
+  test('E10: the report references evidence by PATH and never inlines it', async () => {
+    // wrong: inlined, a base64 screenshot or a pasted trace puts a live session
+    // token into a document people forward by email.
+    const outcome = await run([resolved()], [], alwaysFails);
+    const markdown = renderAuthoredReport(outcome, 'x');
+    expect(markdown).toContain('artifacts/runs/run_x/trace.zip');
+    expect(markdown).not.toContain('base64');
+    expect(markdown).not.toContain('data:image');
+  });
+});
+

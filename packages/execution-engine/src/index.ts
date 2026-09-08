@@ -12,3 +12,4 @@ export * from './dom/ax-delta';
 export * from './artifacts/prune';
 export * from './fixtures/core';
 export * from './fixtures';
+export * from './authored/playwright-executor';

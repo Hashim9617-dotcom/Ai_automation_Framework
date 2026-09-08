@@ -763,3 +763,119 @@ reporter did what it said.
 This is CLAUDE.md's oldest rule applied where it matters most. A reporter that
 writes nothing and prints "report written: 470 rows" is precisely the failure
 that convention was earned from, twice.
+---
+
+## 10. The browser-backed executor
+
+Where the accounting meets a live page. A live page is messier than the seam,
+and the mess falls into four shapes.
+
+### 10.0 The resolved target travels with the step
+
+Before any of it: an `ActionStep` carries only `description`, the QA's prose.
+The resolver already decided which element that clause points at — it found
+exactly one candidate and refused if there were more — and then dropped it.
+
+> **The resolver's chosen target is carried to the executor, never re-derived
+> from the prose.**
+
+Re-deriving is the same mistake as re-classifying a clause (§2b), one layer
+down: two components independently interpreting the same sentence can disagree,
+and the disagreement is silent. Worse here, because the resolver refused
+ambiguity on the capture and a fresh interpretation at execution time would not.
+So `ResolvedAuthoredRow` carries `targets`, and the executor acts on those.
+
+### 10.1 A fourth outcome: RESOLVED, but not present on the live page
+
+The row was understood, the clause resolved cleanly against the capture, and the
+target is not on the page.
+
+That is neither an app failure nor a bad row. **It means the capture is stale.**
+
+| | |
+| --- | --- |
+| Status | `stale-capture` |
+| Owner | **whoever captures** — re-run `pnpm inspect` |
+| Report section | "The capture is out of date" |
+
+Collapsing it into `failed` sends the app team hunting for a bug that does not
+exist, and they will not find one, because there is none. It is the same
+category error §3 exists to prevent, arriving from a direction the pre-flight
+grades could not see: grounding said the element was there, because in the
+capture it *was*.
+
+The arithmetic invariant extends to six buckets:
+
+> **rows read = passed + failed + refused + held + unreadable + stale-capture.**
+
+### 10.2 Healing may PROPOSE. It may never SUBSTITUTE.
+
+The self-healing engine will want to help when a target is missing. It must not.
+
+> A sheet row says *"click the Approve button"*. If healing quietly resolves that
+> to *"Approve Request"* and the row passes, **the report tells a QA their test
+> case passed when the thing they wrote about was never clicked.**
+
+A wrong pass is worse than a failure, because a failure gets investigated. This
+is propose-not-heal (`docs/phase-2-healing.md`) restated where it first becomes
+*convenient* to break — the executor is holding a live page, a missing element
+and a plausible alternative, and substituting is one line away.
+
+> **A proposal is recorded alongside the row's result, as a suggestion for a
+> human. It never changes the verdict.**
+
+Made structural rather than remembered: the row's status is computed from the
+step outcome alone, and `healingProposal` is a separate field the status
+computation cannot read. A proposal on a `stale-capture` row leaves it
+`stale-capture`.
+
+### 10.3 A `Then` clause needs POSITIVE evidence
+
+*"Then: the user should be logged in and the dashboard appears"* is satisfied by
+**observing the dashboard** — not by observing that nothing went wrong.
+
+> An executor that returns pass when no error occurred has a criterion that can
+> be satisfied by knowing nothing.
+
+That is rule 2, and this is the place it is easiest to violate: `await
+page.click(...)` not throwing feels like success.
+
+So:
+
+- **Every assertion outcome carries what was actually observed**, and a passing
+  assertion with nothing observed is not a pass.
+- **A `Then` clause that resolves to no observable check is a REFUSAL naming the
+  row** — the QA wrote something we cannot verify. Not a quiet pass.
+
+The second is the important half. Roughly 43% of the sheet's `And` clauses
+already refuse as unclassifiable (§2a); a `Then` we cannot turn into a check
+belongs in the same pile, going back to the person who wrote it, rather than
+inflating a pass rate.
+
+### 10.4 Every non-passing row carries its own evidence
+
+> Screenshot, trace and the failing clause, keyed on the composite id.
+
+**Finding 16 took two days precisely because the evidence had to be hunted down
+afterwards** — a trace located, a recording made, a network log read, all after
+the fact and all from a run that was already being pruned. A row that fails
+should arrive at the app team already carrying what that investigation needed.
+
+The secret rules are unchanged and matter more here, because this evidence comes
+from a live authenticated session:
+
+- **Traces hold live session tokens.** The report **references them by path and
+  never inlines them** — no base64, no embedded image, no pasted network log.
+  Finding 16's own instruction ("request these through the QA team rather than
+  by email") is the standing rule, not a one-off.
+- `artifacts/` stays gitignored, and the report is written beside the trace
+  rather than carrying it.
+
+### What is NOT claimed
+
+The executor is written against Playwright's `Page`, and its **policy** — the
+outcome mapping, the evidence rules, the refusal on no observable check — is
+unit-tested against a stub page. **It has not yet been run against the live
+application.** That is the next step and it is deliberately not claimed here:
+the seam was built so the accounting could be verified without a browser, and
+verifying the accounting is not the same as verifying the browser work.

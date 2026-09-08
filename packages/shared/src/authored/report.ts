@@ -39,6 +39,19 @@ function section(title: string, blurb: string, rows: RowResult[]): string[] {
     lines.push(`- ${heading(row)}`);
     lines.push(`  ${row.detail}`);
     if (row.preflight) lines.push(`  _${row.preflight}_`);
+    if (row.healingProposal) {
+      // Recorded as a SUGGESTION and labelled as one. Healing may propose; it
+      // may never substitute (§10.2), so this only ever appears beside a
+      // non-passing status — it never moved the verdict that put it here.
+      lines.push(`  _suggestion (not applied): ${row.healingProposal}_`);
+    }
+    if (row.evidence) {
+      // PATHS ONLY. A trace holds a live session token and document titles
+      // from the instance, so it is referenced and never inlined (§10.4).
+      lines.push(`  failing clause: ${row.evidence.failingClause}`);
+      if (row.evidence.screenshot) lines.push(`  screenshot: ${row.evidence.screenshot}`);
+      if (row.evidence.trace) lines.push(`  trace: ${row.evidence.trace}`);
+    }
     for (const clause of row.orphanedContent ?? []) lines.push(`      ${clause}`);
     lines.push('');
   }
@@ -65,10 +78,11 @@ export function renderAuthoredReport(run: AuthoredRunResult, sheetName: string):
     `| Refused | ${tally.refused} |`,
     `| Held | ${tally.held} |`,
     `| Unreadable | ${tally.unreadable} |`,
+    `| Stale capture | ${tally.staleCapture} |`,
     '',
     `Every row read appears below exactly once: ` +
       `${tally.passed} + ${tally.failed} + ${tally.refused} + ${tally.held} + ` +
-      `${tally.unreadable} = ${tally.rowsRead}.`,
+      `${tally.unreadable} + ${tally.staleCapture} = ${tally.rowsRead}.`,
     '',
     '> A refused row is not a pass. A held row is not a pass. An unreadable row',
     '> is not nothing.',
@@ -85,6 +99,11 @@ export function renderAuthoredReport(run: AuthoredRunResult, sheetName: string):
       'For the QA',
       'These rows could not be understood or resolved. Nothing ran for them — they are not failures of the application.',
       [...of('refused'), ...of('unreadable')],
+    ),
+    ...section(
+      'The capture is out of date',
+      'These rows resolved cleanly against the capture, but their target is not on the live page. Neither an app bug nor a bad row — re-run `pnpm inspect` and try again.',
+      of('stale-capture'),
     ),
     ...section(
       'Held — not run',
