@@ -62,9 +62,24 @@ const APP_SPECIFIC = [
  *
  * Short and concrete on purpose. It does not try to define "domain" in general;
  * it names the vocabularies this repo has actually touched, and grows when a
- * new one appears. Words that also occur in ordinary platform prose — a prompt
- * explaining that captures contain "workspace names and document titles" — are
- * deliberately NOT here: a guard that cries wolf gets switched off.
+ * new one appears.
+ *
+ * **`workspace name` and `document title` were dropped from this list once, and
+ * that was wrong.** They were removed because they made the guard fail — which
+ * is the failure this repo names everywhere else, arriving from a new
+ * direction: a guard weakened until it passes still runs, still reports green,
+ * and no longer looks at anything. The correct response to a failing guard is
+ * to find out whether it is RIGHT first.
+ *
+ * It was. The hit was real: `prompt.ts` illustrated untrusted capture content
+ * with *"workspace names, document titles"* — one application's vocabulary, in
+ * platform code, shipped to every other application. The prompt was made
+ * generic and the entries came back.
+ *
+ * The bare word `workspace` is deliberately NOT here, and that distinction is
+ * the real lesson: it occurs legitimately in `paths.ts` as `pnpm-workspace.yaml`,
+ * which is pnpm's noun and not any application's. A term earns its place by
+ * being specific enough to separate the two.
  */
 const DOMAIN_VOCABULARY = [
   'employee',
@@ -75,6 +90,8 @@ const DOMAIN_VOCABULARY = [
   'Invoice',
   'patient',
   'Patient',
+  'workspace name',
+  'document title',
 ];
 
 function walk(dir: string, out: string[] = []): string[] {
