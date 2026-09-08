@@ -143,10 +143,62 @@ is the argument for having them: the `tsc` parser dropped continuation lines, an
 beside it will eventually be run by someone, against source it no longer
 matches, and hand them a verdict that means nothing.
 
+### Behavioural mutations change behaviour, not control flow
+
+**Three mutations in one week came back VOID for the same authoring mistake:**
+an early `return` inserted at the top of a function makes the code below
+unreachable, TypeScript stops narrowing there, the file does not compile, and
+the verdict is void. Every one was wasted effort on a known pattern.
+
+- `writeRisk: always hold` — `return 'creates-data';` before a loop over a
+  discriminated union; `step.description` and `step.role` both stopped
+  narrowing.
+- `resolve an ambiguous step to the first match` — `if (false) {` around a
+  block ending in `continue`.
+- `treat an action on nothing as an app finding` — the same.
+
+> **A behavioural mutation must change BEHAVIOUR without changing CONTROL
+> FLOW.** Widen a list, flip a boolean, alter a constant, swap a comparison
+> (`> 1` becomes `> 999`, `=== 0` becomes `< 0`). Never insert an early return,
+> and never wrap a block in `if (false)`.
+
+Two corollaries:
+
+- **Never delete a field to test coverage.** That tests the serialiser's
+  tolerance of a missing field, not the property you meant — the K4 pass hit
+  this and had to be rewritten to MUTATE each field instead.
+- **A control is a mutation too**, and gets the same rule. A known-CAUGHT
+  control written as `[].push(...)` infers `never[]` and does not compile; the
+  void gate duly reported it, which is the harness catching a bad control.
+
 ### A discriminating property needs a discriminating fixture
 
 > **A test of a DISCRIMINATING property is only real if its fixture would
 > produce a different result under the wrong behaviour.**
+
+**State the counterfactual before using the fixture.** Four occurrences is
+enough to stop calling this a recurring accident and make it a step:
+
+> Before a fixture is used to prove a property, **write down what it would look
+> like under the WRONG behaviour, and confirm that differs from what it looks
+> like now.** If you cannot say what would change, the fixture proves nothing
+> and no implementation — correct or broken — could ever fail it.
+
+The four, because the mechanism differs each time and only the shape repeats:
+
+| # | Property | Why the fixture could not tell | Fix |
+| --- | --- | --- | --- |
+| 1 | gate ranks matches best-first | every score was tied, and a reversed list of ties equals its own sort | give the candidates different scores |
+| 2 | a transition's `verdict` is in the digest | compared a capture with NO transitions against one with a `suspect` transition, so they still differed on `from>to:action` | compare `consistent` against `suspect`, alike in all else |
+| 3 | a collapsed group's `examples` are in the digest | same shape, against a capture with no collapsed groups | vary only `examples` |
+| 4 | `parseCsv` strips the BOM | asserted through `readSheet`, which trims every header — and `String.trim()` already removes U+FEFF | assert on `parseCsv` directly, at the observation point where the strip is the only thing that could matter |
+
+#3 and #4 differ in an instructive way. In #2 and #3 the **baseline** was wrong.
+In #4 the fixture and baseline were both fine and a **downstream transformation
+masked the difference** — so the counterfactual has to be stated about the
+OBSERVATION POINT, not only about the input. *"What would this expression
+evaluate to if the code were wrong?"* is the question, and it must be asked
+where the assertion actually looks.
 
 This is *not* rule 4, and the difference matters. Rule 4 is asserting the wrong
 thing. This is asserting exactly the right thing about data that cannot tell
@@ -185,8 +237,28 @@ own effect is the same error in miniature.
   on purpose.
 - **Prove a push landed** with `git log origin/master -1 --oneline` and
   `git status -sb`. A `git push` exit code is not proof.
-- **Scan changed files for invisible characters before committing** — NUL bytes
-  and Private Use Area glyphs have repeatedly crept into source here, and a NUL
-  makes git treat a source file as binary.
+- **Invisible characters are guarded by a test, not by remembering to scan.**
+  `tests/unit/invisible-characters.spec.ts` runs on every unit run over every
+  tracked source file. Deliberate instances live in its allow-list with the
+  reason they must stay; anything else fails.
+
+  It replaced a hand-run script on 2026-09-08, after a literal **U+FEFF** got
+  into `packages/shared/src/authored/sheet.ts` — written by the very code that
+  strips a BOM. **The file was in scope and the scan did run afterwards**, so
+  neither scope nor ordering was at fault: the detector's set was NUL plus the
+  PUA range, and U+FEFF is in neither. Its planted-hit control reported a
+  confident 2/2, because *a control can only validate the classes someone
+  thought to plant*.
+
+  > **A detector built from a list of bad characters is bounded by the
+  > imagination of whoever wrote the list.** Use the structural definition
+  > instead: Unicode categories `Cf`, `Co`, `Cs` and `Cc` (less tab, newline,
+  > carriage return) are what "invisible character" means, and they cover the
+  > BOM, the soft hyphen, the bidi overrides and the zero-width joiners without
+  > anyone naming them.
+
+  Same lesson as the app-agnostic audit, where a keyword list was replaced by
+  deleting `tests/app/` and rebuilding: when a check depends on a list you
+  wrote, find the structural version of the question.
 - **Captures and traces are gitignored and stay that way.** They contain live
   session tokens and real customer data. See `docs/WHERE-WE-ARE.md`.
