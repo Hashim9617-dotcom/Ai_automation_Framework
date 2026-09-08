@@ -109,8 +109,26 @@ export interface AuthoredRow {
 
 export interface UnreadableSheetRow {
   sheetRow: number;
-  why: 'missing-identity' | 'empty-required-clause';
+  /**
+   * Two rows in the real sheet have no identity, and they are NOT the same
+   * problem — investigated 2026-09-08 rather than left as a count:
+   *
+   * - **row 15** holds one stray cell, `Test Type = "Functional"`, between two
+   *   scenario blocks. Nothing of value is lost; it is sheet detritus.
+   * - **row 208** holds `Feature = "3628"` plus a real `And` and a real `Then`
+   *   (*"Page refresh (F5, hard refresh)…"*). **A genuine test case is being
+   *   dropped here**, and the QA can recover it — but only if the report says
+   *   so rather than lumping it in with the stray cell.
+   *
+   * Measured: those are the only two, and there is no partial-id shape at all
+   * (0 rows missing just one of the pair). So this is malformed input rather
+   * than a reader gap — but the two need different words, because one is worth
+   * a QA's time and the other is not.
+   */
+  why: 'stray-cells' | 'content-without-identity' | 'empty-required-clause';
   reason: string;
+  /** Set for `content-without-identity`: what would be lost. */
+  orphanedContent?: string[];
 }
 
 export interface FinalSheetReadResult {
@@ -209,15 +227,38 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
     const scenarioId = at(row, col.scenarioId);
     const testCaseId = at(row, col.testCaseId);
     if (!scenarioId || !testCaseId) {
-      // Measured: 2 such rows (15 and 208). Non-blank without an identity is
-      // REPORTED, never skipped — it is a row a human put content into.
-      unreadable.push({
-        sheetRow,
-        why: 'missing-identity',
-        reason:
-          `row ${sheetRow} has content but no ${scenarioId ? 'Test Case ID' : 'Scenario ID'} — ` +
-          'it cannot be traced through the pipeline',
-      });
+      // Non-blank without an identity is REPORTED, never skipped. But WHICH
+      // kind matters: a stray cell wastes a QA's time to look at, and a row
+      // carrying real Gherkin content is a test case they can recover.
+      const orphaned = ([
+        [col.given, 'Given'],
+        [col.when, 'When'],
+        [col.and, 'And'],
+        [col.then, 'Then'],
+      ] as const)
+        .map(([column, label]) => [label, at(row, column)] as const)
+        .filter(([, value]) => value !== '')
+        .map(([label, value]) => `${label}: ${value}`);
+
+      unreadable.push(
+        orphaned.length > 0
+          ? {
+              sheetRow,
+              why: 'content-without-identity',
+              reason:
+                `row ${sheetRow} carries ${orphaned.length} real clause(s) but no ` +
+                `${scenarioId ? 'Test Case ID' : 'Scenario ID'} — a test case is being lost here, ` +
+                'and it can be recovered by giving the row an identity',
+              orphanedContent: orphaned,
+            }
+          : {
+              sheetRow,
+              why: 'stray-cells',
+              reason:
+                `row ${sheetRow} has a few stray cells and no identity or clauses — ` +
+                'sheet detritus rather than a test case',
+            },
+      );
       continue;
     }
 

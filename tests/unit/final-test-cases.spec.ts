@@ -201,15 +201,36 @@ test.describe('credentials are redacted, prose is not (F5) @unit', () => {
 });
 
 test.describe('no row silently vanishes (F6, F7) @unit', () => {
-  test('F6: a non-blank row with no identity is REPORTED, not skipped', () => {
-    // Measured: rows 15 and 208 of the real sheet are exactly this.
+  test('F6: a stray-cell row is reported as detritus', () => {
+    // Row 15 of the real sheet, exactly: one cell, Test Type = "Functional",
+    // sitting between two scenario blocks. Nothing of value is lost.
     const orphan = Array.from({ length: 22 }, () => '');
     orphan[6] = 'Functional';
     const result = readFinalTestCases(gridOf(row(), orphan));
     expect(result.rows.length).toBe(1);
     expect(result.unreadable.length).toBe(1);
-    expect(result.unreadable[0]!.why).toBe('missing-identity');
+    expect(result.unreadable[0]!.why).toBe('stray-cells');
     expect(result.unreadable[0]!.sheetRow).toBe(3);
+    expect(result.unreadable[0]!.orphanedContent).toBeUndefined();
+  });
+
+  test('F6: a row with real clauses but no identity says a case is being LOST', () => {
+    // Row 208 of the real sheet: Feature = "3628", plus a real And and a real
+    // Then. A test case is being dropped, and the QA can recover it — but only
+    // if the report distinguishes it from the stray cell above. Reporting both
+    // as one count is what leaves it undiagnosed.
+    const orphan = Array.from({ length: 22 }, () => '');
+    orphan[1] = '3628';
+    orphan[11] = 'Page refresh (F5, hard refresh)';
+    orphan[12] = 'The workspace should be restored';
+    const result = readFinalTestCases(gridOf(row(), orphan));
+
+    expect(result.unreadable[0]!.why).toBe('content-without-identity');
+    expect(result.unreadable[0]!.reason).toContain('being lost');
+    expect(result.unreadable[0]!.orphanedContent).toEqual([
+      'And: Page refresh (F5, hard refresh)',
+      'Then: The workspace should be restored',
+    ]);
   });
 
   test('F6: a fully blank row is counted as padding, not reported as a failure', () => {
@@ -388,6 +409,60 @@ test.describe('the xlsx reader (X1) @unit', () => {
     // how the trailing space in "SOC DMS " was nearly missed.
     const grid = readSheetGrid(book(), FINAL_TEST_CASES_SCHEMA.sheetName);
     expect(grid.rows[0]![18]).toBe('SOC DMS ');
+  });
+
+  /**
+   * Shapes MEASURED across all thirteen sheets of the real workbook, then
+   * reproduced as BUILT fixtures.
+   *
+   * The parser was hand-rolled and validated against one sheet of one
+   * workbook, which is the same bounded claim as "it works on one app": exact
+   * about what was looked at, silent about everything else. So all thirteen
+   * were parsed as adversarial input — 2 to 22 columns, 10 to 530 rows, up to
+   * 11 distinct row widths in one sheet, fully empty rows, and three sheets
+   * where most rows have a blank first column. **Zero crashed.**
+   *
+   * The workbook can never be committed, so the shapes it revealed are encoded
+   * here as constructed fixtures rather than sampled ones.
+   */
+  test('X1: survives the shapes found across all thirteen real sheets', () => {
+    const odd = buildXlsx([
+      {
+        name: 'ragged',
+        rows: [
+          ['a', 'b', 'c'],
+          ['only one'],
+          [],
+          ['', '', 'trailing only'],
+          ['x', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'col22'],
+        ],
+      },
+      { name: 'two columns', rows: [['k', 'v'], ['a', '1']] },
+    ]);
+
+    const grid = readSheetGrid(odd, 'ragged');
+    expect(grid.rows.length).toBe(5);
+    expect(grid.rows[1]).toEqual(['only one']);
+    // A fully empty row survives as an empty row, not as a dropped one.
+    expect(grid.rows[2]).toEqual([]);
+    // Leading gaps are filled, so column position is never shifted.
+    expect(grid.rows[3]![2]).toBe('trailing only');
+    expect(grid.rows[4]![21]).toBe('col22');
+    // And a 2-column sheet in the same workbook is unaffected.
+    expect(readSheetGrid(odd, 'two columns').rows[1]).toEqual(['a', '1']);
+  });
+
+  test('X1: a blank-first-column sheet parses without being interpreted', () => {
+    // Measured: "Automation test cases" has 89 of 95 rows with a blank first
+    // column — blank there means SAME AS ABOVE. The parser must hand that
+    // through untouched; interpreting it is a different reader's job, and a
+    // reader that served both layouts would get one of them subtly wrong.
+    const book = buildXlsx([
+      { name: 'inherit-shaped', rows: [['Module', 'Case'], ['Login', 'first'], ['', 'second']] },
+    ]);
+    const grid = readSheetGrid(book, 'inherit-shaped');
+    expect(grid.rows[2]![0]).toBe('');
+    expect(grid.rows[2]![1]).toBe('second');
   });
 
   test('X1: a workbook read end to end produces the same rows as the grid path', () => {

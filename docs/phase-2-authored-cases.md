@@ -162,6 +162,27 @@ unreadable, never skipped.** A blank row is sheet padding and is accounted for
 without being reported as a failure. Both paths are covered by the existing
 row-conservation invariant (§4).
 
+**Diagnosed 2026-09-08, because two today is twenty when QA adds a module.**
+They are not the same problem, and reporting them as one count left the
+interesting one invisible:
+
+| Row | What is in it | Verdict |
+| --- | --- | --- |
+| **15** | one stray cell — `Test Type = "Functional"` — sitting between the `SI_002` and `SI_003` blocks | **detritus.** Nothing is lost. |
+| **208** | `Feature = "3628"`, plus a real `And` (*"Page refresh (F5, hard refresh)…"*) and a real `Then` | **a test case is being LOST.** Someone began a row and never gave it an identity. |
+
+**Is it a reader gap or malformed input?** Malformed input — and that was
+checked rather than assumed: there are **zero** rows missing just one half of
+the identity pair, so there is no partial-id shape for a reader to handle. The
+sheet's own inherit-shaped layouts live on *other* sheets, which are a different
+reader (below).
+
+But the two get **different reason codes** (`stray-cells` and
+`content-without-identity`, the latter carrying the orphaned clauses), because
+one is worth a QA's minute and the other is not. A report that says "2
+unreadable" tells them nothing; one that says "row 208 has a Then you are losing"
+gets a real test case recovered.
+
 ### Still assumed, and marked as such
 
 - The **grammar inside a clause** — `click X`, `X is selected`. The real
@@ -214,6 +235,49 @@ Three consequences, and the third has a trap in it.
    redacts everything and one that redacts nothing both look plausible from a
    distance — and only a test that asserts the prose SURVIVES can tell the
    difference.
+
+### The fixture is BUILT, never copied
+
+**The real workbook can never enter the repo**, so every test fixture is
+constructed in memory — a valid `.xlsx` assembled byte by byte in the test file,
+and grids written out as literals.
+
+This is not a workaround, it is the only correct option, and the reason is the
+one in §0a: the sheet carries live credentials. A "small sample" of it is a
+sample of a credentials file. There is no safe subset to copy, because the row
+that demonstrates the shape best (row 3) is the row that carries the password.
+
+Two consequences worth stating so nobody helpfully "improves" this later:
+
+- **A trimmed-down copy of the sheet is not a safe fixture.** It is the same
+  file with fewer rows.
+- **The shapes are transferred, not the data.** Everything the fixtures
+  reproduce — the duplicated `Issue No.` header, the trailing space in
+  `SOC DMS `, `TC_001` recurring across scenarios, an `And` cell joined with
+  `&`, the two orphan-row shapes, ragged row widths — was MEASURED from the real
+  file and then written from scratch with invented values.
+
+Enforced rather than remembered: `.gitignore` covers `.xlsx`, `.xlsm`, `.xls`
+and `.ods`, and `tests/unit/no-workbooks.spec.ts` fails if one is tracked or if
+the ignore rule is removed. An ignore rule alone is not a control — `git add -f`
+bypasses it, and a rule nobody checks is a rule that quietly stops applying.
+
+### The parser was checked against all thirteen sheets
+
+**Measured 2026-09-08.** A parser validated against one sheet of one workbook is
+the same bounded claim as "it works on one app": exact about what was looked at,
+silent about everything else. The workbook already contains twelve more sheets,
+so they were used as free adversarial input — not to support them, but to check
+the parser survives them.
+
+**Thirteen of thirteen parsed without throwing**, across 2 to 22 columns, 10 to
+530 rows, up to 11 distinct row widths in a single sheet, fully empty rows, and
+three sheets where most rows have a blank first column (`Automation test cases`
+89 of 95, `Cucumbr Test case` 340 of 404, `Test cases` 361 of 530 — the
+blank-means-inherit layout).
+
+Those shapes are now built fixtures in the parser tests, so the coverage
+survives without the workbook.
 
 ## 0b. Reading `.xlsx` without a new dependency
 
