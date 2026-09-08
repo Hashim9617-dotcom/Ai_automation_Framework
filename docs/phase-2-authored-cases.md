@@ -1,7 +1,8 @@
 # Phase 2, door B — QA-authored test cases from a sheet
 
-**Status: design. Reader and resolver built against this document; execution
-and reporting are not yet built.**
+**Status: design. Reader, resolver, execution and reporting are built against
+this document. The browser-backed step executor is not — it sits behind the
+`StepExecutor` seam, and the accounting is complete without it.**
 
 Companion to [`phase-2-generation.md`](phase-2-generation.md), which is door A.
 
@@ -656,3 +657,109 @@ Concretely: no column name, sheet path, row id format or step vocabulary in
 configuration, supplied by the caller. `tests/unit/app-agnostic.spec.ts` already
 enforces this and needs no change to cover the new files — which is itself the
 point of having made that guard structural.
+---
+
+## 9. Execution and the report
+
+The last core piece of door B: what turns a resolved row into something a QA
+opens. Specified before it was built.
+
+### 9.1 The row's identity survives to the report
+
+Every line reads **`SI_002 / TC_001`**. Never the Test Case ID alone.
+
+Measured: 470 rows carry only **56 distinct Test Case IDs**, so `TC_001` names
+roughly **eight different rows on average**. A report line saying "TC_001
+failed" is not a weaker statement than one naming the pair — it is a statement
+that cannot be acted on, because the reader does not know which of eight rows it
+means.
+
+### 9.2 The arithmetic must balance, and a test must be able to break it
+
+> **rows read = passed + failed + refused + held + unreadable.** Exactly. No row
+> absent, no row counted twice.
+
+This is the invariant that stops the oldest reporting bug there is: **a row that
+was never run being absorbed into a green number.**
+
+- A **refused** row is not a pass. Nothing ran.
+- A **held** row is not a pass. It was deliberately not run.
+- An **unreadable** row is not nothing. A human put content in it.
+
+The dangerous shape is a denominator that quietly shrinks. Drop refusals from
+the total and 470 rows with 60 refusals reports "410 read, 410 passed, 100%" —
+a number that is arithmetically consistent, reads as success, and is a lie about
+sixty rows. So the tally is asserted rather than computed and hoped for: the
+five buckets are summed and compared against the input count, and a mismatch
+**throws** rather than returning a plausible report.
+
+Mutation-verified by dropping refusals from the denominator and confirming a
+named test fails.
+
+### 9.3 Two failure kinds, two owners, never merged
+
+Carried through from §3 into the report's structure, not just its data:
+
+| Status | Means | Owner | Section of the report |
+| --- | --- | --- | --- |
+| `passed` | the app did what the row said | — | summary only |
+| `failed` | the app did NOT do what the row expected | **app team** | "For the app team" |
+| `refused` | we could not understand or resolve the row | **QA** | "For the QA" |
+| `held` | it would create data and `ALLOW_WRITES` is off | — | "Held" |
+| `unreadable` | the reader could not identify the row | **QA** | "For the QA" |
+
+> **It must be impossible for a run to be ambiguous about which happened.** The
+> mapping from status to owner is fixed and total — every status has exactly one
+> owner, and `failed`/`refused` can never share one.
+
+**Grounding is pre-flight, not the verdict.** A row whose capture disagrees
+(`app-disagrees`) or whose capture cannot answer (`capture-thin`) is still
+executed: the capture is evidence about what we could check in advance, and the
+running application is the thing that actually decides. The pre-flight grade is
+carried into the row's detail — *"the capture predicted this"* is useful context
+for the app team — but it never substitutes for a result.
+
+**Row 208 is the third kind and belongs in the QA section**, presented so the
+case can be recovered: its `And` and its `Then`, and the instruction to give the
+row an ID. Not a skip count (§2d).
+
+### 9.4 Write risk gates EXECUTION, not just classification
+
+`assessWriteRisk()` already marks a row `creates-data`. That marking now has
+teeth:
+
+> **A `creates-data` row is HELD unless `ALLOW_WRITES` is explicitly set**, and
+> `held` is a reported outcome carrying its reason — never a silent omission.
+
+`ALLOW_WRITES` has never been set in this repo, and **a sheet cannot turn it
+on**: there is no column, tag or cell value that reaches it. The flag is read
+from the environment and nothing on this path writes to it. Tested, because "a
+sheet cannot escalate its own privileges" is exactly the property that stays
+true until someone adds a convenient `runAsWrite` column.
+
+### 9.5 The sheet is never written to
+
+Results go to our own report, keyed on the composite id. Their file is a source,
+not a database (§5).
+
+The reader already cannot write — it takes text, not a path. **The execution
+path is where a helpful future change would try to "update the Status column"**,
+so the read-only check is extended to cover it. That is not a hypothetical: the
+sheet has an `Actual Result` column and a `Status` column sitting right there,
+already holding the last manual run's outcome, and writing into them looks like
+an obvious kindness. It would fork the truth, destroy the audit trail of what
+was authored versus what was observed, and corrupt a file a team depends on.
+
+### 9.6 The report writer asserts its own effect
+
+A report is **the one artifact nobody re-checks by hand.** It is read once, its
+numbers are quoted in a meeting, and nobody opens the file to confirm the
+reporter did what it said.
+
+> After writing, the writer **re-reads what landed** and verifies it against
+> what was intended — the row count, and that every input id appears in the
+> output — before reporting success.
+
+This is CLAUDE.md's oldest rule applied where it matters most. A reporter that
+writes nothing and prints "report written: 470 rows" is precisely the failure
+that convention was earned from, twice.
