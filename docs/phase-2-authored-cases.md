@@ -1121,3 +1121,150 @@ fixture that cannot discriminate proves nothing (CLAUDE.md).
 The cost of learning it here was one substitution forced by an expired session.
 The cost of learning it after the generation eval would have been every
 conclusion that eval produced.
+
+---
+
+## 13. Fixing the denominator, and separating the two walls (2026-09-09)
+
+§12.2 reported "96.5% of parseable clauses match nothing". **That number matched
+every clause against the DASHBOARD capture**, whatever module its row belonged
+to. The sheet spans seventeen modules and its first column says which. A row
+about the File Explorer tree can never match a dashboard capture however good
+the resolver is, so the figure could not distinguish
+
+> *"the resolver cannot resolve"* from *"the pairing could not succeed"*
+
+and the more alarming reading is the one that sticks.
+
+### 13.1 Re-measured, each module against its own capture
+
+The pairing is deliberately conservative — only where the module and the
+captured route plainly denote the same screen. Everything else is reported as
+**no capture** rather than forced onto the nearest page.
+
+| module | capture | clauses | never parses | unique | ambiguous | no match |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| File Explorer | files | 222 | 117 | 6 | 2 | 97 |
+| User Role | admin/user-roles | 196 | 121 | 3 | 7 | 65 |
+| User | admin/users | 180 | 110 | 5 | 0 | 65 |
+| Bulk upload | upload-files | 156 | 95 | 2 | 13 | 46 |
+| Global search | search | 140 | 79 | **19** | 0 | 42 |
+| Document | files | 96 | 61 | 0 | 0 | 35 |
+| Dashboard | dashboard | 68 | 51 | 1 | 2 | 14 |
+| user role | admin/user-roles | 8 | 4 | 0 | 0 | 4 |
+
+**How much of the 96.5% survives: most of it.**
+
+| | old (all vs dashboard) | new (per module) |
+| --- | --- | --- |
+| resolve uniquely | 17 | **36** (+112%) |
+| no match at all | 664 / 688 = **96.5%** | 368 / 428 = **86%** |
+
+So roughly ten points of that headline were the pairing artifact, and the
+resolver is about twice as healthy as it looked — but **the wall is real** and
+we now know it on evidence rather than on a mismatch.
+
+### 13.2 The gap the old denominator was hiding: capture coverage
+
+**Nine modules have no capture at all — 856 of 1922 clauses, 45% of the sheet.**
+
+| clauses | module |
+| ---: | --- |
+| 221 | Document Template Categories |
+| 165 | User Group |
+| 146 | Permissions |
+| 96 | Workflow |
+| 65 | Policy agent |
+| 57 | Notification |
+| 52 | Login |
+| 49 | Audit Logs |
+| 5 | DMS portal |
+
+No resolver can do anything with these. They are not a resolver problem, a sheet
+problem or a grammar problem — **nobody has captured those screens.** That is
+the single largest actionable item on this path and it was invisible while every
+row was being compared against the dashboard.
+
+### 13.3 Wall 1: 30 non-parsing clauses, classified
+
+A random sample (fixed seed, so it cannot be re-rolled until it says something
+convenient) of the 1024 clauses that never parse to a target:
+
+| | class | count |
+| --- | --- | ---: |
+| **(a)** | names an element, the extractor missed it | **7** (23%) |
+| **(b)** | names no element — a page, URL or state outcome | **15** (50%) |
+| **(c)** | genuinely too vague for anything to verify | **8** (27%) |
+
+**(b) is half, and the suspicion behind the question was right.** Building a
+better element extractor would have been effort spent on the wrong wall.
+
+Checked at scale rather than extrapolated from thirty, and the dominant shape is
+sharper than the sample suggested:
+
+| column | clauses | never parses | |
+| --- | ---: | ---: | ---: |
+| **Given** | 470 | **455** | **97%** |
+| When | 470 | 356 | 76% |
+| And | 303 | 135 | 45% |
+| Then | 469 | 78 | 17% |
+
+**415 of the 1024 non-parsing clauses (41%) match a "user is on / in X"
+precondition shape.**
+
+> **The Given column is not an action. It is the ENTRY STATE**, and the platform
+> already models that: `resolveAuthoredRow` takes `entryState` as a separate
+> parameter. Every Given clause is being pushed through element resolution
+> anyway, and 97% of them fail — not because the extractor is weak, but because
+> there is no element in *"user on policy agent"* to find.
+
+That is a category error in the pipeline, not a parser gap, and it accounts for
+470 clauses on its own.
+
+### 13.4 Parsing successfully is not the same as finding an element
+
+The Then column looks healthiest at 17% non-parsing — but `extractTarget` is
+permissive, and succeeding is not the same as being right. Of the 391 Then
+clauses that DO parse, **22% yield a "target" longer than four words**:
+
+```
+target: "when checking with the user for all the selected options only the view options"
+target: "When upload a file excedding the limit then the validation error"
+target: "system"      from: the system should throw an exception or save button should be disable
+target: "ui"          from: the ui should show a colour change proper response and animations
+```
+
+An accessible name is rarely a sentence. These are prose the extractor sliced,
+and `"system"` / `"ui"` are outcome descriptions, not elements. **So wall 1 is
+larger than the parse rate implies, and class (b) larger than 50%** — some of
+what counts as "parsed" is really (b) wearing a target's clothes.
+
+### 13.5 What this means for the design
+
+Two conclusions, and they point at different work:
+
+1. **The resolver needs a second kind of target: page-level and state-level
+   assertions.** A URL, a route, a page identity, a persisted condition. Roughly
+   half of what cannot be resolved today is not an element at all, and refusing
+   it is technically correct and practically useless — *that is what a Given and
+   many Thens normally look like in a real QA sheet.*
+2. **Given should stop going through element resolution entirely.** The column
+   already says it is a precondition and the pipeline already has `entryState`.
+
+Wall 2 — 86% of parseable clauses matching nothing in their own module's
+capture — is left for its own pass now that its size is known and no longer
+confounded with the pairing.
+
+### 13.6 The element's own name is not the QA describing a role
+
+Recorded because it will recur. `extractRole` scanned the whole clause including
+the quoted target, so `verify "Select department" is visible` was read as naming
+a **combobox** — "select" sits inside an option's own name.
+
+> **The element's own NAME is not the QA describing a role.** The moment a real
+> application has a button called "Link", a field called "Field", or a menu item
+> called "Select", the two become indistinguishable unless the name is excluded
+> from the scan.
+
+Found by the numbers, not by review: one name regressed from resolving to
+matching nothing, and nothing else in the change would have surfaced it.

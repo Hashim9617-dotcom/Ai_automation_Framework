@@ -344,3 +344,47 @@ nothing. It also showed the fix barely moves the DMS number, because ambiguity
 was never DMS's binding constraint. Both halves get reported: *the fix is right
 AND this application's problem is elsewhere.* Saying only the first would be the
 more comfortable half of a true statement.
+
+### Check the denominator before concluding from a ratio
+
+"96.5% of clauses match nothing in the capture" was reported on 2026-09-09 as
+evidence that the resolver could not resolve. It was measuring something else:
+every clause had been matched against the DASHBOARD capture, while the sheet
+spans seventeen modules and its first column says which one each row belongs to.
+A File Explorer row cannot match a dashboard capture however good the resolver
+is.
+
+Re-paired per module the figure fell to 86% and unique resolutions doubled —
+and, far more usefully, it exposed the thing the bad denominator had hidden:
+**nine modules, 45% of the sheet, have no capture at all.** That is the largest
+actionable item on the path and it was invisible while everything was being
+compared against one page.
+
+> **A ratio is a claim about its denominator as much as its numerator.** Before
+> reporting one, ask what population it is over and whether every member of that
+> population could in principle have come out the other way. If some could not,
+> the ratio is measuring the pairing, not the thing.
+
+The failure direction is the dangerous one: **the broken denominator made the
+result look WORSE, and an alarming number gets repeated.** A flattering one
+invites scrutiny; a damning one gets believed and acted on.
+
+Related, same pass: **succeeding is not the same as being right.** `extractTarget`
+"parsed" 83% of Then clauses, which read as health until the extractions were
+looked at — 22% were sentences longer than four words, and others were `"system"`
+and `"ui"`. A permissive parser inflates its own success rate, so measure what it
+PRODUCED, not how often it returned something.
+
+### An element's own name is not a description of it
+
+`extractRole` read the word "select" out of `"Select department"` — an option's
+own name — and concluded the QA had named a combobox. The clause said nothing
+about a role; the target did.
+
+> **When reading an attribute out of a sentence, exclude the quoted name from
+> the scan.** The moment a real application has a button called "Link", a field
+> called "Field" or a menu item called "Select", a name and a description of a
+> kind become indistinguishable.
+
+Found by measuring the change, not by reviewing it: one name regressed from
+resolving to matching nothing. No amount of reading the diff would have shown it.
