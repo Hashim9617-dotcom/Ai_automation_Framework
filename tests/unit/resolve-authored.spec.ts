@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import {
   describeUnreadableRow,
+  collapseTextDuplicates,
+  extractRole,
   extractTarget,
   resolveAuthoredRow,
   type AccessibilityNode,
@@ -339,61 +341,124 @@ test.describe('the resolver hands the executor its targets (C5) @unit', () => {
  * WITHOUT throwing, so the row came back `stale-capture`: "re-run `pnpm
  * inspect`", forever, about an element that is on the page.
  */
-test.describe('only an addressable node is a candidate (C6) @unit', () => {
+/**
+ * C6 — role first, then collapse, then count.
+ *
+ * A flattened accessibility tree lists every visible label TWICE: the control,
+ * and the text on its face, both carrying the same accessible name. Counting
+ * matches first therefore called almost everything ambiguous. Measured on two
+ * unrelated applications on 2026-09-09 — DMS and the bundled demo app — so this
+ * is the shape of the tree itself, not something either app does wrong.
+ *
+ * > **A rule that refuses everything is as useless as one that accepts
+ * > everything. Both can be satisfied without knowing anything about the page.**
+ *
+ * The fix is NOT to relax the ambiguity rule, which would put guessing back. It
+ * is to stop calling this ambiguity, because it is not ambiguity:
+ *
+ *   1. use the role the QA already wrote;
+ *   2. collapse a control and its own text into the one control it is;
+ *   3. only then count — and more than one survivor is still a refusal.
+ */
+test.describe('role, then collapse, then count (C6) @unit', () => {
   const TWINNED: BoundedCapture = {
     sessionId: 's',
     states: [
       state('home', [
-        node('button', 'Save employee'),
-        // The presentational twin a real CDP tree always carries alongside it.
-        node('StaticText', 'Save employee'),
+        node('button', 'Search'),
+        // The text on the button's face. One control, two nodes.
+        node('StaticText', 'Search'),
+        // A label with no interactive partner. A REAL target.
         node('StaticText', 'No employees registered yet.'),
+        // Two genuinely different controls sharing a name.
+        node('button', 'Export'),
+        node('link', 'Export'),
       ]),
     ],
     transitions: [],
     selection: { keywords: [], available: [], chosen: [], excluded: [] },
   };
 
-  test('C6: a semantic node and its StaticText twin are NOT ambiguous', () => {
-    // wrong: counting the twin as a candidate refuses this row against its
-    // author, and on the demo app that was every addressable control there is.
-    const resolved = resolveAuthoredRow(
-      rowOf([{ text: 'verify "Save employee" is visible', source: 'then', kind: 'assert' }]),
-      TWINNED,
-      'home',
-    );
+  const resolveClause = (text: string, kind: 'action' | 'assert' = 'assert') =>
+    resolveAuthoredRow(rowOf([{ text, source: kind === 'action' ? 'when' : 'then', kind }]), TWINNED, 'home');
+
+  test('C6: a control and its own text are ONE candidate, not two', () => {
+    // wrong: counted as two, this row is refused as ambiguous against its
+    // author — and on the demo app that was every addressable control there is,
+    // 0 of 28 names runnable.
+    const resolved = resolveClause('verify "Search" is visible');
 
     expect(resolved.refusals).toEqual([]);
     expect(resolved.targets[0]!.role).toBe('button');
   });
 
-  test('C6: a name carried ONLY by a non-addressable node resolves to no target', () => {
-    // wrong: handing `StaticText` to the executor makes getByRole return zero
-    // without throwing, and the row is blamed on the capture instead of being
-    // recognised as a clause we cannot address.
-    const resolved = resolveAuthoredRow(
-      rowOf([
-        { text: 'verify "No employees registered yet." is visible', source: 'then', kind: 'assert' },
-      ]),
-      TWINNED,
-      'home',
-    );
-    expect(resolved.targets).toEqual([]);
+  test('C6: a text node that stands ALONE is kept as a real target', () => {
+    // wrong: collapsing every text node away loses real targets silently — a
+    // label with no interactive partner is the only node that names it, so
+    // dropping it means the clause can never resolve and nobody is told why.
+    // This is the direction that fails quietly, which is why it is tested.
+    const resolved = resolveClause('verify "No employees registered yet." is visible');
+
+    expect(resolved.refusals).toEqual([]);
+    expect(resolved.targets[0]).toEqual({
+      stepIndex: 0,
+      role: 'StaticText',
+      name: 'No employees registered yet.',
+    });
   });
 
-  test('C6: the filter does not swallow ordinary ambiguity', () => {
-    // wrong: a filter that narrowed to one node always would destroy the
-    // ambiguity rule itself — two REAL controls sharing a name must still be
-    // refused, and this is the fixture that tells the two apart.
-    const twoRealButtons: BoundedCapture = {
-      ...TWINNED,
-      states: [state('home', [node('button', 'Save'), node('link', 'Save')])],
-    };
-    const resolved = resolveAuthoredRow(
-      rowOf([{ text: 'verify "Save" is visible', source: 'then', kind: 'assert' }]),
-      twoRealButtons,
-      'home',
-    );
+  test('C6: two REAL controls sharing a name are still ambiguous', () => {
+    // wrong: a collapse that narrowed to one survivor regardless would destroy
+    // the ambiguity rule itself and put guessing back — the run goes green
+    // against an element nobody chose.
+    const resolved = resolveClause('verify "Export" is visible');
+
     expect(resolved.refusals[0]!.why).toBe('ambiguous-target');
+    expect(resolved.refusals[0]!.candidates).toHaveLength(2);
+  });
+
+  test('C6: the ROLE the QA wrote settles it before counting', () => {
+    // wrong: ignoring the written role leaves "Export" ambiguous and refuses a
+    // row whose author already said which kind of thing they meant.
+    // Discriminating: the SAME name is ambiguous in the test above, and is not
+    // here — the only difference is the word the QA wrote.
+    const resolved = resolveClause('click the "Export" link', 'action');
+
+    expect(resolved.refusals).toEqual([]);
+    expect(resolved.targets[0]!.role).toBe('link');
+  });
+
+  test('C6: the written role is read, never invented', () => {
+    // wrong: a resolver that guessed a role would return one here, and the
+    // guess would silently outrank what the human wrote elsewhere.
+    expect(extractRole('click the "Export" link')).toBe('link');
+    expect(extractRole('click the "Export" button')).toBe('button');
+    expect(extractRole('verify "Export" is visible')).toBeUndefined();
+  });
+
+  test('C6: a role word inside the ELEMENT NAME is not the QA naming a role', () => {
+    // wrong: reading the target's own name as a role narrows the search to a
+    // role the clause never mentioned, and a row that resolved stops matching
+    // anything. Found by MEASURING the change, not by reading it: on the demo
+    // app `"Select department"` — an option — was read as naming a combobox
+    // because "select" sits inside its name.
+    expect(extractRole('verify "Select department" is visible')).toBeUndefined();
+    expect(extractRole('verify "Save button settings" is visible')).toBeUndefined();
+    // Discriminating: the SAME sentence shape, with the role word OUTSIDE the
+    // quotes, is still read — so this is not a rule that just stopped working.
+    expect(extractRole('verify the "Select department" combo box is visible')).toBe('combobox');
+  });
+
+  test('C6: collapse never picks between two controls', () => {
+    // wrong: a collapse that could drop a non-text node would be choosing a
+    // target, which is exactly what the ambiguity rule exists to prevent.
+    const twoControls = [{ role: 'button' }, { role: 'link' }];
+    expect(collapseTextDuplicates(twoControls)).toEqual(twoControls);
+    // And the discriminating half: it DOES act when one of them is text.
+    expect(collapseTextDuplicates([{ role: 'button' }, { role: 'StaticText' }])).toEqual([
+      { role: 'button' },
+    ]);
+    // ...and not when text is all there is.
+    expect(collapseTextDuplicates([{ role: 'StaticText' }])).toEqual([{ role: 'StaticText' }]);
   });
 });

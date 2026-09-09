@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { Page } from '@playwright/test';
-import type { StepExecutor, StepOutcome } from '@aitp/shared';
+import { TEXT_ROLES, type StepExecutor, type StepOutcome } from '@aitp/shared';
 
 /**
  * The browser-backed `StepExecutor`.
@@ -41,6 +41,7 @@ export interface PlaywrightExecutorOptions {
 /** The slice of Playwright's `Page` this needs. Narrow, so a stub can stand in. */
 export interface ExecutorPage {
   getByRole: Page['getByRole'];
+  getByText: Page['getByText'];
   screenshot: (options: { path: string }) => Promise<unknown>;
 }
 
@@ -76,10 +77,19 @@ export function createPlaywrightStepExecutor(
       };
     }
 
-    const locator = page.getByRole(target.role as Parameters<Page['getByRole']>[0], {
-      name: target.name,
-      exact: true,
-    });
+    // A TEXT target is addressed by its text, not by a role.
+    //
+    // `getByRole('StaticText', …)` returns zero WITHOUT throwing, so a text
+    // node handed to it was reported `target-not-on-page` -> `stale-capture`:
+    // "re-run `pnpm inspect`", forever, about an element that is on the page.
+    // The resolver now keeps a standalone label as a real target, so the
+    // executor has to be able to reach one.
+    const locator = TEXT_ROLES.includes(target.role)
+      ? page.getByText(target.name, { exact: true })
+      : page.getByRole(target.role as Parameters<Page['getByRole']>[0], {
+          name: target.name,
+          exact: true,
+        });
 
     let count: number;
     try {

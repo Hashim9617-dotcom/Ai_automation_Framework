@@ -1009,3 +1009,115 @@ zero interactive elements, with a comment describing this exact failure. The gap
 was in the throwaway script, not in the tool. Finding 15's rule still applies to
 the conclusion that matters: the absence claim here ("no capture is thin") is
 backed by having measured every state in all eight, not by having looked at one.
+
+---
+
+## 12. Role, then collapse, then count (2026-09-09)
+
+§11.2 reported the heading/StaticText collision and fixed it by dropping text
+nodes from candidacy. **That fix was wrong in one direction**, and the rule it
+replaced was wrong in the other. Both are corrected here.
+
+### 12.0 A rule that refuses everything knows nothing
+
+A flattened accessibility tree lists every visible label **twice**: the control,
+and the text on its face, both carrying the same accessible name. That is how
+the tree is shaped — not something DMS or the demo app does wrong. Counting
+matches first therefore called almost everything ambiguous.
+
+> **A rule that refuses everything is as useless as one that accepts
+> everything. Both can be satisfied without knowing anything about the page.**
+
+This is rule 2 again, pointed at a refusal instead of an acceptance. It is worth
+naming because a refusing rule *looks* safe: nothing wrong ever gets through, so
+nothing ever draws attention to it.
+
+The fix is **not** to relax the ambiguity rule — that puts guessing back, and a
+run that goes green against an element nobody chose is worse than a refusal. It
+is to stop calling this ambiguity, because it is not ambiguity.
+
+### 12.1 The three steps, in order
+
+1. **Use the role the QA already wrote.** *"click the Sign in **button**"* names
+   a role. That is a human stating which kind of thing they mean, formed before
+   and independently of anything the platform observed — **the same
+   external-source-of-truth argument that makes the Given/When/Then column
+   authoritative for clause kind** (§2b). Reading it is not inference; guessing
+   one they did not write would be.
+2. **Collapse a control and its own text into the one control it is.** Stated
+   precisely, because the imprecise version loses real targets:
+
+   > Within a set of nodes that already share an accessible name, a TEXT node is
+   > dropped **only if a non-text node is present in that same set.** Nothing
+   > else is touched.
+
+   - `button "Search"` + `StaticText "Search"` → one candidate, the button.
+   - `StaticText "No employees registered yet."` **alone → KEPT.** A label with
+     no interactive partner is a real target.
+   - `button "Export"` + `link "Export"` → **both kept.** Two real controls
+     sharing a name is genuine ambiguity.
+
+   Note what it never does: **it cannot pick between two real candidates.** The
+   ambiguity rule is untouched.
+3. **Only then count.** More than one survivor is real, and refusal is still
+   correct there.
+
+Because a standalone label is now a legitimate target, the executor addresses a
+text node with `getByText` rather than `getByRole` — otherwise the fix would
+have re-created the false `stale-capture` of §11.2 for exactly those rows.
+
+### 12.2 The measurement, including where it does NOT help
+
+Measured over the same clauses and captures, old rule against new:
+
+| | DMS: 1922 sheet clauses, dashboard capture | demo app: 28 distinct names |
+| --- | --- | --- |
+| parseable to a target | 688 | 28 |
+| resolve **uniquely** | 13 → **17** (1.9% → 2.5%) | 15 → **24** (53.6% → **85.7%**) |
+| refused as **ambiguous** | 11 → **6** | 12 → **2** |
+| **no match at all** | 664 → 665 (96.5%) | 1 → 2 |
+
+**On the demo app the fix is decisive**: ambiguity falls by 83% and five sixths
+of all names become runnable. **On DMS it barely moves, and that is reported
+rather than dressed up.** The collision is real there too, but it was never the
+binding constraint: 96.5% of parseable clauses match nothing in the dashboard
+capture at all, and 64% of clauses never parse to a target in the first place.
+
+> **The fix is right and DMS's problem is elsewhere.** Those are compatible, and
+> saying only the first would be the more comfortable half of a true statement.
+
+The one remaining DMS-side loss is `RootWebArea "Acme HR — Demo"` on the demo
+app — the page itself, which is correctly no longer offered as a target.
+
+### 12.3 The measurement found a bug the review did not
+
+`extractRole` first scanned the whole clause, including the quoted target name.
+`verify "Select department" is visible` was therefore read as naming a
+**combobox**, because "select" sits inside an option's own name — narrowing the
+search to a role the clause never mentioned and turning a row that resolved into
+one that matched nothing.
+
+It was invisible in review and obvious in the numbers: one name regressed from
+resolving to not matching. **The element's own name is not the QA describing a
+role**, so the quoted segment is removed before any role word is read.
+
+### 12.4 The general point: a second target is what exposed this
+
+None of this came from a better reading of the code. It came from **substituting
+the demo app for DMS when DMS was unreachable.**
+
+> **A rule that looks correct against one application is not yet known to be
+> correct.** The collision was present in the DMS numbers all along — the 11
+> ambiguous clauses — but small enough to read as ordinary noise. On a second,
+> unrelated application it accounted for 43% of all names, and the shape became
+> impossible to miss.
+
+That is precisely the argument for **capturing a second real application before
+the generation eval**, and it has now paid out early and by accident. A single
+target cannot distinguish "this rule is right" from "this rule happens to fit
+this app", for the same reason a stub cannot falsify itself (§11.1) and a
+fixture that cannot discriminate proves nothing (CLAUDE.md).
+
+The cost of learning it here was one substitution forced by an expired session.
+The cost of learning it after the generation eval would have been every
+conclusion that eval produced.

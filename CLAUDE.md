@@ -296,3 +296,51 @@ own effect is the same error in miniature.
   wrote, find the structural version of the question.
 - **Captures and traces are gitignored and stay that way.** They contain live
   session tokens and real customer data. See `docs/WHERE-WE-ARE.md`.
+
+### A rule that refuses everything is as empty as one that accepts everything
+
+Rule 2 says a criterion satisfied by knowing nothing is not a criterion. It is
+usually met as a rule that accepts too much. **On 2026-09-09 it arrived
+reversed**, and the reversed form is harder to see:
+
+> **A rule that refuses everything can also be satisfied without knowing
+> anything about the page.** It just fails safe while doing it, so nothing ever
+> draws attention to it.
+
+The resolver refused a target matching more than one node — a good rule. But a
+flattened accessibility tree lists every visible label TWICE, the control and
+the text on its face, so the count was almost always two and almost everything
+was refused. On the bundled demo app that was **every addressable control
+without exception: 0 of 28 names could produce a runnable row.**
+
+A refusing rule looks safe in review precisely because nothing wrong gets
+through. Ask of any refusal the same question rule 2 asks of any acceptance:
+**what input would come out the other way?** If the honest answer is "almost
+none", the rule is measuring nothing.
+
+The fix was not to relax the refusal — that puts guessing back. It was to stop
+miscounting: use the role the human already wrote, collapse a control and its
+own text into one control, and only then count.
+
+### A rule is not known to be correct until a SECOND target has seen it
+
+The collision above was in the DMS numbers all along — 11 ambiguous clauses,
+small enough to read as noise. It became undeniable only when the demo app was
+substituted for DMS during an outage, where it accounted for 43% of all names.
+
+> **A single application cannot distinguish "this rule is right" from "this rule
+> happens to fit this app."** Same shape as a stub that cannot falsify itself,
+> and a fixture that cannot discriminate.
+
+This is the standing argument for capturing a **second real application** before
+any evaluation whose conclusions depend on the rules being right. Here it paid
+out by accident, at the cost of one forced substitution. After an eval it would
+have cost every conclusion that eval produced.
+
+**And measure the change on both targets, before and after.** The same pass
+found a bug review had missed — `extractRole` reading a role word out of the
+target's own NAME — only because one name regressed from resolving to matching
+nothing. It also showed the fix barely moves the DMS number, because ambiguity
+was never DMS's binding constraint. Both halves get reported: *the fix is right
+AND this application's problem is elsewhere.* Saying only the first would be the
+more comfortable half of a true statement.

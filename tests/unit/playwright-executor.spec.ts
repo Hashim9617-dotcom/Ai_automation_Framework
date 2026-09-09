@@ -53,6 +53,7 @@ const stubPage = (options: StubOptions = {}): ExecutorPage & { shots: string[] }
   return {
     shots,
     getByRole: (() => locator) as unknown as ExecutorPage['getByRole'],
+    getByText: (() => locator) as unknown as ExecutorPage['getByText'],
     screenshot: async ({ path: file }) => {
       if (options.screenshotThrows) throw new Error('cannot write');
       shots.push(file);

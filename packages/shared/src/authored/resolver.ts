@@ -189,6 +189,95 @@ export function findCandidates(state: CapturedState, target: string, roles?: str
 }
 
 /**
+ * Roles that are TEXT rather than a control.
+ *
+ * A CDP tree flattens a control and the text inside it into sibling nodes, so a
+ * button and the words on its face both appear, carrying the same accessible
+ * name. These are the second half of that pair.
+ */
+export const TEXT_ROLES = ['StaticText', 'InlineTextBox'];
+
+/**
+ * Every role that can be a target at all: a real ARIA role, or a text node.
+ *
+ * Structural rather than a list of things to exclude. `RootWebArea`,
+ * `LineBreak` and `generic` are tree scaffolding — neither ARIA nor text — and
+ * fall out without anyone having to name them, which is the lesson the
+ * invisible-character scan and the app-agnostic audit both cost.
+ */
+export const CANDIDATE_ROLES = [...ADDRESSABLE_ROLES, ...TEXT_ROLES];
+
+/** Role words a QA actually writes, mapped to the ARIA role they mean. */
+const ROLE_WORDS: Array<[RegExp, string]> = [
+  [/\bbuttons?\b/i, 'button'],
+  [/\blinks?\b/i, 'link'],
+  [/\btabs?\b/i, 'tab'],
+  [/\bcheck\s?boxe?s?\b/i, 'checkbox'],
+  [/\bradio\s?(?:button)?s?\b/i, 'radio'],
+  [/\bmenu\s?items?\b/i, 'menuitem'],
+  [/\b(?:drop\s?down|combo\s?box|select)\b/i, 'combobox'],
+  [/\b(?:text\s?box|input\s?(?:field|box)?|text\s?field|field)\b/i, 'textbox'],
+  [/\b(?:heading|header|title)\b/i, 'heading'],
+  [/\boptions?\b/i, 'option'],
+  [/\btooltips?\b/i, 'tooltip'],
+  [/\bdialog(?:ue)?s?\b|\bmodals?\b|\bpop-?ups?\b/i, 'dialog'],
+  [/\btables?\b|\bgrids?\b/i, 'table'],
+];
+
+/**
+ * The role the QA WROTE, if they wrote one.
+ *
+ * "click the Sign in BUTTON" names a role. That is a human stating which kind
+ * of thing they mean, formed before and independently of anything the platform
+ * observed — the same external-source-of-truth argument that makes the Given /
+ * When / Then column authoritative for clause kind (§2b). **Using it is not
+ * inference.** Guessing a role the QA did not write would be; reading one they
+ * did is the opposite.
+ *
+ * Returns `undefined` when no role word appears, and the caller then falls back
+ * to the kind-appropriate filter rather than inventing one.
+ */
+export function extractRole(text: string): string | undefined {
+  // The ELEMENT'S OWN NAME is not the QA describing a role.
+  //
+  // Found by measurement, not by review: `verify "Select department" is
+  // visible` was read as naming a combobox, because "select" appears inside the
+  // option's own name. The clause said nothing about a role; the target did.
+  // Reading one out of it is the inference this function exists to avoid, and
+  // it turned a row that resolved into one that matched nothing.
+  const outsideTheName = text.replace(/["'`][^"'`]*["'`]/g, ' ');
+  for (const [pattern, role] of ROLE_WORDS) {
+    if (pattern.test(outsideTheName)) return role;
+  }
+  return undefined;
+}
+
+/**
+ * Collapses a control and its own text into the one control it is.
+ *
+ * **The rule, precisely:** within a set of nodes that already share an
+ * accessible name, a TEXT node is dropped **only if a non-text node is present
+ * in that same set**. Nothing else is touched.
+ *
+ * - `button "Search"` + `StaticText "Search"` -> one candidate, the button.
+ *   They are one control appearing twice in a flattened tree.
+ * - `StaticText "No employees registered yet."` alone -> KEPT. A label with no
+ *   interactive partner is a real target and dropping it loses coverage
+ *   silently, which is the failure mode that matters most here.
+ * - `button "Save"` + `link "Save"` -> both KEPT. Two real controls sharing a
+ *   name is genuine ambiguity, and refusing is still correct.
+ *
+ * Note what this does NOT do: it never picks between two real candidates. The
+ * ambiguity rule is untouched — this only stops one control being counted as
+ * two, which was never ambiguity in the first place.
+ */
+export function collapseTextDuplicates<T extends { role: string }>(candidates: T[]): T[] {
+  const hasControl = candidates.some((node) => !TEXT_ROLES.includes(node.role));
+  if (!hasControl) return candidates;
+  return candidates.filter((node) => !TEXT_ROLES.includes(node.role));
+}
+
+/**
  * Resolves one authored row against a bounded capture.
  *
  * Resolution and grading are separate on purpose. Resolution answers *"can we

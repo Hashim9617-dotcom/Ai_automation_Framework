@@ -3,8 +3,10 @@ import { checkGrounding, type AssertStep, type CaseStep } from '../generation/gr
 import { assessWriteRisk } from '../generation/proposal';
 import type { AuthoredRow, UnreadableSheetRow } from './final-test-cases';
 import {
-  ADDRESSABLE_ROLES,
+  CANDIDATE_ROLES,
   CLICKABLE_ROLES,
+  collapseTextDuplicates,
+  extractRole,
   findCandidates,
   type Owner,
   type ResolvedRow,
@@ -169,16 +171,27 @@ export function resolveAuthoredRow(
       continue;
     }
 
-    // An assertion may name anything, but only a node the EXECUTOR can address
-    // is a candidate. Without this the capture's presentational twins
-    // (`StaticText` carrying the same accessible name) make every real control
-    // ambiguous, and the row is refused against its author — measured at 0 of
-    // 28 runnable names on the demo app. See `ADDRESSABLE_ROLES`.
-    const candidates = findCandidates(
-      state,
-      target,
-      clause.kind === 'action' ? CLICKABLE_ROLES : ADDRESSABLE_ROLES,
-    );
+    // THREE STEPS, IN THIS ORDER. Counting first was the bug: a flattened
+    // accessibility tree lists every visible label twice — the control and the
+    // text on its face — so counting first called almost everything ambiguous
+    // and refused it. A rule that refuses everything is satisfied by knowing
+    // nothing about the page, exactly like one that accepts everything.
+    //
+    // 1. USE THE ROLE THE QA WROTE. "click the Sign in button" names a role.
+    //    Reading it is not inference — the human wrote it.
+    const writtenRole = extractRole(clause.text);
+    const roles = writtenRole
+      ? [writtenRole]
+      : clause.kind === 'action'
+        ? CLICKABLE_ROLES
+        : CANDIDATE_ROLES;
+
+    // 2. COLLAPSE a control and its own text into the one control it is.
+    const matches = findCandidates(state, target, roles);
+    const candidates = collapseTextDuplicates(matches);
+
+    // 3. ONLY THEN COUNT. More than one survivor is real ambiguity, and
+    //    refusing is still correct there — see below.
 
     if (candidates.length > 1) {
       refusals.push({
