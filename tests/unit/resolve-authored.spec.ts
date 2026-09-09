@@ -462,3 +462,56 @@ test.describe('role, then collapse, then count (C6) @unit', () => {
     expect(collapseTextDuplicates([{ role: 'StaticText' }])).toEqual([{ role: 'StaticText' }]);
   });
 });
+
+/**
+ * C7 — a Given clause is the ENTRY STATE, not an element.
+ *
+ * Measured on the real sheet: 455 of 470 Given clauses (97%) could not be
+ * resolved as elements, because *"user on policy agent"* names none. That was a
+ * category error rather than a parser gap — the column already says the clause
+ * is a precondition, and the pipeline already takes `entryState` separately.
+ *
+ * Refusing them was technically correct and practically useless: it filled the
+ * QA's report with 455 refusals about clauses that were never ours to resolve.
+ */
+test.describe('a Given clause is the entry state (C7) @unit', () => {
+  test('C7: a Given is carried as a precondition, not refused', () => {
+    // wrong: pushed through element resolution it becomes an `unparseable-step`
+    // refusal, the row is marked row-unclear, and a QA is told their
+    // precondition is unreadable — 455 times over one sheet.
+    const resolved = resolveAuthoredRow(
+      rowOf([
+        { text: 'user on policy agent', source: 'given', kind: 'action' },
+        { text: 'click on the Sign in button', source: 'when', kind: 'action' },
+      ]),
+      CAPTURE,
+      'login',
+    );
+
+    expect(resolved.refusals).toEqual([]);
+    expect(resolved.preconditions).toEqual(['user on policy agent']);
+    // Discriminating: the SAME text in a When column is still refused, so this
+    // is the column doing the work and not the text being quietly tolerated.
+    const asWhen = resolveAuthoredRow(
+      rowOf([{ text: 'user on policy agent', source: 'when', kind: 'action' }]),
+      CAPTURE,
+      'login',
+    );
+    expect(asWhen.refusals[0]!.why).toBe('unparseable-step');
+  });
+
+  test('C7: a Given never becomes a runnable step', () => {
+    // wrong: kept as a step, the executor is asked to click a precondition and
+    // the row reports a failure against an element that was never named.
+    const resolved = resolveAuthoredRow(
+      rowOf([
+        { text: 'user on the dashboard', source: 'given', kind: 'action' },
+        { text: 'click on the Sign in button', source: 'when', kind: 'action' },
+      ]),
+      CAPTURE,
+      'login',
+    );
+    expect(resolved.steps).toHaveLength(1);
+    expect(resolved.steps[0]).toEqual({ kind: 'action', description: 'click on the Sign in button' });
+  });
+});

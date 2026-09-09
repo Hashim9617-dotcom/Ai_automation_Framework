@@ -19,6 +19,7 @@ export * from './authored/resolver';
 export * from './authored/resolve-authored';
 export * from './authored/execute';
 export * from './authored/report';
+export * from './authored/triage';
 export * from './matching/command-matcher';
 export * from './utils/env';
 export * from './utils/id';

@@ -43,6 +43,11 @@ export function extractTarget(text: string): string | undefined {
   const trimmed = text.trim().replace(/[.;]+$/, '');
   if (!trimmed) return undefined;
 
+  // A QUOTED string is the human explicitly delimiting a name. Trust it
+  // whatever its shape — real applications do carry long composite names
+  // ("Go to location PDF … Updated 27/08/2026, 11:52:32" is a real button on
+  // this one), and second-guessing a name the QA typed in quotes would be the
+  // same overreach as re-deriving their clause kind.
   const quoted = /["'`]([^"'`]{2,})["'`]/.exec(trimmed);
   if (quoted) return quoted[1]!.trim();
 
@@ -50,12 +55,54 @@ export function extractTarget(text: string): string | undefined {
     /\b(?:click|clicks|press|presses|tap|taps|select|selects)\s+(?:on\s+)?(?:the\s+)?(.+?)(?:\s+(?:button|link|tab|icon|option))?$/i,
     /\b(?:verify|verifies|expect|expects|check|checks|assert|asserts)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+(?:is|are|should)\b/i,
     /^(?:the\s+)?(.+?)\s+should\b/i,
+    // The TERSE form a QA writes when the row is obvious to them: "Menu
+    // visible", "Details shown". Classified as too-vague-to-verify until this
+    // existed, which was wrong — it names an element perfectly well, and the
+    // triage is what surfaced it.
+    /^(?:the\s+)?(.+?)\s+(?:is\s+|are\s+)?(?:visible|shown|displayed|present|enabled|disabled|selected)\.?$/i,
   ];
   for (const pattern of patterns) {
     const target = pattern.exec(trimmed)?.[1]?.trim();
-    if (target && target.length >= 2) return target;
+    // Sliced out of prose, so it must still LOOK like a name. Returning a
+    // sentence here is worse than returning nothing: it counts as parsed,
+    // shrinking wall 1 in the numbers, and then reaches the resolver as a
+    // confident wrong target that fails somewhere it cannot be classified.
+    if (target && target.length >= 2 && looksLikeAccessibleName(target)) return target;
   }
   return undefined;
+}
+
+/** Measured on 6 real DMS captures: 96.4% of targetable names are <= 6 words. */
+const MAX_NAME_WORDS = 6;
+
+/** Punctuation and connectives that belong to a sentence, not to a label. */
+const SENTENCE_SHAPE =
+  /[,;:]|\b(?:then|when|if|after|before|while|because|should|will|must|shall|can|would)\b/i;
+
+/**
+ * Does this look like an accessible NAME rather than a sentence?
+ *
+ * An accessible name is a label. `extractTarget`'s prose patterns will happily
+ * slice a clause in half and hand back
+ *
+ *     "when checking with the user for all the selected options only the view options"
+ *
+ * which is not a target by any reading. Letting that through corrupts the
+ * measurement as well as the run: it counts as PARSED, so wall 1 looks smaller
+ * than it is, and the honest classification — an outcome, or something too
+ * vague to verify — never happens.
+ *
+ * **The thresholds are measured, not chosen.** Across the six real DMS
+ * captures, of 385 nodes carrying a role a test would target: median 1 word,
+ * p90 4, p95 5, and 96.4% at or below six. The 3.6% above it are generated
+ * composite names, and those arrive quoted when a QA means one.
+ *
+ * Exported so it has a falsifier of its own (rule 3).
+ */
+export function looksLikeAccessibleName(value: string): boolean {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > MAX_NAME_WORDS) return false;
+  return !SENTENCE_SHAPE.test(value);
 }
 
 const PROPERTY_WORDS: Array<[RegExp, AssertStep['property'], boolean]> = [
@@ -89,6 +136,15 @@ export interface ResolvedAuthoredRow extends ResolvedRow {
    * against the capture and a fresh interpretation would not (§10.0).
    */
   targets: Array<{ stepIndex: number; role: string; name: string }>;
+  /**
+   * The Given clauses, verbatim.
+   *
+   * Carried as CONTEXT, never resolved as elements. The column already says
+   * these declare where the row starts, and the pipeline models that as
+   * . 455 of 470 of them could not be resolved as elements, which
+   * was a category error rather than a parser gap (§13.3).
+   */
+  preconditions: string[];
 }
 
 export function resolveAuthoredRow(
@@ -104,6 +160,7 @@ export function resolveAuthoredRow(
     title: authored.scenarioName || authored.objective || authored.rowId,
     clauseKinds: authored.clauses.map((clause) => clause.kind),
     targets: [] as ResolvedAuthoredRow['targets'],
+    preconditions: [] as string[],
     writeRisk: assessWriteRisk({
       title: authored.scenarioName,
       entryState,
@@ -140,8 +197,27 @@ export function resolveAuthoredRow(
   const steps: CaseStep[] = [];
   const targets: ResolvedAuthoredRow['targets'] = [];
   const refusals: StepRefusal[] = [];
+  /** Given clauses: what the QA said the row starts from. Context, never a step. */
+  const preconditions: string[] = [];
 
   for (const [stepIndex, clause] of authored.clauses.entries()) {
+    // A GIVEN CLAUSE IS THE ENTRY STATE, NOT AN ACTION.
+    //
+    // "user on policy agent", "User is in the global search search bar" — these
+    // declare WHERE the test starts. The pipeline already models that and takes
+    // `entryState` as a separate parameter, yet every Given clause was also
+    // being pushed through element resolution, where 455 of 470 (97%) failed.
+    //
+    // That was never a parser gap. There is no element in "user on policy
+    // agent" to find, and a better extractor would have found it no faster.
+    // Refusing them was technically correct and practically useless: it filled
+    // the QA's report with 455 refusals about clauses that were never our
+    // business to resolve.
+    if (clause.source === 'given') {
+      preconditions.push(clause.text);
+      continue;
+    }
+
     // `unclassified` is one of the 37 "&"-joined halves the sheet genuinely
     // does not label. Refused with the row and the clause, never guessed —
     // mistaking an assertion for a click means the test goes green having
@@ -264,6 +340,7 @@ export function resolveAuthoredRow(
       owner: 'app-team',
       steps,
       targets,
+      preconditions,
       grades,
       refusals: [],
       summary: `${authored.rowId}: the app disagrees with this row — ${contradicted.reason}`,
@@ -278,6 +355,7 @@ export function resolveAuthoredRow(
       owner: 'capture',
       steps,
       targets,
+      preconditions,
       grades,
       refusals: [],
       summary: `${authored.rowId}: the capture cannot answer this row — ${assumed.why}`,
@@ -289,6 +367,7 @@ export function resolveAuthoredRow(
     outcome: 'ok',
     owner: 'none',
     steps,
+    preconditions,
     // `targets` was omitted here while both other resolving returns carried it,
     // so `base`'s empty array won and a CLEANLY RESOLVED row reached the
     // executor with no target for any step. The executor is contracted to

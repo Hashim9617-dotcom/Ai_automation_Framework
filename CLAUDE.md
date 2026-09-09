@@ -388,3 +388,52 @@ about a role; the target did.
 
 Found by measuring the change, not by reviewing it: one name regressed from
 resolving to matching nothing. No amount of reading the diff would have shown it.
+
+### A permissive parser inflates its own success rate
+
+`extractTarget` "parsed" 83% of Then clauses, which read as health until the
+extractions were looked at: 22% were sentences longer than four words, and
+others were `"system"` and `"ui"`. Gating it on what an accessible name actually
+looks like — thresholds measured from real captures, not chosen — moved that
+column from 17% failing to 31%.
+
+> **Measure what a parser PRODUCED, not how often it returned something.** A
+> lenient parser is indistinguishable from a good one by success rate alone.
+
+And the failure is worse than a missed extraction: a confident wrong result
+travels downstream and fails somewhere it cannot be classified, so the honest
+diagnosis never happens at the point where it was still cheap.
+
+### Decide MEANING before checking resolvability
+
+A sheet-triage pass first asked "does this clause resolve to an element?" and
+then "what is it saying?". That order put the automation ceiling at 46.4%. The
+right order put it at **29.8%**.
+
+The cause: `extractTarget` slices `"record"` out of *"the record should be
+created successfully"* and `"ui"` out of *"the ui should show a colour change"*.
+Both look like element names. Neither is one.
+
+> **When a cheap syntactic test and an expensive semantic one disagree, run the
+> semantic one first.** Otherwise the syntactic test silently decides the
+> classification, and it decides it in the flattering direction.
+
+### Some rows are not automatable, and saying which IS the deliverable
+
+A QA sheet written for humans legitimately contains things only a human can
+check. *"the ui should show a colour change proper response and animations"* is
+not automatable by anyone and never will be. Measured on the real sheet: **29.8%
+of rows have nothing structural in the way.**
+
+> **The report's value is not only the rows it runs. It is telling the QA, row by
+> row and with a reason, which rows can never be automated and why.**
+
+Three reasons, three different actions, three different people — no capture for
+the module (someone captures the screen), describes an outcome not an element
+(buildable, our work), too vague to verify (the row needs rewriting, QA work).
+Kept apart for the same reason `failed` and `refused` are: merged, the list is
+useless to all three because nobody can act on it.
+
+**And a headline number belongs where it stays current.** The ceiling is
+recomputed from the sheet on every run and rendered into the report. A number
+that lives in a summary someone wrote once goes stale in silence.

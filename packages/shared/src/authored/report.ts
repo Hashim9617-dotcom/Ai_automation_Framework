@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { assertTallyBalances, type AuthoredRunResult, type RowResult } from './execute';
+import { renderTriage, type TriageResult } from './triage';
 
 /**
  * The report a QA opens.
@@ -47,6 +48,15 @@ export interface ReportOptions {
   fileName?: string;
   /** Required: see `RunProvenance`. A written report always says what it ran against. */
   provenance: RunProvenance;
+  /**
+   * Sheet triage: which rows can never be automated, and why.
+   *
+   * Optional because a run of already-resolved rows may not have the sheet to
+   * hand — but when it is present the ceiling is recomputed from the sheet on
+   * every run, which is the point. A number that lives in a summary someone
+   * wrote once goes stale silently.
+   */
+  triage?: TriageResult;
 }
 
 export interface WrittenReport {
@@ -88,6 +98,7 @@ export function renderAuthoredReport(
   run: AuthoredRunResult,
   sheetName: string,
   provenance?: RunProvenance,
+  triage?: TriageResult,
 ): string {
   const { results, tally } = run;
   // Re-checked here as well as at execution: the numbers in this document are
@@ -156,6 +167,10 @@ export function renderAuthoredReport(
     ),
   );
 
+  // The triage sits with the results, not in an appendix: a reader who needs
+  // to know what the run covered needs to know what it could never cover.
+  if (triage) lines.push(renderTriage(triage), '');
+
   const passed = of('passed');
   if (passed.length > 0) {
     lines.push(`## Passed (${passed.length})`, '');
@@ -185,7 +200,7 @@ export function writeAuthoredReport(
   run: AuthoredRunResult,
   options: ReportOptions,
 ): WrittenReport {
-  const markdown = renderAuthoredReport(run, options.sheetName, options.provenance);
+  const markdown = renderAuthoredReport(run, options.sheetName, options.provenance, options.triage);
   mkdirSync(options.outputDir, { recursive: true });
   const file = path.join(options.outputDir, options.fileName ?? 'authored-run.md');
   writeFileSync(file, markdown, 'utf8');

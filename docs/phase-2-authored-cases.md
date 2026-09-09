@@ -1268,3 +1268,97 @@ a **combobox** — "select" sits inside an option's own name.
 
 Found by the numbers, not by review: one name regressed from resolving to
 matching nothing, and nothing else in the change would have surfaced it.
+
+---
+
+## 14. The ceiling, and triage as a deliverable (2026-09-09)
+
+### 14.1 A permissive extractor corrupts the metric, not just the run
+
+`extractTarget` returned `"when checking with the user for all the selected
+options only the view options"` as a target. That is worse than a missed
+extraction in two distinct ways:
+
+1. it counts as **parsed**, so wall 1 looks smaller than it is; and
+2. a confident wrong target **reaches the resolver and fails there**, where it
+   is recorded as "no match in the capture" instead of being classified honestly
+   at extraction as an outcome or as prose.
+
+An accessible name is a label, not a sentence. `looksLikeAccessibleName` now
+gates every extraction sliced out of prose, on **measured** thresholds: across
+the six real DMS captures, of 385 nodes carrying a role a test would target, the
+median name is **1 word**, p90 is 4, p95 is 5, and **96.4% are at or below six**.
+A quoted string is exempt — the QA delimited it deliberately, and real
+applications do carry long composite names.
+
+**Re-reported, and the flattering number moves as much as the alarming one did:**
+
+| column | never parses, before | after |
+| --- | ---: | ---: |
+| Given | 97% | 97% |
+| When | 76% | **80%** |
+| And | 45% | **48%** |
+| **Then** | **17%** | **31%** |
+
+The Then column was never the healthiest; it was the most flattered. Both
+numbers deserved the same scepticism and neither had it.
+
+### 14.2 Given leaves the element path
+
+Its own section because it is 470 clauses: **a Given clause declares the entry
+state, which the pipeline already models and passes as `entryState`.** It is now
+carried as `preconditions` on the resolved row — context for a human, never a
+step and never a refusal. 455 refusals a QA could do nothing about disappear
+from the report.
+
+### 14.3 The ceiling: 29.8%
+
+Three walls, put together honestly, over 470 real rows:
+
+| rows | why | what a human does |
+| ---: | --- | --- |
+| **140 (29.8%)** | nothing structural in the way | these are the rows a run executes |
+| 204 (43.4%) | no capture for this module | run `pnpm inspect` on that screen |
+| 54 (11.5%) | describes an outcome, not an element | needs a page/state assertion — **our** work |
+| 72 (15.3%) | too vague for anything to verify | the row needs rewriting — **QA** work |
+
+> **The realistic ceiling for automated execution of this sheet is 29.8%, and
+> that is not a failure.** A QA sheet written for humans legitimately contains
+> things only a human can check. *"the ui should show a colour change proper
+> response and animations"* is not automatable by anyone and never will be.
+
+But it reframes the deliverable:
+
+> **The report's value is not only the rows it runs. It is telling the QA, row
+> by row and with a reason, WHICH ROWS CAN NEVER BE AUTOMATED AND WHY.**
+
+Three reasons, three different actions, three different people — kept apart for
+the same reason `failed` and `refused` are (§9.3). Merged, the list is useless to
+all three, because nobody can act on it.
+
+**A sheet triage is a real deliverable on its own**, so it is a first-class
+section of the report (`renderTriage`) rather than a diagnostic someone ran once,
+and the ceiling is **recomputed from the sheet on every run**. A number that
+lives in a summary goes stale silently; a number the report derives cannot.
+
+### 14.4 Meaning is decided before resolvability, and the order is the finding
+
+The first triage put the ceiling at 46.4%. It was wrong, and wrong in the
+flattering direction, because it asked *"does this clause resolve?"* before
+*"what is this clause saying?"*
+
+`extractTarget` slices `"record"` out of *"the record should be created
+successfully"*, and `"ui"` out of *"the ui should show a colour change"*. Both
+look like names. Neither is one. Asking about resolution first therefore counted
+outcomes as automatable — **(b) wearing a target's clothes**, one layer up from
+§13.4 where the same confusion inflated the parse rate.
+
+A row is automatable only on the strength of an assertion that is **both
+resolvable and a claim about an element**. That single reordering moved the
+ceiling from 46.4% to 29.8%, and 29.8% is the number that survives contact with
+what the clauses actually say.
+
+Related, and the reason `automatable` requires a verifiable *Then*: a row whose
+When resolves and whose Then is prose can be **performed** but not **verified**.
+The run already refuses exactly that at execution (`no-observable-check`), so
+counting it here would promise a row the run then refuses.

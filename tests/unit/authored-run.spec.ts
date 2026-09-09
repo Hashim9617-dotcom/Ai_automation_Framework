@@ -41,6 +41,7 @@ const resolved = (over: Partial<ResolvedAuthoredRow> = {}): ResolvedAuthoredRow 
   grades: [],
   clauseKinds: ['action'],
   targets: [{ stepIndex: 0, role: 'button', name: 'Sign in' }],
+  preconditions: [],
   writeRisk: 'read-only',
   summary: 'resolved',
   ...over,
