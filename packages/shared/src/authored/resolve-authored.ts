@@ -270,6 +270,18 @@ export function resolveAuthoredRow(
     outcome: 'ok',
     owner: 'none',
     steps,
+    // `targets` was omitted here while both other resolving returns carried it,
+    // so `base`'s empty array won and a CLEANLY RESOLVED row reached the
+    // executor with no target for any step. The executor is contracted to
+    // return `no-observable-check` without one, so every perfect row would have
+    // come back REFUSED, owner `qa` — the platform telling the author their row
+    // was unreadable to cover a fault of its own.
+    //
+    // Neither side's tests could see it: the resolver's assert outcomes and
+    // refusals, the executor's were handed targets directly by their fixtures.
+    // It lived in the SEAM, which is the one place a fixture written by the
+    // author of both sides cannot reach.
+    targets,
     grades,
     refusals: [],
     summary: `${authored.rowId}: resolved, ${steps.length} step(s) against "${entryState}"`,

@@ -276,3 +276,53 @@ test.describe('an orphaned row is a QA-facing output (C4) @unit', () => {
     expect(described.message).not.toContain('being lost');
   });
 });
+
+/**
+ * C5 — the SEAM between the resolver and the executor.
+ *
+ * Found on 2026-09-09 while preparing the first live run, by a script that
+ * resolved a row and printed what the executor would receive. Every unit test
+ * on both sides passed: the resolver's asserted outcomes and refusals, the
+ * executor's were handed `targets` directly by their own fixtures. **Nothing
+ * asserted that the thing one side produces is the thing the other consumes**,
+ * and the `ok` return — the only outcome meaning "ready to run" — dropped it.
+ *
+ * The failure direction is the bad one: the row is perfect, the platform loses
+ * its own data, and the report tells the QA their row could not be verified.
+ */
+test.describe('the resolver hands the executor its targets (C5) @unit', () => {
+  test('C5: an "ok" row carries a target for every step', () => {
+    // wrong: with `targets` dropped on this path the array is empty, the
+    // executor gets no target, returns `no-observable-check`, and this perfect
+    // row is reported to the QA as unverifiable.
+    const resolved = resolveAuthoredRow(
+      rowOf([{ text: 'click on the Sign in button', source: 'when', kind: 'action' }]),
+      CAPTURE,
+      'login',
+    );
+
+    expect(resolved.outcome).toBe('ok');
+    expect(resolved.targets.length).toBe(resolved.steps.length);
+    expect(resolved.targets[0]).toEqual({ stepIndex: 0, role: 'button', name: 'Sign in' });
+  });
+
+  test('C5: every resolving outcome carries them, not just one', () => {
+    // wrong: fixed only on the `ok` path, `app-disagrees` and `capture-thin`
+    // rows still reach the executor blind — and those are the rows a run most
+    // needs to be right about.
+    const outcomes = new Set<string>();
+    const cases: AuthoredRow['clauses'][] = [
+      [{ text: 'click on the Sign in button', source: 'when', kind: 'action' }],
+      [{ text: 'the Clear should be enabled', source: 'then', kind: 'assert' }],
+    ];
+    for (const clauses of cases) {
+      const resolved = resolveAuthoredRow(rowOf(clauses), CAPTURE, 'login');
+      outcomes.add(resolved.outcome);
+      expect(resolved.targets.length).toBe(resolved.steps.length);
+      expect(resolved.steps.length).toBeGreaterThan(0);
+    }
+    // The discriminating half: two DIFFERENT outcomes were exercised, so this
+    // cannot pass by only ever visiting the one path that was fixed.
+    expect(outcomes.size).toBeGreaterThan(1);
+  });
+});
