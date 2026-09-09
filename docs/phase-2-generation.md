@@ -2147,3 +2147,138 @@ Stated so the boundary survives contact with a later session:
 - Does not synthesise locator candidate chains — that is step 4, and it is
   where mistake #3's `.nth(0)` class of bug must be addressed.
 - Does not decide whether a case is worth having. It proposes; a human decides.
+
+---
+
+## L. The first real API call (2026-09-09)
+
+Until today the generation engine had never made one. Every test used a mock or
+counting gateway written by the same author as the code, from the same
+understanding — so both could be wrong the same way while the suite stayed
+green. Three commands, `$0.027`, against a capture already on disk.
+
+**The point was never that it goes green.** It did. The point was to compare the
+mock to reality field by field, and there are **five differences**, four of them
+places tests have been asserting fiction.
+
+### L.1 The model returns a field the engine never reads
+
+The prompt asks for `openQuestions` — rule 3, and the response shape at the end
+of the prompt spells out `{ "question": "string", "wouldAssert": "string" }`.
+The model complies. **The engine's `ModelResponse` is `{ cases?: ModelCase[] }`,
+so every one of them is silently discarded.**
+
+Measured, all three calls returned `cases` AND `openQuestions`. On the first
+call — before the command was fixed to match the capture — the model returned
+**0 cases and 5 open questions**, and the run reported `proposals 0, refusals 0`.
+That reads as "the model gave us nothing" when the model had given a careful
+account of why it could not proceed, and we threw it away.
+
+`TestCaseProposal.openQuestions` exists but is built by `buildProposal` from
+GRADES — a different thing with the same name. The mock never produced the
+field, so no test ever noticed the collision.
+
+> **We are paying output tokens for an answer we discard, and reporting its
+> absence as the model's silence.**
+
+### L.2 `completeJson` sends a message the mock never records
+
+`HttpLlmGateway.completeJson` appends a second user message carrying the JSON
+schema. Verified on the wire against a local server:
+
+| | messages | roles |
+| --- | ---: | --- |
+| what the engine passes in | 1 | user |
+| what the **mock** records | 1 | user |
+| what goes **on the wire** | **2** | user, user |
+
+So a test asserting prompt content through `gateway.lastRequest.messages` is
+measuring a string the provider never saw. The prompt-injection test
+(`generation-engine.spec.ts:439`) is one of these: what it checks is real, but
+it is checking the first of two messages and does not know a second exists.
+
+The `responseSchema` is **inlined into that message, never sent as an API
+field** — the wire body carries exactly `model`, `max_tokens`, `temperature`,
+`messages`. The schema is a request in prose, not a constraint the API enforces,
+which is precisely why L.1 can happen at all.
+
+### L.3 The mock cannot survive a real response
+
+The real model fences its JSON. `HttpLlmGateway` strips the fence; the mock
+calls `JSON.parse` directly and **throws on the same payload**. So the strip has
+never been exercised by a test — it could be deleted and every suite would stay
+green.
+
+### L.4 Provider, model and cost are placeholders in the mock
+
+| field | mock | real |
+| --- | --- | --- |
+| `provider` | `mock` | `anthropic` |
+| `model` | `reasoning` (the logical name, unresolved) | `claude-sonnet-4-5` |
+| `usage.costUsd` | `0` | `0.0139` |
+| cache | none — dispatches every time | suppresses the second call |
+
+`TestCaseProposal.model` therefore reads `anthropic/claude-sonnet-4-5` in
+production and `mock/reasoning` in every test. And **the mock has no cache at
+all**, so a cache test written against it would pass with the cache removed.
+
+All five differences are now pinned by `tests/unit/gateway-fidelity.spec.ts`,
+which exercises the real `HttpLlmGateway` against a local HTTP server — no
+provider, no cost, and it fails if the two ever drift apart again.
+
+### L.5 What the real call CONFIRMED
+
+Not everything diverged. Against the real gateway:
+
+- **The cache avoids the model.** Two `generate()` calls at one key: the second
+  came back `usage.cached: true`, the budget did not move, and the dispatch
+  count stayed at 1. A different command produced a different key and dispatched
+  again. *(2 network calls for 3 generations.)*
+- **The budget guard tracks real money.** `0 → $0.0139` on the first call,
+  unchanged on the cached one, `→ $0.0268` on the third.
+- **Temperature 0 reaches the wire**, verified in the request body.
+- **An invented `entryState` never occurred** in this sample, so the refusal path
+  is still untested against reality.
+
+### L.6 Grounding against a real model's labels
+
+Four assertions across two commands. **The model never claimed `observed` for
+something the capture contradicts** — so the override did not earn its place
+against reality today.
+
+It did fire once, in the other direction: the model labelled
+`button "Refresh" enabled=true` as **`assumed`**, and `checkGrounding` upgraded
+it to `observed` (`why: observed-property-matches`, `overrodeModel: true`). The
+model was more cautious than the capture warranted.
+
+> **Three commands is a small sample, not a clean bill.** One run cannot tell
+> "the model does not hallucinate observations" from "it did not happen to this
+> time", and the honest statement is the second.
+
+**And one thing the real model did that no fixture had:** it returned
+assertions on `role: "StaticText"` — for *"Documents"* and *"File Explorer"* —
+because the prompt renders the capture's own roles and the capture contains
+presentational nodes. Those are exactly the nodes Playwright's `getByRole`
+cannot address (`phase-2-authored-cases.md` §11.2), so door A's generator will
+produce door B's known defect unless the prompt stops offering those roles.
+
+### L.7 Cost, against the estimate
+
+`$0.0268` for three generations against an estimated `$0.08` — **0.34x**, so the
+estimate was ~3x high. The full eval's `$1.35` projection is therefore likely
+nearer `$0.45`, and the `LLM_BUDGET_USD=2` cap has more headroom than assumed.
+
+Both directions of that error matter: an over-estimate that goes unchecked buys
+a budget nobody needed, and the same arithmetic under-estimating would trip
+`BudgetGuard` mid-run and present as an eval failure.
+
+### L.8 The premise the smoke nearly failed on
+
+The first run bounded the capture to **zero states** — the command
+*"test the workspace step"* shares no keyword with the dashboard capture, and
+state selection scores on overlap. The model was asked about an empty page,
+answered honestly, and the run reported `0 proposals`.
+
+Had that been read as a result, it would have been a finding about the engine
+when it was a fact about the command. The smoke now **asserts its own premise**
+and refuses to call the model against an empty bounded capture.

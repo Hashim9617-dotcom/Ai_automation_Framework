@@ -491,3 +491,42 @@ second as the assumption is removed. **Re-measuring after it is removed is the
 falsifier.** If it moves as predicted the diagnosis holds; if it barely moves,
 the real constraint is somewhere nobody has looked — which is worth more than
 being right.
+
+### A mock is a claim about a system you have never called
+
+The generation engine ran for weeks on mock and counting gateways written by the
+same author as the code. The first real API call, on 2026-09-09, found **five
+differences**, four of them places tests had been asserting fiction:
+
+- `completeJson` appends a schema message the mock never records — so every
+  prompt-content assertion was measuring a string the provider never saw;
+- the real model fences its JSON and the real gateway strips it; the mock throws
+  on the same payload, so the strip was never exercised;
+- `provider`/`model`/`costUsd` are placeholders in the mock, and one of them is
+  written into a proposal's provenance;
+- the mock has **no cache**, so a cache test written against it passes with the
+  cache removed;
+- the model returns a top-level field the engine never reads.
+
+> **Until it has been called for real, a mock encodes what you BELIEVE the
+> system does.** Both can be wrong together, and the suite cannot tell you —
+> for the same reason a stub cannot falsify itself and a single application
+> cannot validate a rule.
+
+**The fix is not to distrust mocks. It is to pin the differences.** A local HTTP
+server exercises the real client class — request body, retries, parsing, error
+paths — at zero cost and no provider, and fails when the two drift apart. That
+suite is worth more than the smoke that found the divergences, because it runs
+every time.
+
+**And a smoke must assert its own premise.** The first run bounded its capture
+to zero states, so the model was asked about an empty page and answered "I have
+no data". Reported as-is that is a finding about the engine; it was a fact about
+the command. Any script that sets up an input before measuring must check the
+input arrived — the same rule as asserting a script's own effect, applied to
+what goes IN rather than what comes out.
+
+**A cost estimate is a measurement too.** The smoke was estimated at $0.08 and
+cost $0.027 — 3x high. An unchecked over-estimate buys budget nobody needed; the
+same arithmetic in the other direction trips the budget guard mid-run and
+presents as a failure of the thing being measured.
