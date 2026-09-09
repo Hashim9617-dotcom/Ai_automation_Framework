@@ -1362,3 +1362,79 @@ Related, and the reason `automatable` requires a verifiable *Then*: a row whose
 When resolves and whose Then is prose can be **performed** but not **verified**.
 The run already refuses exactly that at execution (`no-observable-check`), so
 counting it here would promise a row the run then refuses.
+
+---
+
+## 15. Two ceilings, and the falsifier for the capture claim (2026-09-09)
+
+### 15.1 The qualifier is welded to the number
+
+§14.3 reported a ceiling of 29.8%. That figure was measured with **8 of 17
+modules captured**, and "no capture for this module" is itself one of the three
+exclusion reasons — covering 43% of rows. So it is **not the ceiling of this
+approach. It is the ceiling of today's capture coverage.**
+
+Left alone it becomes *"the platform can only do 30% of our tests"* six months
+after the captures are finished. This project already recorded why that direction
+is the dangerous one: **an alarming number gets repeated, where a flattering one
+invites scrutiny.** 96.5% survived two reports on exactly that asymmetry.
+
+So `triageSheet` now returns a `CeilingPair` and the report renders both, each
+carrying the coverage it assumed:
+
+| Ceiling | Value | Measured with |
+| --- | ---: | --- |
+| **With today's captures** | **29.8%** | 8 of 17 modules captured |
+| **Once every module is captured** | **48.5%** | all 17 modules, same clause rules |
+
+Neither is editorial. The second is computed by running the **identical clause
+rules** over the no-capture rows — `classifyByClauses` is shared, so the two
+figures cannot drift apart — which makes it a measurement rather than an
+estimate. It is an upper bound on text grounds: it knows whether those clauses
+NAME an element, and cannot know whether the element will turn out to be in the
+capture. That is wall 2, and this number does not claim it.
+
+### 15.2 The falsifier, and it is not yet run
+
+**The claim on record: capture coverage is the binding constraint, and the
+ceiling moves 29.8% → 48.5% when the nine missing modules are captured.**
+
+`pnpm triage <workbook.xlsx>` re-measures it in one command, deriving the
+capture set from `artifacts/inspect/` rather than a hand-maintained list — so it
+cannot go stale exactly when the captures are added. It prints the module →
+capture pairing it used, because a wrong pairing manufactures a false ceiling in
+whichever direction it errs.
+
+> **If the first number moves towards the second, the diagnosis holds. If it
+> barely moves, the prediction was wrong and the real wall is somewhere we have
+> not looked — which would be worth far more than being right.**
+
+**This has NOT been run, and cannot be from here.** Capturing the nine modules
+needs `pnpm inspect`, which is interactive by design, and the DMS session is
+expired (§11.0) — so it needs a human at a headed browser. The measurement is
+built and waiting; the result is not claimed.
+
+### 15.3 The ordering principle, now general
+
+Recorded in CLAUDE.md because it has appeared **twice in different clothes**:
+
+| | what was asked | why it could not answer |
+| --- | --- | --- |
+| Clause kind (§2b) | should the model classify this clause? | the QA already wrote the column. Any tie-break makes the model the authority over the author. |
+| Clause meaning (§14.4) | does `extractTarget` find a name? | it slices `"record"` out of *"the record should be created successfully"*. A string matcher cannot know that is the object of an outcome. |
+
+> **A downstream mechanism must not decide something an upstream one already
+> knows, or that it is not qualified to judge.**
+
+The two halves feel different in the moment and are worth separating:
+
+- **The upstream source already knows.** Deciding again creates a disagreement,
+  and every rule for settling it takes authority from the source. The fix is not
+  a better tie-break — it is not holding the election.
+- **The mechanism cannot know.** It will still ANSWER, and that is the trap.
+  `extractTarget` has no way to say "I have no idea", so its confidence is read
+  as information.
+
+**The tell:** ask what the mechanism returns for input it has no business
+judging. If the answer is *"something that looks fine"*, it is being asked the
+wrong question, and moving it earlier in the pipeline will not help.

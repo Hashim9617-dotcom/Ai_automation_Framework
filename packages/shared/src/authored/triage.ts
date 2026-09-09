@@ -38,11 +38,40 @@ export interface TriagedRow {
   evidence: string;
 }
 
+/**
+ * TWO ceilings, and they travel together on purpose.
+ *
+ * A single ceiling is quoted alone and outlives its assumptions. "The platform
+ * can only do 30% of our tests" is what "29.8%" becomes six months after the
+ * captures are finished, because the qualifier lived in prose around the number
+ * instead of being welded to it.
+ *
+ * So both are computed, neither is editorial, and each carries the capture
+ * coverage it assumed. A reader who takes one has taken the other.
+ */
+export interface CeilingPair {
+  /** Today's honest figure, with exactly the captures that exist right now. */
+  withCurrentCaptures: number;
+  /**
+   * What it becomes once every module has been walked — the real PRODUCT
+   * ceiling, and the one worth planning against.
+   *
+   * An upper bound on text grounds: it re-classifies the no-capture rows by
+   * exactly the same clause rules as everything else, so it knows whether their
+   * clauses NAME an element. It cannot know whether that element will turn out
+   * to be in the capture, which is wall 2 and is not what this number claims.
+   */
+  withAllModulesCaptured: number;
+  /** The assumptions, carried beside the numbers rather than beneath them. */
+  modulesCaptured: number;
+  modulesTotal: number;
+  rowsBlockedByMissingCapture: number;
+}
+
 export interface TriageResult {
   rows: TriagedRow[];
   counts: Record<TriageReason, number>;
-  /** Rows with nothing structural in the way, as a share of all rows read. */
-  ceiling: number;
+  ceiling: CeilingPair;
   /** Modules with no capture, worst first — the `pnpm inspect` worklist. */
   missingCaptures: Array<{ module: string; rows: number }>;
 }
@@ -97,14 +126,26 @@ export function triageSheet(
 ): TriageResult {
   const triaged: TriagedRow[] = [];
   const missing = new Map<string, number>();
+  const modules = new Set<string>();
+  /**
+   * How many rows would be automatable if every module had been captured.
+   *
+   * Computed for EVERY row, captured or not, by the identical clause rules —
+   * which is what makes the second ceiling a measurement rather than an
+   * estimate. Nothing is extrapolated from the captured modules to the others.
+   */
+  let automatableIfAllCaptured = 0;
 
   for (const row of rows) {
     const module = row.module || '(blank)';
+    modules.add(module);
     // Given clauses declare the entry state; they are never an obstacle to
     // automating the row, so they are not evidence for or against it (§13.3).
     const clauses = row.clauses.filter((clause) => clause.source !== 'given');
     const title = row.scenarioName || row.objective || row.rowId;
     const base = { rowId: row.rowId, sheetRow: row.sheetRow, module, title };
+
+    if (classifyByClauses(clauses).reason === 'automatable') automatableIfAllCaptured += 1;
 
     if (!capturedModules.has(module)) {
       missing.set(module, (missing.get(module) ?? 0) + 1);
@@ -116,58 +157,7 @@ export function triageSheet(
       continue;
     }
 
-    // AUTOMATABLE NEEDS A VERIFIABLE ASSERTION, not just a clickable step.
-    //
-    // "any clause resolves" is too lenient and flatters the ceiling: a row
-    // whose When resolves but whose Then is prose can be PERFORMED and cannot
-    // be VERIFIED. Running it proves nothing, and the platform already refuses
-    // exactly that at execution (`no-observable-check`). Counting it as
-    // automatable here would promise a row the run then refuses.
-    const asserts = clauses.filter((clause) => clause.kind === 'assert');
-
-    // MEANING IS DECIDED BEFORE RESOLVABILITY, and the order is the whole
-    // point. `extractTarget` will happily slice "record" out of *"the record
-    // should be created successfully"* and "ui" out of *"the ui should show a
-    // colour change"*. Both look like names and neither is one — asking "does
-    // it resolve?" first therefore classifies an outcome as automatable, which
-    // is (b) wearing a target's clothes (§13.4).
-    //
-    // A row is automatable only on the strength of an assertion that is BOTH
-    // resolvable AND a claim about an element — one genuinely checkable Then.
-    const checkable = asserts.find(
-      (clause) =>
-        extractTarget(clause.text) !== undefined &&
-        !matches(OUTCOME_SHAPE, clause.text) &&
-        !matches(VAGUE_SHAPE, clause.text),
-    );
-    const actionable = clauses.find((clause) => extractTarget(clause.text) !== undefined);
-
-    if (checkable && actionable) {
-      triaged.push({ ...base, reason: 'automatable', evidence: checkable.text });
-      continue;
-    }
-
-    // An unverifiable Then is what stops the row, whatever its When could do,
-    // so the assertions are what get classified.
-    const blocking = asserts.length > 0 ? asserts : clauses;
-
-    const vague = blocking.find((clause) => matches(VAGUE_SHAPE, clause.text));
-    if (vague) {
-      triaged.push({ ...base, reason: 'too-vague-to-verify', evidence: vague.text });
-      continue;
-    }
-
-    const outcome = blocking.find((clause) => matches(OUTCOME_SHAPE, clause.text));
-    if (outcome) {
-      triaged.push({ ...base, reason: 'outcome-not-element', evidence: outcome.text });
-      continue;
-    }
-
-    triaged.push({
-      ...base,
-      reason: 'too-vague-to-verify',
-      evidence: blocking[0]?.text ?? clauses[0]?.text ?? '(no clauses)',
-    });
+    triaged.push({ ...base, ...classifyByClauses(clauses) });
   }
 
   const counts: Record<TriageReason, number> = {
@@ -178,13 +168,78 @@ export function triageSheet(
   };
   for (const row of triaged) counts[row.reason] += 1;
 
+  const total = triaged.length;
   return {
     rows: triaged,
     counts,
-    ceiling: triaged.length === 0 ? 0 : counts.automatable / triaged.length,
+    ceiling: {
+      withCurrentCaptures: total === 0 ? 0 : counts.automatable / total,
+      withAllModulesCaptured: total === 0 ? 0 : automatableIfAllCaptured / total,
+      modulesCaptured: [...modules].filter((m) => capturedModules.has(m)).length,
+      modulesTotal: modules.size,
+      rowsBlockedByMissingCapture: counts['no-capture-for-module'],
+    },
     missingCaptures: [...missing]
       .map(([module, rows]) => ({ module, rows }))
       .sort((a, b) => b.rows - a.rows),
+  };
+}
+
+/**
+ * Classifies one row's clauses, with no reference to whether a capture exists.
+ *
+ * Separated so BOTH ceilings run the same rules over the same clauses. If the
+ * "if everything were captured" figure were computed by a second code path, the
+ * two numbers could drift apart and the comparison between them would stop
+ * meaning anything.
+ */
+function classifyByClauses(clauses: AuthoredRow['clauses']): {
+  reason: TriageReason;
+  evidence: string;
+} {
+  // AUTOMATABLE NEEDS A VERIFIABLE ASSERTION, not just a clickable step.
+  //
+  // "any clause resolves" is too lenient and flatters the ceiling: a row
+  // whose When resolves but whose Then is prose can be PERFORMED and cannot
+  // be VERIFIED. Running it proves nothing, and the platform already refuses
+  // exactly that at execution (`no-observable-check`). Counting it as
+  // automatable here would promise a row the run then refuses.
+  const asserts = clauses.filter((clause) => clause.kind === 'assert');
+
+  // MEANING IS DECIDED BEFORE RESOLVABILITY, and the order is the whole
+  // point. `extractTarget` will happily slice "record" out of *"the record
+  // should be created successfully"* and "ui" out of *"the ui should show a
+  // colour change"*. Both look like names and neither is one — asking "does
+  // it resolve?" first therefore classifies an outcome as automatable, which
+  // is (b) wearing a target's clothes (§13.4).
+  //
+  // A row is automatable only on the strength of an assertion that is BOTH
+  // resolvable AND a claim about an element — one genuinely checkable Then.
+  const checkable = asserts.find(
+    (clause) =>
+      extractTarget(clause.text) !== undefined &&
+      !matches(OUTCOME_SHAPE, clause.text) &&
+      !matches(VAGUE_SHAPE, clause.text),
+  );
+  const actionable = clauses.find((clause) => extractTarget(clause.text) !== undefined);
+
+  if (checkable && actionable) {
+    return { reason: 'automatable', evidence: checkable.text };
+  }
+
+  // An unverifiable Then is what stops the row, whatever its When could do,
+  // so the assertions are what get classified.
+  const blocking = asserts.length > 0 ? asserts : clauses;
+
+  const vague = blocking.find((clause) => matches(VAGUE_SHAPE, clause.text));
+  if (vague) return { reason: 'too-vague-to-verify', evidence: vague.text };
+
+  const outcome = blocking.find((clause) => matches(OUTCOME_SHAPE, clause.text));
+  if (outcome) return { reason: 'outcome-not-element', evidence: outcome.text };
+
+  return {
+    reason: 'too-vague-to-verify',
+    evidence: blocking[0]?.text ?? clauses[0]?.text ?? '(no clauses)',
   };
 }
 
@@ -196,8 +251,26 @@ export function renderTriage(triage: TriageResult): string {
   const lines = [
     '## What this sheet can and cannot automate',
     '',
-    `**Realistic ceiling: ${(ceiling * 100).toFixed(1)}%** — ${counts.automatable} of ` +
-      `${triage.rows.length} rows have nothing structural standing in the way.`,
+    // TWO NUMBERS, ALWAYS TOGETHER, each carrying the coverage it assumed.
+    //
+    // The first is today's figure and the second is the product's. Quoted
+    // alone, the first becomes "the platform can only do 30% of our tests"
+    // long after the captures are finished — and an alarming number gets
+    // repeated where a flattering one would have invited scrutiny.
+    '| Ceiling | Value | Measured with |',
+    '| --- | ---: | --- |',
+    `| **With today's captures** | **${(ceiling.withCurrentCaptures * 100).toFixed(1)}%** | ` +
+      `${ceiling.modulesCaptured} of ${ceiling.modulesTotal} modules captured |`,
+    `| **Once every module is captured** | **${(ceiling.withAllModulesCaptured * 100).toFixed(1)}%** | ` +
+      `all ${ceiling.modulesTotal} modules, same clause rules |`,
+    '',
+    `${counts.automatable} of ${triage.rows.length} rows have nothing structural standing in the ` +
+      `way today. ${ceiling.rowsBlockedByMissingCapture} more are blocked only because nobody has ` +
+      'captured their screen yet.',
+    '',
+    '> **The first number is not the ceiling of this approach — it is the ceiling of',
+    '> today’s capture coverage.** The second is what to plan against. Quoting',
+    '> either without the other misstates the result in one direction or the other.',
     '',
     '> This is not a failure. A sheet written for humans legitimately contains',
     '> things only a human can check. Knowing which, and why, is the point.',

@@ -128,7 +128,7 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
       CAPTURED,
     );
     expect(triage.rows[0]!.reason).toBe('automatable');
-    expect(triage.ceiling).toBe(1);
+    expect(triage.ceiling.withCurrentCaptures).toBe(1);
   });
 
   test('T: a GIVEN clause is never the evidence that condemns a row', () => {
@@ -165,9 +165,83 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
       CAPTURED,
     );
     const markdown = renderTriage(triage);
-    expect(markdown).toContain('Realistic ceiling: 50.0%');
+    expect(markdown).toContain('50.0%');
     expect(markdown).toContain('pnpm inspect');
     expect(markdown).toContain('the row needs rewriting');
     expect(markdown).toContain('Capture worklist');
+  });
+});
+
+/**
+ * T6 — the ceiling never travels alone.
+ *
+ * 29.8% was measured with 8 of 17 modules captured, and "no capture for this
+ * module" is one of the three exclusion reasons. So it is not the ceiling of
+ * the approach — it is the ceiling of today's capture coverage, and quoted
+ * alone it becomes "the platform can only do 30% of our tests" long after the
+ * captures are done.
+ *
+ * The qualifier is therefore welded to the number at the point of measurement:
+ * both figures computed, each carrying the coverage it assumed.
+ */
+test.describe('the ceiling carries its own assumptions (T6) @unit', () => {
+  const rows = [
+    // Automatable on its clauses, but its module has never been captured.
+    rowOf('SI_1 / TC_1', 'Workflow', [
+      { text: 'click the "Save" button', source: 'when', kind: 'action' },
+      { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
+    ]),
+    // Automatable and captured.
+    rowOf('SI_2 / TC_1', 'Dashboard', [
+      { text: 'click the "Save" button', source: 'when', kind: 'action' },
+      { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
+    ]),
+  ];
+
+  test('T6: the two ceilings differ exactly by what a capture would unblock', () => {
+    // wrong: one number alone reads as the ceiling of the APPROACH, when it is
+    // the ceiling of today's coverage — and the difference here is a whole row.
+    const triage = triageSheet(rows, CAPTURED);
+
+    expect(triage.ceiling.withCurrentCaptures).toBe(0.5);
+    expect(triage.ceiling.withAllModulesCaptured).toBe(1);
+    // Discriminating: the two are NOT equal on this fixture, so a result that
+    // simply reported the same figure twice would fail here.
+    expect(triage.ceiling.withAllModulesCaptured).toBeGreaterThan(
+      triage.ceiling.withCurrentCaptures,
+    );
+  });
+
+  test('T6: each number carries the coverage it was measured with', () => {
+    // wrong: without the counts, a reader cannot tell whether 30% was measured
+    // over two modules or twenty, and the figure outlives its assumptions.
+    const triage = triageSheet(rows, CAPTURED);
+    expect(triage.ceiling.modulesCaptured).toBe(1);
+    expect(triage.ceiling.modulesTotal).toBe(2);
+    expect(triage.ceiling.rowsBlockedByMissingCapture).toBe(1);
+  });
+
+  test('T6: the report prints BOTH, so neither can be quoted alone', () => {
+    // wrong: printing only today's figure is how 96.5% survived two reports —
+    // a single number in a summary, with its qualifier in the prose around it.
+    const markdown = renderTriage(triageSheet(rows, CAPTURED));
+    expect(markdown).toContain("With today's captures");
+    expect(markdown).toContain('Once every module is captured');
+    expect(markdown).toContain('1 of 2 modules captured');
+    expect(markdown).toContain('not the ceiling of this approach');
+  });
+
+  test('T6: a row that is unautomatable ANYWAY is not counted as unblockable', () => {
+    // wrong: crediting every uncaptured row to the second ceiling promises a
+    // capture will fix rows whose clauses could never be verified, and the
+    // delta measurement afterwards would then look like a failure.
+    const triage = triageSheet(
+      [rowOf('SI_3 / TC_1', 'Workflow', [
+        { text: 'everything should look proper', source: 'then', kind: 'assert' },
+      ])],
+      CAPTURED,
+    );
+    expect(triage.ceiling.withCurrentCaptures).toBe(0);
+    expect(triage.ceiling.withAllModulesCaptured).toBe(0);
   });
 });

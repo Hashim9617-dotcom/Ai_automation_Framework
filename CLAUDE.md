@@ -437,3 +437,57 @@ useless to all three because nobody can act on it.
 **And a headline number belongs where it stays current.** The ceiling is
 recomputed from the sheet on every run and rendered into the report. A number
 that lives in a summary someone wrote once goes stale in silence.
+
+### A downstream mechanism must not decide what an upstream one already knows
+
+**Seen twice now, in different clothes**, which is why it is written as a rule
+rather than a note on either instance:
+
+| | what was asked | why it could not answer |
+| --- | --- | --- |
+| **Clause kind** | should the MODEL classify this clause? | the QA already wrote `Given`/`When`/`Then` in a column. Any tie-break makes the model the authority over the person who wrote the sheet. |
+| **Clause meaning** | does `extractTarget` find a name here? | it slices `"record"` out of *"the record should be created successfully"*. It is a string matcher; it cannot know that "record" is the object of an outcome. |
+
+> **When an upstream source already knows something, or a downstream mechanism
+> is not qualified to judge it, the downstream mechanism does not get a vote.**
+
+The two failure modes are worth naming separately because they feel different in
+the moment:
+
+- **The upstream source already knows.** Deciding again downstream creates a
+  disagreement, and *every rule for settling it takes authority away from the
+  source*. The answer is not a better tie-break; it is not holding the election.
+- **The downstream mechanism cannot know.** It will still ANSWER — that is the
+  trap. `extractTarget` returns a plausible-looking string with no way to signal
+  "I have no idea", and its confidence is read as information. The answer is to
+  ask the question that IS answerable first, and only then let the mechanism run.
+
+Both are cheap to get right and expensive to find later: the second one put the
+automation ceiling at 46.4% when it is 29.8%, in the flattering direction, and it
+was invisible until the outputs were read one by one.
+
+**The tell:** ask what a mechanism would return for input it has no business
+judging. If the answer is "something that looks fine", it is being asked the
+wrong question — and asking it earlier in the pipeline will not help.
+
+### Weld a headline number to the assumption it was measured under
+
+`29.8%` is the automation ceiling of one QA sheet — measured with **8 of 17
+modules captured**, where "no capture for this module" is itself one of the
+exclusion reasons. It is not the ceiling of the approach; it is the ceiling of
+today's capture coverage. With every module captured the same rules give
+**48.5%**.
+
+An alarming number is the dangerous kind to leave unqualified: it gets repeated,
+where a flattering one would have invited scrutiny. So both are computed, both
+are rendered, and each carries the coverage it assumed.
+
+> **If a number will be quoted, the qualifier belongs AT THE POINT OF
+> MEASUREMENT — in the same struct, the same row of the same table — not in the
+> prose around it.** Prose does not survive being copied into a slide.
+
+And a pair of numbers is a prediction: today's figure should move towards the
+second as the assumption is removed. **Re-measuring after it is removed is the
+falsifier.** If it moves as predicted the diagnosis holds; if it barely moves,
+the real constraint is somewhere nobody has looked — which is worth more than
+being right.
