@@ -82,6 +82,48 @@ const norm = (value: string): string => value.replace(/\s+/g, ' ').trim().toLowe
 /** Roles a click can plausibly land on. ARIA, not application vocabulary. */
 export const CLICKABLE_ROLES = ['button', 'link', 'tab', 'menuitem', 'treeitem', 'option', 'checkbox'];
 
+/**
+ * Roles the EXECUTOR can actually address, so the resolver never chooses a
+ * target that cannot be run.
+ *
+ * The capture comes from CDP, which emits presentational tree nodes alongside
+ * the semantic ones: `StaticText`, `RootWebArea`, `LineBreak`, `Date`,
+ * `generic`. Playwright's `getByRole` speaks ARIA and knows none of them. Two
+ * measured consequences, both silent, found on 2026-09-09 against DMS and the
+ * bundled demo app alike:
+ *
+ * 1. **False ambiguity.** Every visible label appears TWICE — once as its
+ *    semantic node and once as a `StaticText` carrying the same accessible
+ *    name — so the ambiguity rule refuses it. On the demo app that is every
+ *    addressable control without exception.
+ * 2. **False stale-capture.** Where only the presentational node matches, the
+ *    resolver hands the executor a role Playwright cannot address;
+ *    `getByRole` returns zero WITHOUT throwing, so the row is reported as
+ *    `stale-capture` — "re-run `pnpm inspect`" — forever, about an element
+ *    that is present on the page.
+ *
+ * Measured before the fix: **0 of 28 distinct names on the demo app could
+ * produce a runnable row**, and 0 of 470 sheet rows against DMS.
+ *
+ * This is the W3C ARIA role list rather than a list of bad roles, deliberately:
+ * a detector built from what someone thought to exclude is bounded by their
+ * imagination, and this project has already paid for that lesson twice (the
+ * invisible-character scan and the app-agnostic audit).
+ */
+export const ADDRESSABLE_ROLES = [
+  'alert', 'alertdialog', 'application', 'article', 'banner', 'blockquote', 'button',
+  'caption', 'cell', 'checkbox', 'code', 'columnheader', 'combobox', 'complementary',
+  'contentinfo', 'definition', 'deletion', 'dialog', 'directory', 'document', 'emphasis',
+  'feed', 'figure', 'form', 'grid', 'gridcell', 'group', 'heading', 'img', 'insertion',
+  'link', 'list', 'listbox', 'listitem', 'log', 'main', 'marquee', 'math', 'menu',
+  'menubar', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'meter', 'navigation',
+  'none', 'note', 'option', 'paragraph', 'presentation', 'progressbar', 'radio',
+  'radiogroup', 'region', 'row', 'rowgroup', 'rowheader', 'scrollbar', 'search',
+  'searchbox', 'separator', 'slider', 'spinbutton', 'status', 'strong', 'subscript',
+  'superscript', 'switch', 'tab', 'table', 'tablist', 'tabpanel', 'term', 'textbox',
+  'time', 'timer', 'toolbar', 'tooltip', 'tree', 'treegrid', 'treeitem',
+];
+
 const STATE_WORDS: Record<string, { property: AssertStep['property']; expected: boolean }> = {
   selected: { property: 'selected', expected: true },
   'not selected': { property: 'selected', expected: false },

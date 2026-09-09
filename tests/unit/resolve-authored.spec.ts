@@ -326,3 +326,74 @@ test.describe('the resolver hands the executor its targets (C5) @unit', () => {
     expect(outcomes.size).toBeGreaterThan(1);
   });
 });
+
+/**
+ * C6 — only a node the EXECUTOR can address is a candidate.
+ *
+ * Measured on 2026-09-09 against DMS and the bundled demo app: **0 of 28
+ * distinct names on the demo app could produce a runnable row**, because a real
+ * accessibility tree carries every visible label twice — once as its semantic
+ * node, once as a `StaticText` with the same accessible name — and the
+ * ambiguity rule refused all of them. Where only the `StaticText` matched, the
+ * executor was handed a role `getByRole` cannot address, which returns zero
+ * WITHOUT throwing, so the row came back `stale-capture`: "re-run `pnpm
+ * inspect`", forever, about an element that is on the page.
+ */
+test.describe('only an addressable node is a candidate (C6) @unit', () => {
+  const TWINNED: BoundedCapture = {
+    sessionId: 's',
+    states: [
+      state('home', [
+        node('button', 'Save employee'),
+        // The presentational twin a real CDP tree always carries alongside it.
+        node('StaticText', 'Save employee'),
+        node('StaticText', 'No employees registered yet.'),
+      ]),
+    ],
+    transitions: [],
+    selection: { keywords: [], available: [], chosen: [], excluded: [] },
+  };
+
+  test('C6: a semantic node and its StaticText twin are NOT ambiguous', () => {
+    // wrong: counting the twin as a candidate refuses this row against its
+    // author, and on the demo app that was every addressable control there is.
+    const resolved = resolveAuthoredRow(
+      rowOf([{ text: 'verify "Save employee" is visible', source: 'then', kind: 'assert' }]),
+      TWINNED,
+      'home',
+    );
+
+    expect(resolved.refusals).toEqual([]);
+    expect(resolved.targets[0]!.role).toBe('button');
+  });
+
+  test('C6: a name carried ONLY by a non-addressable node resolves to no target', () => {
+    // wrong: handing `StaticText` to the executor makes getByRole return zero
+    // without throwing, and the row is blamed on the capture instead of being
+    // recognised as a clause we cannot address.
+    const resolved = resolveAuthoredRow(
+      rowOf([
+        { text: 'verify "No employees registered yet." is visible', source: 'then', kind: 'assert' },
+      ]),
+      TWINNED,
+      'home',
+    );
+    expect(resolved.targets).toEqual([]);
+  });
+
+  test('C6: the filter does not swallow ordinary ambiguity', () => {
+    // wrong: a filter that narrowed to one node always would destroy the
+    // ambiguity rule itself — two REAL controls sharing a name must still be
+    // refused, and this is the fixture that tells the two apart.
+    const twoRealButtons: BoundedCapture = {
+      ...TWINNED,
+      states: [state('home', [node('button', 'Save'), node('link', 'Save')])],
+    };
+    const resolved = resolveAuthoredRow(
+      rowOf([{ text: 'verify "Save" is visible', source: 'then', kind: 'assert' }]),
+      twoRealButtons,
+      'home',
+    );
+    expect(resolved.refusals[0]!.why).toBe('ambiguous-target');
+  });
+});

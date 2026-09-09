@@ -879,3 +879,133 @@ unit-tested against a stub page. **It has not yet been run against the live
 application.** That is the next step and it is deliberately not claimed here:
 the seam was built so the accounting could be verified without a browser, and
 verifying the accounting is not the same as verifying the browser work.
+
+---
+
+## 11. The first runs against a real browser (2026-09-09)
+
+Two runs, neither of them the one that was planned. What they found matters more
+than what they proved.
+
+### 11.0 The DMS slice is still OUTSTANDING
+
+**No row of the real sheet has ever run, and none can yet.** This is not a
+scheduling note — it is a measured result, and it stands until the clause
+grammar changes:
+
+| Measurement | Result |
+| --- | --- |
+| 470 sheet rows resolved against the real dashboard capture | **0** resolvable |
+| the same rows against a PERFECT synthetic capture | **2** with every clause readable, **0** reaching `ok` |
+| clauses that cannot be parsed at all | **1234 of 1922 (64.2%)** |
+
+The second row of that table is the point. Removing the capture as a variable —
+a synthetic capture holding every target any clause names, each present exactly
+once — barely moves the number, so **the capture was never the blocker.** The
+sheet's clauses are prose, not element references: *"user on the dashboard"*,
+*"applying the filters"*, *"verify the backend api"*.
+
+Separately, the saved DMS session is expired: every authenticated route
+redirects to `/login`. Re-authenticating needs a human at a headed browser
+(`pnpm auth` is interactive by design). Worth recording precisely, because the
+artifact lies about it — the `refresh_token` COOKIE claims expiry a week out
+while the JWT inside it expired **fifteen minutes** after issue. Anything
+checking the cookie will believe the session is good.
+
+### 11.1 The seam hid a defect that both sides' tests could not see
+
+`resolveAuthoredRow`'s `ok` return dropped `targets`. The executor is contracted
+to return `no-observable-check` without one, so **every cleanly resolved row
+would have been reported back to its author as unverifiable** — the platform
+blaming the QA for losing its own data.
+
+> **It was on exactly the rows that resolve cleanly** — the ones a casual check
+> would call healthy. `app-disagrees` and `capture-thin` both carried their
+> targets; only `ok`, the outcome meaning *ready to run*, did not.
+
+Both sides were well tested and both suites were green. The resolver's tests
+assert outcomes and refusals; the executor's tests are handed `targets` directly
+by their own fixtures. **Nothing asserted that the thing one side produces is
+the thing the other consumes.**
+
+> **Everything upstream was tested. Everything downstream was tested. The JOIN
+> between them was not** — and a fixture written by the author of both sides
+> cannot reach it, for the same reason a stub cannot falsify itself.
+
+It was found by RUNNING, not by reading: a script that resolved a row and
+printed what the executor would actually receive. Covered by C5, whose second
+test walks two different resolving outcomes so it cannot pass by only visiting
+the path that was fixed.
+
+### 11.2 The capture offers targets the executor cannot address
+
+The capture records CDP accessibility roles; the executor hands them to
+Playwright's `getByRole`, which speaks ARIA. Measured on both applications:
+
+- **False ambiguity.** A real tree carries every visible label twice — once as
+  its semantic node, once as a `StaticText` with the same accessible name — so
+  the ambiguity rule refused it. On the demo app that was **every addressable
+  control without exception: 0 of 28 distinct names could produce a runnable
+  row.**
+- **False stale-capture.** Where only the presentational node matched,
+  `getByRole('StaticText', …)` returned zero **without throwing**, so the row
+  was reported `stale-capture` — *"re-run `pnpm inspect`"* — forever, about an
+  element that is present on the page. 364 of 500 nodes on one DMS page (73%)
+  carry that role.
+
+Fixed by `ADDRESSABLE_ROLES`: only a node the executor can address is a
+candidate. The demo app went from 0 to 14 of 28 runnable names. Covered by C6,
+including the discriminating case that two REAL controls sharing a name must
+still be refused — a filter that always narrowed to one would destroy the
+ambiguity rule itself.
+
+### 11.3 A written report must say what it ran against
+
+DMS being unreachable, the executor was exercised against the bundled demo app.
+That run is green, and its report is **indistinguishable** from one produced
+against the real application — same headings, same table, same six buckets.
+
+> A green run against a substitute target reads exactly like a green run against
+> the real one three weeks later, and nobody re-checks which it was.
+
+So `RunProvenance` is **required** to write a report: the target named plainly,
+what the run proves, and what it does not. Structural rather than editorial — a
+file that does not say what produced it cannot be created. An in-memory render
+may omit it, because a string in a variable does not outlive the knowledge of
+what produced it; a FILE does.
+
+`assertProvenanceLanded` is exported for the same reason `verifyReportOnDisk`
+is: inline, no input could make the renderer omit the target, so the guard would
+sit where nothing can trigger it and read as working forever.
+
+### 11.4 What the demo run proves, and what it does not
+
+- **PROVES:** the Playwright executor works against a real browser and a real
+  DOM. All six outcomes fired — passed, failed, refused, held, unreadable and
+  stale-capture. **The stub is falsified, which is the whole reason for the
+  run.**
+- **DOES NOT PROVE:** that the DMS sheet's rows resolve against DMS. Those are
+  different claims, and the demo app cannot speak to the second one at all.
+
+The `stale-capture` row is a genuine divergence rather than a simulated one: two
+pages, one signed in and one not, both rows resolved against the signed-in
+capture. That is what happens whenever a row's entry state and the live page
+have drifted apart.
+
+### 11.5 The captures on disk are sound — and a correction
+
+A scratch capture script returned a **1-node tree** for a page that really had
+73, because it waited a fixed interval instead of waiting for the SPA to render.
+
+All eight existing captures in `artifacts/inspect/` were checked against that
+failure. **None is affected** — every state carries 95–399 accessibility nodes
+and 79–304 named ones, nowhere near the signature of an unrendered shell.
+
+**A correction to an earlier claim in this project's own reporting:** it was
+said that "the real `pnpm inspect` path has no such guard". That is **wrong**.
+`scripts/inspect-app.ts` has `waitForPageToRender()` — it waits for interactive
+elements and then for `networkidle` — and warns when a capture comes back with
+zero interactive elements, with a comment describing this exact failure. The gap
+was in the throwaway script, not in the tool. Finding 15's rule still applies to
+the conclusion that matters: the absence claim here ("no capture is thin") is
+backed by having measured every state in all eight, not by having looked at one.

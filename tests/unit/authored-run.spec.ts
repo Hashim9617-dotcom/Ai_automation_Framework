@@ -7,6 +7,7 @@ import {
   assertTallyBalances,
   executeAuthoredRows,
   renderAuthoredReport,
+  assertProvenanceLanded,
   verifyReportOnDisk,
   writeAuthoredReport,
   type ResolvedAuthoredRow,
@@ -46,6 +47,13 @@ const resolved = (over: Partial<ResolvedAuthoredRow> = {}): ResolvedAuthoredRow 
 });
 
 /** Deterministic executor. The browser lives behind this seam, not in the sums. */
+/** Every written report states what it ran against — see `RunProvenance`. */
+const PROVENANCE = {
+  target: 'the unit-test fixture, not any application',
+  proves: 'the accounting and the report writer behave as specified',
+  doesNotProve: 'anything at all about a real application',
+};
+
 const alwaysOk: StepExecutor = async () => ({ kind: 'passed', observed: 'the element was there' });
 const alwaysFails: StepExecutor = async () => ({
   kind: 'failed',
@@ -330,7 +338,7 @@ test.describe('the sheet is never written to (E5) @unit', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'aitp-report-'));
     const written = writeAuthoredReport(
       { results: [], tally: { rowsRead: 0, passed: 0, failed: 0, refused: 0, held: 0, unreadable: 0, staleCapture: 0 } },
-      { outputDir: dir, sheetName: 'Final Test cases' },
+      { outputDir: dir, sheetName: 'Final Test cases', provenance: PROVENANCE },
     );
     expect(written.file.startsWith(dir)).toBe(true);
     expect(written.file.endsWith('.md')).toBe(true);
@@ -343,7 +351,7 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
   test('E6: a written report is re-read and verified', async () => {
     // wrong: a writer that reported success without writing returns a path to a file that is not there.
     const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' }), resolved({ rowId: 'SI_2 / TC_1', sheetRow: 4 })]);
-    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'Final Test cases' });
+    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'Final Test cases', provenance: PROVENANCE });
 
     expect(written.rowsWritten).toBe(2);
     // Verified against the FILE, not against the string we meant to write.
@@ -369,7 +377,7 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
       resolved({ rowId: 'SI_3 / TC_1', sheetRow: 5, writeRisk: 'creates-data' }),
     ], [{ sheetRow: 15, why: 'stray-cells', reason: 'stray cells' }]);
 
-    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'x' });
+    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'x', provenance: PROVENANCE });
     const onDisk = readFileSync(written.file, 'utf8');
     for (const row of outcome.results) {
       const id = row.status === 'unreadable' ? `sheet row ${row.sheetRow}` : row.rowId;
@@ -389,7 +397,7 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
       resolved({ rowId: 'SI_1 / TC_1' }),
       resolved({ rowId: 'SI_2 / TC_1', sheetRow: 4 }),
     ]);
-    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'x' });
+    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'x', provenance: PROVENANCE });
 
     // Remove one row from the file, exactly as a renderer that dropped a
     // section would.
@@ -407,7 +415,7 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
     // The discriminating half. A verifier that checked its own in-memory
     // markdown would pass every test above while catching no failed write.
     const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })]);
-    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'x' });
+    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'x', provenance: PROVENANCE });
 
     writeFileSync(written.file, '', 'utf8');
     expect(() => verifyReportOnDisk(written.file, outcome)).toThrow(/empty after writing/);
@@ -419,7 +427,7 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
     expect(() =>
       writeAuthoredReport(
         { ...outcome, tally: { ...outcome.tally, rowsRead: 99 } },
-        { outputDir: dir(), sheetName: 'x' },
+        { outputDir: dir(), sheetName: 'x', provenance: PROVENANCE },
       ),
     ).toThrow(/does not balance/);
   });
@@ -429,11 +437,11 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
     // Discriminating: proves the check is against disk rather than memory.
     const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })]);
     const target = dir();
-    const written = writeAuthoredReport(outcome, { outputDir: target, sheetName: 'x' });
+    const written = writeAuthoredReport(outcome, { outputDir: target, sheetName: 'x', provenance: PROVENANCE });
     writeFileSync(written.file, '', 'utf8');
     expect(readFileSync(written.file, 'utf8')).toBe('');
     // Re-writing succeeds and restores the content, showing the writer reads back.
-    const again = writeAuthoredReport(outcome, { outputDir: target, sheetName: 'x' });
+    const again = writeAuthoredReport(outcome, { outputDir: target, sheetName: 'x', provenance: PROVENANCE });
     expect(readFileSync(again.file, 'utf8').length).toBeGreaterThan(0);
   });
 });
@@ -584,3 +592,81 @@ test.describe('every non-passing row carries its evidence (E10) @unit', () => {
   });
 });
 
+
+/**
+ * §11 — a written report says what it was run against.
+ *
+ * Earned on 2026-09-09. DMS was unreachable, so the executor was exercised
+ * against the bundled demo app instead. That run is green and its report is
+ * indistinguishable from one produced against the real application — same
+ * headings, same table, same six buckets. Read three weeks later, "the slice
+ * ran green" becomes a claim about the product that nobody made.
+ *
+ * The fix is structural rather than editorial: `provenance` is REQUIRED to
+ * write a report, so a file that does not say what produced it cannot exist.
+ */
+test.describe('a written report carries its own provenance (E11) @unit', () => {
+  const dir = () => mkdtempSync(path.join(tmpdir(), 'aitp-report-'));
+
+  test('E11: the target and both claims reach the file on disk', async () => {
+    // wrong: rendered but never written, the file carries the numbers alone and
+    // a substitute target reads exactly like the real one.
+    const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })]);
+    const written = writeAuthoredReport(outcome, {
+      outputDir: dir(),
+      sheetName: 'x',
+      provenance: {
+        target: 'the bundled demo app',
+        proves: 'the executor works against a real browser',
+        doesNotProve: 'that the DMS sheet resolves against DMS',
+      },
+    });
+
+    const onDisk = readFileSync(written.file, 'utf8');
+    expect(onDisk).toContain('the bundled demo app');
+    expect(onDisk).toContain('This run proves:');
+    expect(onDisk).toContain('This run does NOT prove:');
+    expect(onDisk).toContain('that the DMS sheet resolves against DMS');
+  });
+
+  test('E11: the qualification sits above the results, not below them', async () => {
+    // wrong: rendered as a footer it is below the section a reader stops at, so
+    // the green numbers are read and the caveat never is.
+    const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })]);
+    const markdown = renderAuthoredReport(outcome, 'x', {
+      target: 'the bundled demo app',
+      proves: 'p',
+      doesNotProve: 'd',
+    });
+    // Both indices must be FOUND before they are ordered. Asserting order
+    // alone let a mutation that removed the heading survive: `indexOf` returns
+    // -1, and -1 is less than any real index, so the comparison passed
+    // vacuously — the fixture could not tell "above" from "absent".
+    const qualification = markdown.indexOf('What this run was against');
+    const results = markdown.indexOf('## Passed');
+    expect(qualification).toBeGreaterThanOrEqual(0);
+    expect(results).toBeGreaterThanOrEqual(0);
+    expect(qualification).toBeLessThan(results);
+  });
+
+  test('E11: a document that lost its provenance is REFUSED', async () => {
+    // wrong: without this check a report whose numbers landed and whose target
+    // did not is written and reported as success — which is what every report
+    // produced before this field existed looks like.
+    //
+    // Handed the document directly, because no input makes the renderer omit
+    // the target: inline, the guard would sit where nothing can trigger it —
+    // the second species in CLAUDE.md — and would read as working forever.
+    const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })]);
+    const withoutProvenance = renderAuthoredReport(outcome, 'x');
+    const provenance = { target: 'the bundled demo app', proves: 'p', doesNotProve: 'd' };
+
+    expect(() => assertProvenanceLanded('r.md', withoutProvenance, provenance)).toThrow(
+      /does not name the target/,
+    );
+    // Discriminating: the SAME guard passes on the document that DOES carry it,
+    // so this is not a check that rejects everything handed to it.
+    const withIt = renderAuthoredReport(outcome, 'x', provenance);
+    expect(() => assertProvenanceLanded('r.md', withIt, provenance)).not.toThrow();
+  });
+});

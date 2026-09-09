@@ -16,11 +16,37 @@ import { assertTallyBalances, type AuthoredRunResult, type RowResult } from './e
  *   reported.
  */
 
+/**
+ * What the run was actually executed against, and what that does and does not
+ * establish.
+ *
+ * **Required on every report written to disk**, and that is the whole design.
+ * A run against a substitute target — the bundled demo app, a staging clone, a
+ * mock — produces a document indistinguishable from a run against the real
+ * application, and three weeks later nobody re-checks which it was. "The slice
+ * ran green" is then read as a claim about the product.
+ *
+ * An in-memory render may omit it, because a string held in a variable does not
+ * outlive the knowledge of what produced it. A FILE does. So the durable
+ * artifact is the one that must carry its own provenance, and the type system
+ * is what makes it impossible to write one that does not.
+ */
+export interface RunProvenance {
+  /** Named plainly: "the bundled demo app", not "the app". */
+  target: string;
+  /** What a green run HERE does establish. */
+  proves: string;
+  /** What it does not establish, however green it is. */
+  doesNotProve: string;
+}
+
 export interface ReportOptions {
   /** Our own artifacts directory. NEVER the QA's workbook — see §9.5. */
   outputDir: string;
   sheetName: string;
   fileName?: string;
+  /** Required: see `RunProvenance`. A written report always says what it ran against. */
+  provenance: RunProvenance;
 }
 
 export interface WrittenReport {
@@ -58,7 +84,11 @@ function section(title: string, blurb: string, rows: RowResult[]): string[] {
   return lines;
 }
 
-export function renderAuthoredReport(run: AuthoredRunResult, sheetName: string): string {
+export function renderAuthoredReport(
+  run: AuthoredRunResult,
+  sheetName: string,
+  provenance?: RunProvenance,
+): string {
   const { results, tally } = run;
   // Re-checked here as well as at execution: the numbers in this document are
   // the ones that get quoted, so they are verified at the point of writing.
@@ -88,6 +118,20 @@ export function renderAuthoredReport(run: AuthoredRunResult, sheetName: string):
     '> is not nothing.',
     '',
   ];
+
+  // Immediately under the numbers, because that is where a reader stops. The
+  // qualification has to sit beside the green, not in a footer.
+  if (provenance) {
+    lines.push(
+      '## What this run was against',
+      '',
+      `**Target: ${provenance.target}**`,
+      '',
+      `- **This run proves:** ${provenance.proves}`,
+      `- **This run does NOT prove:** ${provenance.doesNotProve}`,
+      '',
+    );
+  }
 
   lines.push(
     ...section(
@@ -141,12 +185,15 @@ export function writeAuthoredReport(
   run: AuthoredRunResult,
   options: ReportOptions,
 ): WrittenReport {
-  const markdown = renderAuthoredReport(run, options.sheetName);
+  const markdown = renderAuthoredReport(run, options.sheetName, options.provenance);
   mkdirSync(options.outputDir, { recursive: true });
   const file = path.join(options.outputDir, options.fileName ?? 'authored-run.md');
   writeFileSync(file, markdown, 'utf8');
 
   const landed = verifyReportOnDisk(file, run);
+
+  assertProvenanceLanded(file, landed, options.provenance);
+
   return { file, rowsWritten: run.results.length, markdown: landed };
 }
 
@@ -185,4 +232,31 @@ export function verifyReportOnDisk(file: string, run: AuthoredRunResult): string
   }
 
   return landed;
+}
+
+/**
+ * Verifies the written report names what the run was executed against.
+ *
+ * **Exported so it has a falsifier**, for the same reason `verifyReportOnDisk`
+ * is. Inline in the writer it could never fire: `renderAuthoredReport` always
+ * writes `provenance.target` verbatim, so no input could produce a document
+ * missing it, and a guard nothing can trigger is decoration (rule 3). Handed a
+ * document directly, a test can present the case that matters — a report whose
+ * numbers landed and whose provenance did not.
+ *
+ * That case is not hypothetical in the direction that counts: it is what every
+ * report written before this field existed looks like.
+ */
+export function assertProvenanceLanded(
+  file: string,
+  landed: string,
+  provenance: RunProvenance,
+): void {
+  if (!landed.includes(provenance.target)) {
+    throw new Error(
+      `the report at ${file} does not name the target it ran against ` +
+        `("${provenance.target}"). A report that states results without stating what ` +
+        'produced them is read later as a claim about the real application.',
+    );
+  }
 }

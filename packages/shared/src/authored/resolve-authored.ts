@@ -3,6 +3,7 @@ import { checkGrounding, type AssertStep, type CaseStep } from '../generation/gr
 import { assessWriteRisk } from '../generation/proposal';
 import type { AuthoredRow, UnreadableSheetRow } from './final-test-cases';
 import {
+  ADDRESSABLE_ROLES,
   CLICKABLE_ROLES,
   findCandidates,
   type Owner,
@@ -168,10 +169,15 @@ export function resolveAuthoredRow(
       continue;
     }
 
+    // An assertion may name anything, but only a node the EXECUTOR can address
+    // is a candidate. Without this the capture's presentational twins
+    // (`StaticText` carrying the same accessible name) make every real control
+    // ambiguous, and the row is refused against its author — measured at 0 of
+    // 28 runnable names on the demo app. See `ADDRESSABLE_ROLES`.
     const candidates = findCandidates(
       state,
       target,
-      clause.kind === 'action' ? CLICKABLE_ROLES : undefined,
+      clause.kind === 'action' ? CLICKABLE_ROLES : ADDRESSABLE_ROLES,
     );
 
     if (candidates.length > 1) {
