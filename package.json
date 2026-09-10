@@ -34,13 +34,14 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,json,md,yml,yaml}\"",
     "clean": "rimraf artifacts dist **/dist **/tsconfig.tsbuildinfo",
     "prepare:browsers": "playwright install --with-deps chromium",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:smoke",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:smoke && pnpm --filter @aitp/api build && pnpm test:api",
     "docker:up": "docker compose -f infra/docker/docker-compose.yml up -d",
     "docker:down": "docker compose -f infra/docker/docker-compose.yml down",
     "eval:generation": "tsx scripts/eval-generation-fixture.ts",
     "triage": "tsx scripts/triage-sheet.ts",
     "smoke:generation": "tsx scripts/generation-smoke.ts",
-    "generate:review": "tsx scripts/generate-review.ts"
+    "generate:review": "tsx scripts/generate-review.ts",
+    "check:api-deps": "node scripts/check-api-deps.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

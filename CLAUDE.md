@@ -725,3 +725,49 @@ soundness had not been established.
 > **Land the work against the instrument that produced its numbers, then change
 > the instrument and re-run to confirm the numbers are unchanged.** If they are
 > not, that discrepancy is worth more than the migration.
+
+### The environment is part of the test, and an inherited one can hide the bug
+
+`pnpm api:dev` failed with `Cannot find module 'nodemailer'` while 435 unit tests
+were green. A boot test was added — and **passed while the API was demonstrably
+broken.**
+
+The cause: Playwright sets `NODE_PATH` to pnpm's hidden hoist store
+(`node_modules/.pnpm/node_modules`), which contains every transitive package
+flat. The test spawned the API with `env: { ...process.env }`, inherited that,
+and every unhoisted dependency resolved. The test ran in a world where the bug
+cannot exist.
+
+> **When a test spawns the thing under test, the environment it passes is part of
+> the fixture.** Inheriting the test runner's environment is not neutral — it is
+> a decision to test a configuration nobody ships.
+
+Two rules that fall out:
+
+- **Scrub, do not override.** `delete env.NODE_PATH` — setting it to something
+  else is still a value the real process does not have.
+- **A check that must not run under the harness cannot be written inside it.**
+  The dependency scan is a script (`scripts/check-api-deps.mjs`) run in a clean
+  child process, and it REFUSES with a distinct exit code if `NODE_PATH` is set
+  rather than producing a result that would be wrong.
+
+### Compiling another package's sources inherits its dependencies, silently
+
+`apps/api` compiles every workspace package's `src` into its own `dist`, so a
+package's `import 'dotenv'` becomes a bare `require('dotenv')` resolved from
+`apps/api/dist/...`. pnpm installs that under the package's own `node_modules`
+and does not hoist it, so it is invisible from the API.
+
+**Every runtime dependency of every compiled package is in this class**, and each
+surfaces only when a code path first touches it. `nodemailer` was on the boot
+path; `dotenv` and `@faker-js/faker` were behind it and would have surfaced one
+at a time, later, further from the change that caused them.
+
+> **Fixing the instance you found is the smaller half.** Enumerate the class:
+> here, resolve every bare specifier in every compiled file from that file's own
+> directory. That check is now `pnpm check:api-deps`, and it is in `pnpm verify`.
+
+The duplication remains a drift risk — the right fix is for the API to consume
+BUILT packages so pnpm resolves each package's dependencies from its own tree.
+That is a build migration, and the check above turns the drift from silent into
+red in the meantime.
