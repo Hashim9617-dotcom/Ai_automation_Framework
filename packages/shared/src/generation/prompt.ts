@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { dedupeTextAgainstControls, isTextRole } from '../a11y/addressability';
 import { tokenize } from '../matching/command-matcher';
 import type { AccessibilityNode } from '../types/ai';
 import type { BoundedCapture } from './bounding';
@@ -155,7 +156,21 @@ export function buildPromptInput(input: {
       id: state.id,
       visitOrder,
       truncated: state.truncated,
-      nodes: state.nodes.map(promptNode),
+      // DEDUPED, not filtered, and the choice is deliberate.
+      //
+      // A flattened tree lists a control and the text on its face as siblings
+      // with the same accessible name. Offering both gives the model two ways
+      // to name one thing, and on the first real call it picked the one no
+      // locator can address — `StaticText "Documents"` beside `link
+      // "Documents"` (§L.5). So a text node a control already covers is
+      // dropped: it is the same thing twice, exactly as door B established.
+      //
+      // But a text node NO control covers is KEPT, and marked as text. Filtering
+      // all of them would be the easier change and the wrong one: page text is
+      // most of what a Then clause checks, `getByText` addresses it perfectly
+      // well, and a model shown a page emptier than it really is reasons about
+      // absences that are artefacts of our rendering (Finding 15).
+      nodes: dedupeTextAgainstControls(state.nodes).map(promptNode),
       collapsed: [...(state.collapsed ?? [])].sort((a, b) =>
         `${a.role}|${a.pattern}`.localeCompare(`${b.role}|${b.pattern}`),
       ),
@@ -333,6 +348,11 @@ const renderNode = (node: PromptNode): string => {
     node.expanded === undefined ? undefined : `expanded=${node.expanded}`,
     node.checked === undefined ? undefined : `checked=${node.checked}`,
     node.level === undefined ? undefined : `level=${node.level}`,
+    // The AFFORDANCE, stated per node rather than left for the model to infer
+    // from a role name. Text and controls were rendered identically until
+    // 2026-09-10, and the first real model call duly returned assertions on
+    // `StaticText` — a role no locator can address (§L.5).
+    isTextRole(node.role) ? 'text only — assert on it, never click it' : undefined,
   ].filter((flag): flag is string => flag !== undefined);
 
   return `- ${node.role} "${node.name}"${flags.length > 0 ? ` (${flags.join(', ')})` : ''}`;
@@ -395,6 +415,9 @@ export function renderGenerationPrompt(input: PromptInput): string {
     '1. Reference an element ONLY by a `role` and `name` written exactly as they appear below.',
     '   These are computed accessible names, which routinely differ from the visible text — do',
     '   not shorten, tidy or guess one.',
+    '1a. A node marked `text only` is page TEXT, not a control. You may assert on it. You may',
+    '   NOT write an action step targeting it — nothing can be clicked there, and a step that',
+    '   tries becomes a test that fails for a reason the application is not responsible for.',
     '2. An action step must quote a declared transition\'s action verbatim. There is no other',
     '   way to move between states: an action that matches no declared transition leaves the',
     '   test standing somewhere unknown, and everything after it becomes a question.',

@@ -34,7 +34,15 @@ const ROOT = findRepoRoot();
  * generated line per test, which is decoration and worse than nothing — then
  * add the file here.
  */
-const COVERED = ['tests/unit/authored-run.spec.ts'];
+const COVERED = [
+  'tests/unit/authored-run.spec.ts',
+  // Added 2026-09-10 with the suites themselves, so enforcement started at the
+  // same commit rather than being promised for later.
+  'tests/unit/review-emit.spec.ts',
+  'tests/unit/model-questions.spec.ts',
+  'tests/unit/gateway-fidelity.spec.ts',
+  'tests/unit/triage.spec.ts',
+];
 
 /**
  * Suites not yet covered, listed so the gap is visible rather than implied.

@@ -234,7 +234,7 @@ test.describe('proposal — only observed assertions are proposable (M4) @unit',
         { kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: true, modelSaid: 'observed' },
       ],
     });
-    expect(proposal.openQuestions.length).toBe(1);
+    expect(proposal.ungroundedAssertions.length).toBe(1);
     expect(proposableAssertions(proposal).length).toBe(0);
   });
 });

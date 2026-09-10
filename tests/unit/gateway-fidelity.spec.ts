@@ -20,7 +20,17 @@ import type { LlmCompletionRequest } from '@aitp/shared';
  * smoothed over, so a reader of the mock's output knows what it is not.
  */
 
-/** Anthropic's real envelope. Fenced, because the real model fences. */
+/**
+ * Anthropic's real envelope.
+ *
+ * `fenced()` is the DEFAULT for these tests because it is what the real model
+ * actually sends. Before 2026-09-10 only one test used a fenced payload and the
+ * rest used bare JSON, which left the fence strip exercised by a single case;
+ * routing every test through it means deleting the strip fails five tests
+ * rather than one, and none of them is about fences.
+ */
+const fenced = (json: string) => '```json\n' + json + '\n```';
+
 const anthropicReply = (text: string) => ({
   id: 'msg_x',
   type: 'message',
@@ -76,7 +86,7 @@ test.describe('the mock and the real gateway (G) @unit', () => {
     // rendered prompt" is asserting fiction — the model receives a second
     // message the mock has no idea about, and prompt-content tests are
     // measuring a string the provider never saw.
-    const harness = await serve(anthropicReply('{"cases":[]}'));
+    const harness = await serve(anthropicReply(fenced('{"cases":[]}')));
     try {
       await gatewayAt(harness.url).completeJson({ ...REQUEST });
       const mock = new MockLlmGateway().when('THE RENDERED PROMPT', '{"cases":[]}');
@@ -96,7 +106,7 @@ test.describe('the mock and the real gateway (G) @unit', () => {
     // wrong: assuming the provider receives a `responseSchema` field would make
     // the schema look enforced by the API when it is only ever a request in
     // prose — the model can and does return extra keys.
-    const harness = await serve(anthropicReply('{"cases":[]}'));
+    const harness = await serve(anthropicReply(fenced('{"cases":[]}')));
     try {
       await gatewayAt(harness.url).completeJson({ ...REQUEST });
       const body = harness.bodies[0]!;
@@ -137,7 +147,7 @@ test.describe('the mock and the real gateway (G) @unit', () => {
     // "mock/reasoning", while every real proposal carries
     // "anthropic/claude-sonnet-4-5" — the provenance field would be tested
     // against a value that never occurs in production.
-    const harness = await serve(anthropicReply('{"cases":[]}'));
+    const harness = await serve(anthropicReply(fenced('{"cases":[]}')));
     try {
       const real = await gatewayAt(harness.url).completeJson({ ...REQUEST });
       expect(real.provider).toBe('anthropic');
@@ -160,7 +170,7 @@ test.describe('the mock and the real gateway (G) @unit', () => {
     // wrong: reading the mock as evidence that "the cache avoids the model"
     // proves the opposite of what it looks like — the mock dispatches every
     // time, so a cache test written against it passes with no cache at all.
-    const harness = await serve(anthropicReply('{"cases":[]}'));
+    const harness = await serve(anthropicReply(fenced('{"cases":[]}')));
     try {
       const real = gatewayAt(harness.url);
       await real.completeJson({ ...REQUEST });

@@ -123,6 +123,23 @@ class CountingGateway implements LlmGateway {
   }
 }
 
+/**
+ * WHAT THIS SUITE'S INSTRUMENT CAN AND CANNOT PROVE.
+ *
+ * `CountingGateway` carries its OWN cache, defined a few lines above. So L1
+ * proves the ENGINE sends a stable `cacheKey` for a repeated command — a real
+ * property, and the one the digest work exists to guarantee — but it proves
+ * nothing about the platform's cache.
+ *
+ * Measured, not assumed: mutating `HttpLlmGateway` so its cache always misses
+ * leaves L1 GREEN and fails two other tests —
+ * `L4: a cached call spends nothing` (which primes a real gateway) and
+ * `G5` in `gateway-fidelity.spec.ts` (which counts HTTP bodies). Those two are
+ * where "the platform's cache suppresses the dispatch" is actually pinned.
+ *
+ * The pair composes to the design's claim. Neither half states it alone, and
+ * this note exists so the halves are not mistaken for the whole.
+ */
 test.describe('the cache avoids the MODEL (L1) @unit', () => {
   test('L1: two generate calls at the same key invoke the gateway exactly once', () => {
     // The assertion is on the CALL COUNT. "The second call returned the same
@@ -268,7 +285,7 @@ test.describe('an invented entry state is REFUSED (L2) @unit', () => {
     // would put a hallucination on the record looking like a reasoned question.
     const engine = new GenerationEngine(new CountingGateway(ONE_CHAR_OFF));
     const { proposals } = await run(engine);
-    expect(proposals.flatMap((p) => p.openQuestions)).toEqual([]);
+    expect(proposals.flatMap((p) => p.ungroundedAssertions)).toEqual([]);
   });
 });
 

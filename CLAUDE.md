@@ -530,3 +530,198 @@ what goes IN rather than what comes out.
 cost $0.027 — 3x high. An unchecked over-estimate buys budget nobody needed; the
 same arithmetic in the other direction trips the budget guard mid-run and
 presents as a failure of the thing being measured.
+
+### Two concepts must not share an identifier
+
+`TestCaseProposal.openQuestions` held questions the platform DERIVED from
+grades. The model also returns questions, and the prompt asks for them under the
+same name. The engine never read the model's, so every reader who saw
+`openQuestions` populated assumed they were there — for weeks.
+
+> **A shared name does not merely confuse; it HIDES.** A field that is present
+> and populated cannot be noticed as the wrong one, so the missing thing is
+> invisible for exactly as long as the name is plausible.
+
+Renamed to `ungroundedAssertions` (we asked; the evidence does not settle it)
+and `modelQuestions` (the model declined to assert and asked instead). Name a
+thing for what it is, not for what a reader might want it to be.
+
+**And the substance, worth keeping separately:** a question the model asked is
+worth more than the low-confidence guess it declined to make. A guess must be
+checked before it can be trusted; a question is already the check. Discarding
+them and reporting "0 proposals" told a reader the model had said nothing when
+it had explained precisely what it could not determine.
+
+### When a test's instrument implements the behaviour under test, the test measures the instrument
+
+`L1: two generate calls at the same key invoke the gateway exactly once` reads as
+proof that the platform's cache works. `CountingGateway` — defined in the test
+file — carries its own cache, so L1 stays green with the platform cache deleted
+entirely.
+
+Settled by mutation rather than argument: making `HttpLlmGateway`'s cache always
+miss failed two tests (`L4`, which primes a real gateway, and `G5`, which counts
+HTTP bodies) and left L1 green.
+
+> **Before trusting a test, ask what would fail if the production path were
+> deleted.** If the answer is "nothing, because the stand-in does it too", the
+> test is describing the stand-in.
+
+The fix was not to delete L1 — it proves something real, that the engine emits a
+stable cache key — but to say in the file which half of the claim it covers and
+where the other half lives. **Two tests that compose to a property are fine; one
+test that appears to state the whole property alone is not.**
+
+### A path exercised only by the test named after it is barely tested
+
+The gateway's markdown-fence strip had exactly one test: the one about fences.
+Every other fidelity test replied with bare JSON, which the real model never
+sends. So the strip was one refactor away from untested, and deleting it failed
+a single test whose name made the failure look narrow.
+
+Now every server in that suite replies fenced, because that is what the real
+model does. Deleting the strip fails **five** tests, four about something else.
+
+> **Make the realistic case the DEFAULT in fixtures, not a special case.** A
+> fixture that is tidier than production quietly narrows every test built on it.
+
+### The void gate catches conclusions, not just mutations
+
+On 2026-09-10 a mutation proving "the platform's cache suppresses the second
+dispatch" was written as `const cached = undefined;`. It ran under Playwright's
+transpile-only pipeline, two tests failed, and the finding was written up.
+
+`tsc` rejects that line. The verdict was **VOID**, and the write-up had therefore
+been derived from code that does not compile — a conclusion reached the way the
+`writeRisk: always hold` mutation reached its conclusion in 2026-09-07, correct
+by luck. Re-expressed so it compiles (`this.cache.get(key + '-never')` — same
+type, a key that can never match) the result was identical, so the finding
+stood. It might not have.
+
+> **A void mutation does not merely need rewriting — anything already concluded
+> from it needs re-deriving.** The verdict is about the evidence, not the patch,
+> and a report written from void evidence reads exactly like one written from
+> sound evidence.
+
+The lesson is the ORDER: run the harness before writing the finding up, not
+after. A mutation run is cheap; a paragraph that has to be retracted is not.
+
+### A multi-line prompt rule needs a mutation that removes the load-bearing line
+
+`A3a` — "mark the node without saying what it means" — SURVIVED, because the
+prompt rule spans three array entries and the mutation replaced the first while
+the test asserts on the prohibition in the second.
+
+> **When a rule is assembled from several lines, a mutation on any one of them
+> tests only that line.** Target the clause the test actually reads, or the
+> mutation is a claim about formatting.
+
+Same shape as a fixture that cannot discriminate, arriving in the mutation rather
+than the fixture: the patch was real, the property was real, and the two did not
+meet.
+
+### A hash cannot explain itself
+
+An approval attaches to `assertionId`, which is a hash of the whole basis — that
+is what makes a lapse automatic when anything a human read changes. But it also
+means a lapse cannot be EXPLAINED: "you approved something that no longer exists"
+is useless to a reviewer who cannot see what.
+
+The first draft matched a stale decision to its successor with a function that
+returned `true` whenever both ids were non-empty — so every genuinely new
+assertion would have been reported as a lapse. It typechecked, read plausibly,
+and was nonsense.
+
+> **When identity is a digest, record alongside it whatever a human will need to
+> be told about a change.** The digest decides; the recorded copy explains. Keep
+> the two roles apart in writing, or the explanatory copy quietly becomes a
+> second identity and starts transferring approvals.
+
+### Refuse, do not emit a placeholder
+
+An assertion the emitter cannot express is refused and named. The tempting
+alternative — emit it with a `// TODO` — is worse in a specific way: **a spec that
+compiles and asserts nothing reads as coverage.** The file exists, the test
+passes, the row is green, and nothing is being checked.
+
+> **Prefer a loud gap to a quiet one.** A missing test is visible in a refusal
+> list; a test that asserts nothing is invisible forever.
+
+### Verify a generated artifact in BOTH directions
+
+The obvious check on a writer is "everything I meant to write is there". The
+inverse matters as much and is easier to forget: **nothing I refused to write is
+there.**
+
+For the emitter those two are: every approved assertion's id appears, and no
+refused assertion's id appears. The second catches the worse failure — a refused
+assertion in an emitted file is a claim nobody approved being run as a test —
+and no amount of checking the first would find it.
+
+### A `finally` that can throw is not a guarantee
+
+The mutation harness restores each file in a `finally`, with a read-back check
+afterwards. On 2026-09-10 it crashed anyway and **left a mutation in the working
+tree**: Windows returned `UNKNOWN: unknown error, open` on the restore WRITE
+itself — a file lock, most likely the just-finished Playwright run or a scanner —
+so the `finally` threw and the process died mid-cleanup. The read-back check
+never ran, because it sits after the write it was meant to verify.
+
+The residue was the known-CAUGHT control, `passed: results.length` — a tally that
+counts every row as passed. **A commit in that window would have shipped it**, and
+the only reason it did not is that the crash was noticed and `git diff` was read.
+
+> **Cleanup needs the same durability as the work it cleans up after.** A bare
+> write in a `finally` is a cleanup that runs most of the time. Retry it, verify
+> it, and when it truly fails say so loudly with the exact command to fix it —
+> the process is dying either way; the question is whether the next person knows
+> the tree is dirty.
+
+Two corollaries, both now in the harness:
+
+- **After any crashed run that mutates source, `git diff` before anything else.**
+  A green suite afterwards proves nothing: a survivor-shaped leftover passes every
+  test by construction.
+- **Check the tree before starting**, not only the baseline. The baseline catches
+  a leftover that breaks a test; it cannot catch one that does not, and that is
+  precisely the kind a mutation harness leaves behind.
+
+### Isolation beats vigilance — but check that the isolation is real
+
+After the harness left a mutation in the working tree, the first fixes were a
+retry and a startup tree-check. Both correct, both **vigilance**: they make the
+failure louder, not impossible. The design flaw was that the working tree IS the
+mutation target, and everything else follows from it — a crash leaves residue, a
+survivor-shaped residue breaks no test, and nothing notices.
+
+> **Prefer the fix that makes a class impossible to the one that makes it loud.**
+> Same shape as deriving the digest from the prompt input rather than assembling
+> it alongside.
+
+**But a structural fix has its own silent-failure mode, and it is worse.** A
+sandbox whose module resolution leaks back to the real tree applies every
+mutation to code the tests never load, and reports **everything SURVIVED** —
+which reads as "the suite is weak" and sends someone writing tests that already
+exist. Measured here: `@aitp/*` resolves through tsconfig `paths` (relative, so
+the sandbox wins) even though pnpm's `node_modules` symlinks are absolute and
+point at the main tree. That could easily have gone the other way.
+
+> **A sandbox needs a planted mutation that must be detected INSIDE it, before
+> any verdict from it is believed.** The controls that prove a harness can detect
+> do not prove the sandbox is the thing being detected in.
+
+And when a fix cannot be structural today, say which vigilance you added and what
+it does not cover. Here: a sentinel file that outlives a crash, plus a test that
+fails while it exists — the second needs nobody to be looking, which is the only
+version that closes the window between a crash and the next run.
+
+### Do not swap the instrument while it is measuring
+
+Moving the harness into a sandbox changes what every verdict was measured
+against. Doing that in the same commit as the work it verifies is the `G5a`
+mistake at a larger scale: a conclusion drawn from an instrument whose own
+soundness had not been established.
+
+> **Land the work against the instrument that produced its numbers, then change
+> the instrument and re-run to confirm the numbers are unchanged.** If they are
+> not, that discrepancy is worth more than the migration.

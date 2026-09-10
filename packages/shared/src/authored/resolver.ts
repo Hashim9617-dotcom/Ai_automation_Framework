@@ -1,3 +1,9 @@
+import {
+  CANDIDATE_ROLES,
+  TEXT_ROLES,
+  collapseTextDuplicates,
+  ARIA_ROLES,
+} from '../a11y/addressability';
 import type { BoundedCapture } from '../generation/bounding';
 import {
   checkGrounding,
@@ -82,47 +88,6 @@ const norm = (value: string): string => value.replace(/\s+/g, ' ').trim().toLowe
 /** Roles a click can plausibly land on. ARIA, not application vocabulary. */
 export const CLICKABLE_ROLES = ['button', 'link', 'tab', 'menuitem', 'treeitem', 'option', 'checkbox'];
 
-/**
- * Roles the EXECUTOR can actually address, so the resolver never chooses a
- * target that cannot be run.
- *
- * The capture comes from CDP, which emits presentational tree nodes alongside
- * the semantic ones: `StaticText`, `RootWebArea`, `LineBreak`, `Date`,
- * `generic`. Playwright's `getByRole` speaks ARIA and knows none of them. Two
- * measured consequences, both silent, found on 2026-09-09 against DMS and the
- * bundled demo app alike:
- *
- * 1. **False ambiguity.** Every visible label appears TWICE — once as its
- *    semantic node and once as a `StaticText` carrying the same accessible
- *    name — so the ambiguity rule refuses it. On the demo app that is every
- *    addressable control without exception.
- * 2. **False stale-capture.** Where only the presentational node matches, the
- *    resolver hands the executor a role Playwright cannot address;
- *    `getByRole` returns zero WITHOUT throwing, so the row is reported as
- *    `stale-capture` — "re-run `pnpm inspect`" — forever, about an element
- *    that is present on the page.
- *
- * Measured before the fix: **0 of 28 distinct names on the demo app could
- * produce a runnable row**, and 0 of 470 sheet rows against DMS.
- *
- * This is the W3C ARIA role list rather than a list of bad roles, deliberately:
- * a detector built from what someone thought to exclude is bounded by their
- * imagination, and this project has already paid for that lesson twice (the
- * invisible-character scan and the app-agnostic audit).
- */
-export const ADDRESSABLE_ROLES = [
-  'alert', 'alertdialog', 'application', 'article', 'banner', 'blockquote', 'button',
-  'caption', 'cell', 'checkbox', 'code', 'columnheader', 'combobox', 'complementary',
-  'contentinfo', 'definition', 'deletion', 'dialog', 'directory', 'document', 'emphasis',
-  'feed', 'figure', 'form', 'grid', 'gridcell', 'group', 'heading', 'img', 'insertion',
-  'link', 'list', 'listbox', 'listitem', 'log', 'main', 'marquee', 'math', 'menu',
-  'menubar', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'meter', 'navigation',
-  'none', 'note', 'option', 'paragraph', 'presentation', 'progressbar', 'radio',
-  'radiogroup', 'region', 'row', 'rowgroup', 'rowheader', 'scrollbar', 'search',
-  'searchbox', 'separator', 'slider', 'spinbutton', 'status', 'strong', 'subscript',
-  'superscript', 'switch', 'tab', 'table', 'tablist', 'tabpanel', 'term', 'textbox',
-  'time', 'timer', 'toolbar', 'tooltip', 'tree', 'treegrid', 'treeitem',
-];
 
 const STATE_WORDS: Record<string, { property: AssertStep['property']; expected: boolean }> = {
   selected: { property: 'selected', expected: true },
@@ -188,25 +153,6 @@ export function findCandidates(state: CapturedState, target: string, roles?: str
   );
 }
 
-/**
- * Roles that are TEXT rather than a control.
- *
- * A CDP tree flattens a control and the text inside it into sibling nodes, so a
- * button and the words on its face both appear, carrying the same accessible
- * name. These are the second half of that pair.
- */
-export const TEXT_ROLES = ['StaticText', 'InlineTextBox'];
-
-/**
- * Every role that can be a target at all: a real ARIA role, or a text node.
- *
- * Structural rather than a list of things to exclude. `RootWebArea`,
- * `LineBreak` and `generic` are tree scaffolding — neither ARIA nor text — and
- * fall out without anyone having to name them, which is the lesson the
- * invisible-character scan and the app-agnostic audit both cost.
- */
-export const CANDIDATE_ROLES = [...ADDRESSABLE_ROLES, ...TEXT_ROLES];
-
 /** Role words a QA actually writes, mapped to the ARIA role they mean. */
 const ROLE_WORDS: Array<[RegExp, string]> = [
   [/\bbuttons?\b/i, 'button'],
@@ -252,30 +198,6 @@ export function extractRole(text: string): string | undefined {
   return undefined;
 }
 
-/**
- * Collapses a control and its own text into the one control it is.
- *
- * **The rule, precisely:** within a set of nodes that already share an
- * accessible name, a TEXT node is dropped **only if a non-text node is present
- * in that same set**. Nothing else is touched.
- *
- * - `button "Search"` + `StaticText "Search"` -> one candidate, the button.
- *   They are one control appearing twice in a flattened tree.
- * - `StaticText "No employees registered yet."` alone -> KEPT. A label with no
- *   interactive partner is a real target and dropping it loses coverage
- *   silently, which is the failure mode that matters most here.
- * - `button "Save"` + `link "Save"` -> both KEPT. Two real controls sharing a
- *   name is genuine ambiguity, and refusing is still correct.
- *
- * Note what this does NOT do: it never picks between two real candidates. The
- * ambiguity rule is untouched — this only stops one control being counted as
- * two, which was never ambiguity in the first place.
- */
-export function collapseTextDuplicates<T extends { role: string }>(candidates: T[]): T[] {
-  const hasControl = candidates.some((node) => !TEXT_ROLES.includes(node.role));
-  if (!hasControl) return candidates;
-  return candidates.filter((node) => !TEXT_ROLES.includes(node.role));
-}
 
 /**
  * Resolves one authored row against a bounded capture.
@@ -500,3 +422,14 @@ export function resolveSheet(
 
   return { rows, byOutcome };
 }
+
+/**
+ * Re-exported from , which is where the rule lives now.
+ *
+ * Door A needed the same rule (see that file), and two copies would drift while
+ * both doors' tests kept passing against their own version.
+ */
+export { CANDIDATE_ROLES, TEXT_ROLES, collapseTextDuplicates };
+
+/** Historic name for the ARIA role list. The executor addresses exactly these. */
+export const ADDRESSABLE_ROLES = ARIA_ROLES;

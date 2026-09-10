@@ -44,19 +44,57 @@ export interface ProposalAssertion {
   reason: string;
 }
 
-export interface OpenQuestion {
+/**
+ * An assertion the MODEL made that grounding could not confirm.
+ *
+ * Derived by this file from a `assumed` grade — the model committed to a claim
+ * and the capture is silent about it. **Renamed from `OpenQuestion` on
+ * 2026-09-10**, because that name collided with the questions the model itself
+ * returns, and the collision is why a discarded field looked present: a reader
+ * of `TestCaseProposal` saw `openQuestions`, assumed the model's questions were
+ * there, and never checked. Two distinct concepts cannot share an identifier.
+ *
+ * This one is *"we asked and the evidence does not settle it"*.
+ * `ModelQuestion` is *"the model declined to assert and asked instead"*.
+ */
+export interface UngroundedAssertion {
   question: string;
   /**
    * The FAULT, machine-readable — not a sentence a reader has to classify.
    *
-   * Several faults produce an identical-looking open question and have
-   * opposite fixes (re-capture the flow, versus widen bounding's selector).
-   * Carrying the grader's code means a reviewer is never left choosing between
-   * them by reading prose.
+   * Several faults produce an identical-looking question and have opposite
+   * fixes (re-capture the flow, versus widen bounding's selector). Carrying the
+   * grader's code means a reviewer is never left choosing between them by
+   * reading prose.
    */
   whyUngrounded: GroundingReason;
   /** The grader's own words, for a human reading one question. */
   whyUngroundedDetail: string;
+  wouldAssert: string;
+}
+
+/**
+ * A question the MODEL asked instead of asserting.
+ *
+ * The prompt asks for these (rule 3: *"if you believe a flow works a certain
+ * way and no transition says so, that belongs in `openQuestions`"*), the model
+ * supplies them, and until 2026-09-10 the engine discarded every one — its
+ * `ModelResponse` read only `cases`.
+ *
+ * **This is the most valuable thing the model sends.** It is the model naming
+ * what it could not determine, which is worth strictly more than the
+ * low-confidence guess it declined to make: a guess has to be checked before it
+ * can be trusted, and a question is already the check. Measured on the first
+ * real call: one command returned 0 cases and 5 questions, and the run reported
+ * "proposals 0, refusals 0" — the model's careful account of why it could not
+ * proceed, reported as its silence.
+ *
+ * Kept VERBATIM. The model's own words are the point; paraphrasing them into
+ * our vocabulary would lose the specificity that makes one worth reading.
+ */
+export interface ModelQuestion {
+  question: string;
+  /** What the model would have asserted, had the capture supported it. */
   wouldAssert: string;
 }
 
@@ -73,7 +111,14 @@ export interface TestCaseProposal {
   model: string;
   title: string;
   assertions: ProposalAssertion[];
-  openQuestions: OpenQuestion[];
+  /** Assertions the model MADE that grounding could not confirm. Derived here. */
+  ungroundedAssertions: UngroundedAssertion[];
+  /**
+   * Questions the MODEL asked instead of asserting. Verbatim, never derived.
+   *
+   * A proposal with zero assertions and five of these is a RESULT, not a blank.
+   */
+  modelQuestions: ModelQuestion[];
   provenance: ProposalProvenance;
   gate?: GenerationGateVerdict;
   /** A proposal that would create, modify or delete data is marked and held. */
@@ -115,6 +160,8 @@ export function buildProposal(input: {
   capture: BoundedCapture;
   modelCase: ModelCase;
   gate?: GenerationGateVerdict;
+  /** The model's own questions, from the same response as `modelCase`. */
+  modelQuestions?: ModelQuestion[];
   now?: string;
 }): TestCaseProposal {
   const { modelCase, capture } = input;
@@ -136,7 +183,7 @@ export function buildProposal(input: {
   const ids = assertionIdsFor(candidate, graded);
 
   const assertions: ProposalAssertion[] = [];
-  const openQuestions: OpenQuestion[] = [];
+  const ungroundedAssertions: UngroundedAssertion[] = [];
   let idIndex = 0;
 
   for (const [stepIndex, step] of modelCase.steps.entries()) {
@@ -172,7 +219,7 @@ export function buildProposal(input: {
     assertions.push(assertion);
 
     if (grade.grade === 'assumed') {
-      openQuestions.push({
+      ungroundedAssertions.push({
         question: `Does ${step.role} "${step.name}" have ${step.property}=${step.expected}?`,
         whyUngrounded: grade.why,
         whyUngroundedDetail: grade.reason,
@@ -190,7 +237,11 @@ export function buildProposal(input: {
     // CONTRADICTED assertions are kept on the record for diagnostics but are
     // never eligible to become steps — see the grades section of the design.
     assertions,
-    openQuestions,
+    ungroundedAssertions,
+    // Carried through VERBATIM from the model's response. Until 2026-09-10 the
+    // engine never read the field, so this was always an empty array and the
+    // model's questions were lost between the wire and the record.
+    modelQuestions: input.modelQuestions ?? [],
     provenance: {
       promptVersion: input.promptVersion,
       captureDigest: captureDigest(capture),

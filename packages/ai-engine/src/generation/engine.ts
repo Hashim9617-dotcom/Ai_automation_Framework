@@ -10,6 +10,7 @@ import {
   type GenerationGateVerdict,
   type InventoryEntry,
   type ModelCase,
+  type ModelQuestion,
   type PromptInput,
   type TestCaseProposal,
 } from '@aitp/shared';
@@ -54,6 +55,7 @@ export interface RefusedCase {
 export interface GenerationResult {
   proposals: TestCaseProposal[];
   refusals: RefusedCase[];
+  modelQuestions: ModelQuestion[];
   gate: GenerationGateVerdict;
   /** The key this generation used — logged so a cache miss is explainable. */
   cacheKey: string;
@@ -70,6 +72,19 @@ export interface GenerationEngineOptions {
 
 interface ModelResponse {
   cases?: ModelCase[];
+  /**
+   * The model's own questions. **Read since 2026-09-10; discarded before that.**
+   *
+   * The prompt asks for these and the model supplies them on every call, but
+   * this interface listed only `cases`, so they were dropped silently. One real
+   * command returned 0 cases and 5 questions and the run reported
+   * "proposals 0, refusals 0" — reporting the model's careful account of what it
+   * could not determine as though the model had said nothing.
+   *
+   * No test caught it because the mock never produced the field: a mock encodes
+   * what you believe the system returns.
+   */
+  openQuestions?: ModelQuestion[];
 }
 
 const RESPONSE_SCHEMA = {
@@ -123,7 +138,7 @@ export class GenerationEngine {
 
     if (!gate.generate) {
       this.log.info(gate.reason, { command: input.command });
-      return { proposals: [], refusals: [], gate, cacheKey, called: false };
+      return { proposals: [], refusals: [], modelQuestions: [], gate, cacheKey, called: false };
     }
 
     const completion = await this.gateway.completeJson<ModelResponse>({
@@ -141,8 +156,11 @@ export class GenerationEngine {
       cacheKey,
     });
 
+    const modelQuestions = completion.content?.openQuestions ?? [];
+
     const { proposals, refusals } = this.review({
       cases: completion.content?.cases ?? [],
+      modelQuestions,
       capture: input.capture,
       command: input.command,
       model: `${completion.provider}/${completion.model}`,
@@ -154,11 +172,14 @@ export class GenerationEngine {
       command: input.command,
       proposals: proposals.length,
       refusals: refusals.length,
+      // Logged so "0 proposals" can never again be read as the model having
+      // said nothing. A run with no cases and five questions is a RESULT.
+      modelQuestions: modelQuestions.length,
       cached: completion.usage.cached,
       costUsd: completion.usage.costUsd,
     });
 
-    return { proposals, refusals, gate, cacheKey, called: true };
+    return { proposals, refusals, modelQuestions, gate, cacheKey, called: true };
   }
 
   /**
@@ -173,6 +194,7 @@ export class GenerationEngine {
    */
   private review(input: {
     cases: ModelCase[];
+    modelQuestions: ModelQuestion[];
     capture: BoundedCapture;
     command: string;
     model: string;
@@ -214,6 +236,7 @@ export class GenerationEngine {
           promptVersion: PROMPT_VERSION,
           capture: input.capture,
           modelCase,
+          modelQuestions: input.modelQuestions,
           gate: input.gate,
         }),
       );

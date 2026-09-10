@@ -11,7 +11,11 @@ export * from './generation/gate';
 export * from './generation/identity';
 export * from './generation/prompt';
 export * from './generation/proposal';
+export * from './generation/review';
+export * from './generation/emit';
 export * from './generation/grounding';
+export * from './a11y/addressability';
+
 export * from './authored/xlsx';
 export * from './authored/final-test-cases';
 export * from './authored/sheet';
