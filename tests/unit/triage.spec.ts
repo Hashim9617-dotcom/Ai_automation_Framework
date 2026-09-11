@@ -37,7 +37,7 @@ test.describe('a target must look like a NAME, not a sentence (P) @unit', () => 
   test('P: a real label still parses', () => {
     // wrong: a check that rejected everything would pass the test above while
     // making every clause unresolvable — the refuses-everything failure again.
-    expect(extractTarget('verify \"Save\" is visible')).toBe('Save');
+    expect(extractTarget('verify "Save" is visible')).toBe('Save');
     expect(extractTarget('Menu visible')).toBe('Menu');
   });
 

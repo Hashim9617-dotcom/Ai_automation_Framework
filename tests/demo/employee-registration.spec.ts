@@ -15,7 +15,7 @@ test.describe('Employee registration', { tag: ['@regression', '@pim'] }, () => {
     await login.login(env.users.admin!.username, env.users.admin!.password);
   });
 
-  test('registers a new employee and shows it in the directory', async ({ makePage, data }) => {
+  test('registers a new employee and shows it in the directory', async ({ makePage }) => {
     const employees = makePage(EmployeesPage);
     const employee = employeeData({ department: 'Engineering' });
 
@@ -36,7 +36,7 @@ test.describe('Employee registration', { tag: ['@regression', '@pim'] }, () => {
     expect(await employees.rowCount()).toBe(1);
   });
 
-  test('rejects a duplicate employee ID', async ({ makePage, data }) => {
+  test('rejects a duplicate employee ID', async ({ makePage }) => {
     const employees = makePage(EmployeesPage);
     const employee = employeeData();
     const payload = {
@@ -56,7 +56,7 @@ test.describe('Employee registration', { tag: ['@regression', '@pim'] }, () => {
     expect(await employees.rowCount()).toBe(1);
   });
 
-  test('requires the mandatory fields', { tag: '@smoke' }, async ({ makePage, data }) => {
+  test('requires the mandatory fields', { tag: '@smoke' }, async ({ makePage }) => {
     const employees = makePage(EmployeesPage);
     const employee = employeeData();
 

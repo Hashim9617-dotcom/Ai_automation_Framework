@@ -20,6 +20,8 @@
  *   emitted with a placeholder;
  * - the writer verifies what landed, both ways, before reporting success.
  */
+/* eslint-disable no-console -- interactive review output for a human (proposal
+   lists, refusals, the rendered review) — not a machine-consumable log line. */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {

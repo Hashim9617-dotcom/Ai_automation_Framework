@@ -1,5 +1,5 @@
 import { test as base } from '@playwright/test';
-import { Logger, rootLogger } from '@aitp/shared';
+import { type Logger, rootLogger } from '@aitp/shared';
 import { loadEnvironment } from '../config/environment';
 import type { EnvironmentConfig } from '../config/schema';
 import { ApiClient } from '../api/api-client';

@@ -20,6 +20,8 @@
  * carries live credentials in its Test Data column, so it stays outside the
  * repo and this script only ever reads it.
  */
+/* eslint-disable no-console -- triage summary for a human to check by eye
+   (capture pairing, row counts) — not a machine-consumable log line. */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {

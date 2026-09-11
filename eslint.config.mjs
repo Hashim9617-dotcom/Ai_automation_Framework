@@ -12,6 +12,10 @@ export default tseslint.config(
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
+      // Mirror tsconfig.base.json. Without these, consistent-type-imports cannot see that a
+      // Nest constructor parameter's type is a runtime DI token, and its autofix to
+      // `import type` would erase the metadata injection depends on.
+      parserOptions: { experimentalDecorators: true, emitDecoratorMetadata: true },
       globals: {
         process: 'readonly',
         console: 'readonly',

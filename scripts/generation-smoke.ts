@@ -137,6 +137,7 @@ function loadEnvFile(file: string): void {
   }
 }
 
+// eslint-disable-next-line no-console -- the smoke report is read by a human, line by line.
 const line = (s = '') => console.log(s);
 const heading = (s: string) => {
   line();

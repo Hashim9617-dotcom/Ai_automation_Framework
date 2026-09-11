@@ -24,6 +24,8 @@
  * environment. It asserts its own effect — a scan that finds no files fails
  * rather than reporting success.
  */
+/* eslint-disable no-console -- CLI verdict for a human or CI log; the exit code
+   is the machine-readable result. */
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
