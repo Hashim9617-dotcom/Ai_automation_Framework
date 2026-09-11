@@ -141,7 +141,7 @@ export async function captureDomSnapshot(
           text:
             el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
               ? undefined
-              : ((el as HTMLElement).innerText?.trim().slice(0, 200) || undefined),
+              : (el as HTMLElement).innerText?.trim().slice(0, 200) || undefined,
           tag: el.tagName.toLowerCase(),
           testId:
             el.getAttribute('data-testid') ??

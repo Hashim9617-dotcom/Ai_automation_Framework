@@ -164,7 +164,14 @@ test.describe('proposal — what the model was shown (M3) @unit', () => {
       title: 'x',
       entryState: 'admin.create-role',
       steps: [
-        { kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: true, modelSaid: 'observed' },
+        {
+          kind: 'assert',
+          role: 'button',
+          name: 'Create',
+          property: 'enabled',
+          expected: true,
+          modelSaid: 'observed',
+        },
       ],
     });
 
@@ -182,12 +189,21 @@ test.describe('proposal — what the model was shown (M3) @unit', () => {
       title: 'x',
       entryState: 'admin.create-role',
       steps: [
-        { kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: true, modelSaid: 'observed' },
+        {
+          kind: 'assert',
+          role: 'button',
+          name: 'Create',
+          property: 'enabled',
+          expected: true,
+          modelSaid: 'observed',
+        },
       ],
     });
     const changed: BoundedCapture = {
       ...capture,
-      states: [{ ...capture.states[0]!, nodes: [{ role: 'button', name: 'Create', enabled: false }] }],
+      states: [
+        { ...capture.states[0]!, nodes: [{ role: 'button', name: 'Create', enabled: false }] },
+      ],
     };
     const b = buildProposal({
       id: 'p2',
@@ -199,7 +215,14 @@ test.describe('proposal — what the model was shown (M3) @unit', () => {
         title: 'x',
         entryState: 'admin.create-role',
         steps: [
-          { kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: true, modelSaid: 'observed' },
+          {
+            kind: 'assert',
+            role: 'button',
+            name: 'Create',
+            property: 'enabled',
+            expected: true,
+            modelSaid: 'observed',
+          },
         ],
       },
     });
@@ -213,9 +236,30 @@ test.describe('proposal — only observed assertions are proposable (M4) @unit',
       title: 'mixed',
       entryState: 'admin.create-role',
       steps: [
-        { kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: true, modelSaid: 'observed' },
-        { kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: false, modelSaid: 'observed' },
-        { kind: 'assert', role: 'button', name: 'Ghost', property: 'selected', expected: true, modelSaid: 'observed' },
+        {
+          kind: 'assert',
+          role: 'button',
+          name: 'Create',
+          property: 'enabled',
+          expected: true,
+          modelSaid: 'observed',
+        },
+        {
+          kind: 'assert',
+          role: 'button',
+          name: 'Create',
+          property: 'enabled',
+          expected: false,
+          modelSaid: 'observed',
+        },
+        {
+          kind: 'assert',
+          role: 'button',
+          name: 'Ghost',
+          property: 'selected',
+          expected: true,
+          modelSaid: 'observed',
+        },
       ],
     });
 
@@ -231,7 +275,14 @@ test.describe('proposal — only observed assertions are proposable (M4) @unit',
       entryState: 'admin.create-role',
       steps: [
         { kind: 'action', description: 'clicked something undeclared' },
-        { kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: true, modelSaid: 'observed' },
+        {
+          kind: 'assert',
+          role: 'button',
+          name: 'Create',
+          property: 'enabled',
+          expected: true,
+          modelSaid: 'observed',
+        },
       ],
     });
     expect(proposal.ungroundedAssertions.length).toBe(1);
@@ -244,7 +295,14 @@ test.describe('proposal — write risk is marked and held (M5) @unit', () => {
     title: 'the roles list loads',
     entryState: 'admin.create-role',
     steps: [
-      { kind: 'assert', role: 'button', name: 'Clear', property: 'present', expected: true, modelSaid: 'observed' },
+      {
+        kind: 'assert',
+        role: 'button',
+        name: 'Clear',
+        property: 'present',
+        expected: true,
+        modelSaid: 'observed',
+      },
     ],
   };
 
@@ -257,7 +315,10 @@ test.describe('proposal — write risk is marked and held (M5) @unit', () => {
     expect(
       assessWriteRisk({
         ...readOnly,
-        steps: [{ kind: 'action', description: 'clicked Create to save the new role' }, ...readOnly.steps],
+        steps: [
+          { kind: 'action', description: 'clicked Create to save the new role' },
+          ...readOnly.steps,
+        ],
       }),
     ).toBe('creates-data');
   });
@@ -302,9 +363,30 @@ test.describe('proposal — write risk has a negative case (M6) @unit', () => {
     entryState: 'admin.create-role',
     steps: [
       { kind: 'action', description: 'clicked the Roles tab' },
-      { kind: 'assert', role: 'heading', name: 'Select destination folder', property: 'present', expected: true, modelSaid: 'observed' },
-      { kind: 'assert', role: 'button', name: 'Clear', property: 'enabled', expected: true, modelSaid: 'observed' },
-      { kind: 'assert', role: 'tab', name: 'Folder', property: 'selected', expected: true, modelSaid: 'observed' },
+      {
+        kind: 'assert',
+        role: 'heading',
+        name: 'Select destination folder',
+        property: 'present',
+        expected: true,
+        modelSaid: 'observed',
+      },
+      {
+        kind: 'assert',
+        role: 'button',
+        name: 'Clear',
+        property: 'enabled',
+        expected: true,
+        modelSaid: 'observed',
+      },
+      {
+        kind: 'assert',
+        role: 'tab',
+        name: 'Folder',
+        property: 'selected',
+        expected: true,
+        modelSaid: 'observed',
+      },
     ],
   };
 
@@ -346,7 +428,16 @@ test.describe('proposal — write risk has a negative case (M6) @unit', () => {
     expect(
       assessWriteRisk({
         ...plainlyReadOnly,
-        steps: [{ kind: 'assert', role: 'link', name: 'Address book', property: 'present', expected: true, modelSaid: 'observed' }],
+        steps: [
+          {
+            kind: 'assert',
+            role: 'link',
+            name: 'Address book',
+            property: 'present',
+            expected: true,
+            modelSaid: 'observed',
+          },
+        ],
       }),
     ).toBe('creates-data');
   });

@@ -12,11 +12,11 @@ app, not in our code. Not fixed — just documented with evidence.
 (`artifacts/auth/app.json`, cookies/localStorage — values withheld, this is
 timestamps only):
 
-| Token | Location | Issued (`iat`) | Expires (`exp`) | TTL |
-| --- | --- | --- | --- | --- |
-| `access_token` | localStorage, JWT | 2026-08-20T10:40:21Z | 2026-08-20T11:40:21Z | 60 min |
+| Token           | Location          | Issued (`iat`)       | Expires (`exp`)      | TTL        |
+| --------------- | ----------------- | -------------------- | -------------------- | ---------- |
+| `access_token`  | localStorage, JWT | 2026-08-20T10:40:21Z | 2026-08-20T11:40:21Z | 60 min     |
 | `refresh_token` | localStorage, JWT | 2026-08-20T10:40:21Z | 2026-08-20T10:55:21Z | **15 min** |
-| `refresh_token` | cookie | — | 2026-08-27 | ~7 days |
+| `refresh_token` | cookie            | —                    | 2026-08-27           | ~7 days    |
 
 The localStorage `refresh_token` — the one a silent-refresh flow would use to
 mint a new `access_token` — expires in a quarter of the time the
@@ -88,7 +88,7 @@ a full run to completion under the current TTL, since the session dies partway
 through purely from the run's own duration.
 
 This is why the fix on our side (`tests/app/auth.setup.ts`, wired via
-`dependencies` in `playwright.config.ts`) only buys a fresh *start*, not
+`dependencies` in `playwright.config.ts`) only buys a fresh _start_, not
 immunity for the whole run — later tests in a full run can still legitimately
 hit this expiry. That is exactly what `AppPage`'s `SessionExpiredError` guard
 (`tests/app/pages/app.page.ts`) is for: when it happens, the run must call it
@@ -101,7 +101,7 @@ runtime and TTL doesn't fix the inversion in Finding 1.
 
 `RCA_AUTO=true` by default and the DMS environment ships with
 `aiRootCause: true` (`config/env/app.json`), so root cause analysis runs
-automatically after any failed run — *if* `ANTHROPIC_API_KEY` is set in
+automatically after any failed run — _if_ `ANTHROPIC_API_KEY` is set in
 `.env`. It was not set during this investigation, so every RCA pass was
 silently skipped (the platform logs and skips rather than writing empty
 verdicts — see `README.md`, "Root cause analysis").
@@ -195,11 +195,11 @@ because the upstream trigger (`files.newWorkspace`, the "+ New workspace"
 button) never actually opens the dialog. Telemetry from a clean run
 contradicts this:
 
-| Locator key | Result | Duration |
-| --- | --- | --- |
-| `files.newWorkspace` (trigger click) | resolved | 4728ms |
-| `files.dialog.name` (name field inside the dialog) | resolved | 10ms |
-| `files.dialog.create` (Create button) | **`LocatorResolutionError`** | timed out |
+| Locator key                                        | Result                       | Duration  |
+| -------------------------------------------------- | ---------------------------- | --------- |
+| `files.newWorkspace` (trigger click)               | resolved                     | 4728ms    |
+| `files.dialog.name` (name field inside the dialog) | resolved                     | 10ms      |
+| `files.dialog.create` (Create button)              | **`LocatorResolutionError`** | timed out |
 
 The trigger click succeeds, and the dialog opens fast enough that its name
 field resolves in 10ms — proof the dialog is open, not merely attempted. The
@@ -224,7 +224,7 @@ candidate and its 8-second timeout were out of the way. State 3 has never
 been confirmed to occur on this app. `smart-locator.ts` stays untouched.
 
 This section is kept as a design note, not a queued change: the reasoning
-about *why* a resolution-history-based signal beats DOM-mutation quiescence
+about _why_ a resolution-history-based signal beats DOM-mutation quiescence
 for telling "present, then unresolvable" apart from "never present" is still
 sound, and worth having on file if a genuine instance of that failure mode
 ever turns up. It should not be built speculatively against a symptom that
@@ -253,7 +253,7 @@ different responses:
 3. **Present, then unresolvable.** The element existed — findable by name,
    correctly labeled — and later resolution attempts against the identical
    candidate fail. Do not heal here either, and for a sharper reason than
-   state 2: healing this looks *successful* (something will match) while
+   state 2: healing this looks _successful_ (something will match) while
    silently replacing a correct locator with one that happens to match
    whatever transient state is on screen at that instant. That candidate will
    rot on the very next run, now with no history explaining why it was ever
@@ -269,7 +269,7 @@ its screencast frames — not another round of live probing.
 - **Timeline:** click "New User" at `T+0`; the create-form's Username field
   resolves in 10ms; the wait for the "Create User" button starts and times
   out at exactly `candidateTimeout` (8000ms), throwing `LocatorResolutionError`.
-- **Network** (`0-trace.network`): the last API call finishes *before* the
+- **Network** (`0-trace.network`): the last API call finishes _before_ the
   wait even starts. Nothing fires for the full 8 seconds. No background
   refresh triggers this failure — that hypothesis is now ruled out for this
   case.
@@ -292,7 +292,7 @@ covered, and the page did not visibly churn during the window
 time — and still never resolved. That rules out "still rendering" (state 2)
 just as firmly as it rules out "genuinely absent" (state 1). It is state 3,
 but **not because the subtree was churning** — the opposite: it was
-motionless. (A *separate*, earlier experiment — an explicit 45-second wait on
+motionless. (A _separate_, earlier experiment — an explicit 45-second wait on
 this same locator — did show the dialog fully closed by the time it gave up.
 Whether that is the same mechanism running slower, or a second issue on a
 longer timescale, is not something this trace resolves. Both possibilities
@@ -309,16 +309,16 @@ prevent it.
 
 **Revised design (still not implemented — for review before any code changes):**
 
-*Phase 1 — unchanged.* Walk candidates exactly as today, one
+_Phase 1 — unchanged._ Walk candidates exactly as today, one
 `waitFor({ state: 'attached', timeout: candidateTimeout })` per candidate in
 order. Fast path, covers the overwhelming majority of resolutions.
 
-*Phase 2 — new, entered only if every candidate in Phase 1 failed.*
+_Phase 2 — new, entered only if every candidate in Phase 1 failed._
 
 1. Take a lightweight "was this ever findable in this test?" reading before
    deciding anything: `SmartLocator` already reports every successful
    resolution via `onResolved` (`LocatorResolution`, keyed by `spec.key`). If
-   *this exact key* resolved earlier in the same test — not a different key,
+   _this exact key_ resolved earlier in the same test — not a different key,
    not a guess, the actual telemetry record — and now every candidate fails,
    that is direct, structural evidence for state 3: it does not depend on
    inferring intent from mutation timing at all, and it is exactly what
@@ -331,7 +331,7 @@ order. Fast path, covers the overwhelming majority of resolutions.
    `LOCATOR_CANDIDATE_TIMEOUT`'s existing env-override pattern). If anything
    resolves, return it — log a warning that it needed the grace window.
 3. If the grace window also expires: run one supplementary check with a
-   *looser* query than the exact candidate — same role, substring name match
+   _looser_ query than the exact candidate — same role, substring name match
    instead of exact, or (falling back further) a plain
    `document.querySelectorAll` text/tag scan in the style of
    `captureDomSnapshot`. If something plausible turns up under the loose
@@ -342,10 +342,11 @@ order. Fast path, covers the overwhelming majority of resolutions.
    `LocatorResolutionError`, exactly as today; `onHealRequested` may fire.
 
 This drops mutation-quiescence entirely — it distinguished the wrong axis.
-States are now told apart by *resolution history and presence-under-a-looser-query*,
+States are now told apart by _resolution history and presence-under-a-looser-query_,
 not by whether the page was moving.
 
 **New error classes:**
+
 - `NotYetRenderedError extends PlatformError` (code `NOT_YET_RENDERED`) — state 2.
 - `ElementDetachedError extends PlatformError` (code `ELEMENT_DETACHED`) — state 3.
 
@@ -367,6 +368,7 @@ inspect`). This trace's group-picker failure would now correctly come back
 `LocatorResolutionError` misclassified as either of the other two.
 
 **Open questions, unchanged in kind, updated for the new design:**
+
 - The resolution-history check (step 1) needs the per-test telemetry list
   threaded into `SmartLocator` itself, or a small per-key cache alongside it
   — currently `onResolved` is fire-and-forget outward to the fixture, not
@@ -376,7 +378,7 @@ inspect`). This trace's group-picker failure would now correctly come back
   cheap, since it only runs after Phase 2 already failed, not on every call.
 - `renderGraceMs` still needs a default and an env override
   (`LOCATOR_RENDER_GRACE_MS`?).
-- Still open: *why* the accessibility-tree/role query fails to resolve a
+- Still open: _why_ the accessibility-tree/role query fails to resolve a
   structurally unremarkable, visually stable button. Nothing in this
   proposal explains that — it only makes sure the resulting error is
   reported honestly instead of being misread as a bad locator. Getting to
@@ -411,7 +413,7 @@ three independent ways in one session:
 
 **Why every earlier round missed this.** Both the original investigation
 and the "state-binding bug" update stared exclusively at the tile's own
-checkmark and the page's *first* `Next` button — never at which step the
+checkmark and the page's _first_ `Next` button — never at which step the
 wizard was actually on. Once the workspace step auto-advances, `.ti-check`
 inside the old (now-departed) workspace grid genuinely does become
 unqueryable — not because of a state-binding failure, but because that
@@ -424,7 +426,7 @@ write-ups is explained by this, with no state-binding defect required.
 
 **What was actually broken: the test's model of the flow, not the app.**
 `upload.spec.ts`'s three failing tests all called `chooseWorkspace()`
-*and then* `goNext()` (or asserted `expectNextEnabled()` on what they
+_and then_ `goNext()` (or asserted `expectNextEnabled()` on what they
 assumed was still the workspace step) — an extra, unnecessary advance that
 either hung for the full action timeout clicking a legitimately-disabled
 Folder-step Next, or asserted the wrong step's button state entirely.
@@ -445,13 +447,13 @@ report.** This is now a fixed test, not an app defect.
 
 **Original entries, both wrong about the mechanism, kept for the record:**
 
-*Original claim ("clicking the workspace tile has no observable effect"):*
+_Original claim ("clicking the workspace tile has no observable effect"):_
 The scoping hypothesis (`option()`'s unscoped `.first()`) was tested and
 ruled out — one correct, unambiguous match every time. Clicking it, tried
 three ways, "succeeded" with no error but produced no observable change in
 the checkmark or `Next`'s disabled state over a 10-second poll.
 
-*First update ("the click registers but state-binding is broken"):* Tested
+_First update ("the click registers but state-binding is broken"):_ Tested
 against Finding 11's wrapper-vs-inner-control hypothesis via CDP and ruled
 it out (the tile is a single atomic `<button>`, no nested control). Then
 instrumented the click and found it fires a real, workspace-scoped network
@@ -516,6 +518,7 @@ before touching anything else. No record was created — the dialog never
 closed, so there was nothing to clean up.
 
 **Observed:**
+
 - **Zero network requests fired.** The click never reaches the backend with
   an empty form.
 - **The dialog stayed open** — `.syn-doc-modal` count unchanged.
@@ -527,7 +530,7 @@ closed, so there was nothing to clean up.
 button ahead of time — a legitimate, common form-UX pattern, and a
 completely different (and correct) contract from what `toBeDisabled()` was
 checking for. The Create button being enabled on an empty form was never a
-bug. It was our test's assumption about *how* validation should be
+bug. It was our test's assumption about _how_ validation should be
 implemented, asserted as if it were the app's specification. Retracting the
 Groups-specific "missing validation" reading entirely — there is no
 inconsistency between the three admin forms; all three follow the same
@@ -539,11 +542,11 @@ forms (still zero records created — both dialogs stayed open). The
 mechanism is identical across all three (no network request, dialog stays
 open, inline messages appear), but **the wording is not uniform**:
 
-| Form | Required-field messages |
-| --- | --- |
-| Roles | "Name is required", "Code is required", "Portal is required" |
-| Groups | "Group name is required" (not "Name"), "Portal is required" |
-| Users | "Username is required", "Password is required", "First name is required", "Last name is required", "Email is required", "At least one user role is required", "At least one portal is required" |
+| Form   | Required-field messages                                                                                                                                                                         |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Roles  | "Name is required", "Code is required", "Portal is required"                                                                                                                                    |
+| Groups | "Group name is required" (not "Name"), "Portal is required"                                                                                                                                     |
+| Users  | "Username is required", "Password is required", "First name is required", "Last name is required", "Email is required", "At least one user role is required", "At least one portal is required" |
 
 Users' two multi-select fields (User Role, Portal) use an "At least one …
 is required" phrasing distinct from the plain "<Field> is required" pattern
@@ -586,7 +589,7 @@ remaining 21 (and any future ones) works, but treats the symptom one locator
 at a time forever.
 
 **Proposed design (not implemented — for review before any code changes):**
-normalise the computed accessible name *before* any comparison happens,
+normalise the computed accessible name _before_ any comparison happens,
 inside the strategy-building step in `packages/execution-engine/src/locators/smart-locator.ts`'s
 `build()` — or, better, inside a small helper `SmartLocator` calls for every
 `role` candidate's `options.name`, so plain `getByRole` calls elsewhere in
@@ -606,8 +609,8 @@ function normaliseAccessibleName(name: string): string {
 
 This cannot change what Chrome's accessibility tree actually computes (that
 is real, and Playwright's `name` matching queries it directly) — so this
-would not make `exact: true` match the *raw* computed name. What it changes
-is what candidates should be *authored against*: if `SmartLocator` exposes
+would not make `exact: true` match the _raw_ computed name. What it changes
+is what candidates should be _authored against_: if `SmartLocator` exposes
 (or `captureDomSnapshot` and `pnpm inspect` report) the **normalised** name
 rather than the raw one, every future hand-written `exact: true` candidate
 gets written against `"Create User"`, never against `"  Create User"`
@@ -618,13 +621,14 @@ above (their real names are unknown until checked), but it means checking
 them stops being a game of finding invisible characters by hand.
 
 **Open questions, for review, not yet resolved:**
+
 - Should normalisation apply only to how `pnpm inspect` / `captureDomSnapshot`
-  *report* names (so authors write correct candidates going forward), or
+  _report_ names (so authors write correct candidates going forward), or
   should `SmartLocator` also try a normalised-name match as an automatic
   extra candidate step (closer to a real fix, but a bigger, riskier change to
   matching semantics)? Leaning toward the former first — it is much smaller,
   and Finding 5/6 show that once the real name is known, a plain non-exact
-  or `\b`-anchored candidate is enough; the missing piece was *visibility*
+  or `\b`-anchored candidate is enough; the missing piece was _visibility_
   into the real name, not a smarter matcher.
 - Whether to also warn (once, at candidate-authoring or healing time) when an
   `exact: true` candidate's target contains characters in `PUA_AND_ZERO_WIDTH`
@@ -635,8 +639,7 @@ Not implemented. `smart-locator.ts` untouched, alongside Finding 7.
 
 ## Finding 11 — root cause of the file-explorer tree failures: `treeitem` accessible names include their nested chevron and menu-trigger labels
 
-**What was assumed going in.** The upload-wizard scoping hypothesis (Finding
-8) — that an unscoped `.first()` was matching the wrong element.
+**What was assumed going in.** The upload-wizard scoping hypothesis (Finding 8) — that an unscoped `.first()` was matching the wrong element.
 
 **What was actually true, confirmed live via CDP `Accessibility.getFullAXTree`
 against `/files`.** A workspace row's computed accessible name is not its
@@ -712,14 +715,14 @@ genuine, if low-severity, WAI-ARIA gap, not purely a test problem.
 "fixed" with a base-class retry, then reverted.** The fix that shipped in
 the previous commit wrapped every `BasePage` action helper
 (`click`/`type`/`selectOption`/`textOf`/`isVisible`/`expectVisible`) in a
-retry around locator *resolution* specifically, reasoning that
+retry around locator _resolution_ specifically, reasoning that
 `SmartLocator.resolve()`'s single `candidateTimeout` window (2s) was too
 tight for a page's first render under real 4-worker concurrency at run
 start. That reasoning was never actually verified and does not hold up:
 
 - The only evidence was indirect — the failures recovered on Playwright's
-  own whole-*test* retry (a fresh page navigation from scratch), which is
-  not evidence that waiting longer *at the same point in the same attempt*
+  own whole-_test_ retry (a fresh page navigation from scratch), which is
+  not evidence that waiting longer _at the same point in the same attempt_
   would have worked. No trace or CDP snapshot was captured to check whether
   the element was genuinely still-rendering at the moment of failure, the
   way Finding 5's trace investigation or Finding 11's CDP dump did before
@@ -730,7 +733,7 @@ start. That reasoning was never actually verified and does not hold up:
   layer, not a fix to the thing that already retries.
 - Structurally, a base-class change is the wrong altitude for a fix that
   isn't even confirmed yet: it silently changes resolution behavior for
-  *every* locator in the suite, which converts intermittent failures into
+  _every_ locator in the suite, which converts intermittent failures into
   passes suite-wide — exactly the effect this findings log has spent three
   days working against, since a red test misclassified as flaky (and then
   quietly retried away) is worse than a red test left red.
@@ -757,7 +760,7 @@ about the app's own behavior, not this suite's.
 The menu was still visible, unchanged, a full 2.5 seconds later. Confirmed
 this isn't a timing issue: clicking anywhere outside the menu closes it
 immediately (it has no dedicated backdrop element; it closes via a global
-outside-click listener), so the menu *can* be dismissed programmatically —
+outside-click listener), so the menu _can_ be dismissed programmatically —
 `Escape` specifically is simply never wired to do it.
 
 **Why this matters.** The [WAI-ARIA Menu Button
@@ -796,7 +799,7 @@ green):
   run: fired `GetFoldersAndDocumentsByFolderId` for that folder, then —
   roughly 9 seconds later — `GetPermittedWorkspaceList` and
   `DocumentTemplate/GetAll` fired again, the same two calls seen on the
-  *initial* landing on the Workspace step. The wizard's tab state afterward
+  _initial_ landing on the Workspace step. The wizard's tab state afterward
   confirmed it: `Workspace` was `aria-selected="true"` again — the wizard
   had returned to step 1, not advanced to step 3.
 
@@ -825,8 +828,8 @@ That is what a human is told they can trust without re-checking, and it is the
 whole reason `propose()` is allowed to exist alongside "never heal
 automatically".
 
-**The problem.** `matchCount === 1` is really two claims: *this* node matches
-(presence), and *no other* node matches (absence). Presence is established by
+**The problem.** `matchCount === 1` is really two claims: _this_ node matches
+(presence), and _no other_ node matches (absence). Presence is established by
 what the capture contains. Absence is not — it depends on the capture being
 **complete**. `captureAccessibilityTree` caps at `maxNodes` and sets
 `truncated: true` when it hits the cap, and until 3 Sept 2026 nothing in the
@@ -852,7 +855,7 @@ This is not specific to accessibility trees, or to healing. The same shape
 appears wherever the codebase reasons over a bounded capture:
 
 - The healing gate's **rule 4** already got this right for the DOM snapshot —
-  *"absence proves nothing in a truncated view"* — which is exactly the same
+  _"absence proves nothing in a truncated view"_ — which is exactly the same
   reasoning applied one layer down. The gap was that nobody carried it across
   to the AX snapshot, which is the capture verification actually reads.
 - `DomSnapshot.elements` is capped at `maxElements`, so "this page has no
@@ -901,13 +904,13 @@ displayed. The user sees their search silently disappear.
 
 **Observed.** Times from the start of a screen recording of a failing run:
 
-| Time | Screen state |
-| --- | --- |
-| ~4s | Query `pension` in the search box. Date range populated: Sep 8, 2025 → Sep 8, 2026. |
-| 4–8s | Spinner: "Searching documents… Fetching results from across your organization." |
-| ~7.7s | ReadGlobalSearchData returns 200, application/json, 82 KB. |
-| ~9s | The form resets. Search box empty (placeholder showing). Date range empty — From and To show bare placeholders, not their defaults. Page shows "Welcome to Search". |
-| 9–28s | No change. Results never render. |
+| Time  | Screen state                                                                                                                                                        |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~4s   | Query `pension` in the search box. Date range populated: Sep 8, 2025 → Sep 8, 2026.                                                                                 |
+| 4–8s  | Spinner: "Searching documents… Fetching results from across your organization."                                                                                     |
+| ~7.7s | ReadGlobalSearchData returns 200, application/json, 82 KB.                                                                                                          |
+| ~9s   | The form resets. Search box empty (placeholder showing). Date range empty — From and To show bare placeholders, not their defaults. Page shows "Welcome to Search". |
+| 9–28s | No change. Results never render.                                                                                                                                    |
 
 **Expected.** The 28 matching documents render, with the "28 total" summary chip.
 
@@ -943,7 +946,7 @@ own error, so the bar for calling something an app defect is an observation the
 suite is incapable of producing — and this is one.
 
 It is the same test Finding 12 applied in the other direction: there, an exact
-workspace count was abandoned because *another actor* could move it, and the
+workspace count was abandoned because _another actor_ could move it, and the
 assertion was rewritten onto the one fact no other actor could falsify. Here the
 reasoning runs the same way and lands on the app: the date fields are the one
 piece of state no actor on our side could have touched.
@@ -954,13 +957,13 @@ is the reason the conclusion is trustworthy rather than merely confident:
 empty query being sent**, and **a render crash**. Each was refuted by an
 artifact rather than by argument:
 
-| Suspected cause | Ruled out by |
-| --- | --- |
-| Rate limiting | Every request on the page returned 200. No 429 anywhere. |
-| Concurrency / parallel sessions | Re-running with a single worker made it worse, not better. |
-| Slow response | Timings are binary: a successful attempt renders in 7–9s, a failing one never renders at all, even given 20s+. A latency problem would produce a spread. |
-| Automation typing too early | The request carries serachstr=pension, so the query reached application state correctly. |
-| A rendering crash | No JavaScript error and no console message is produced. |
+| Suspected cause                 | Ruled out by                                                                                                                                             |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rate limiting                   | Every request on the page returned 200. No 429 anywhere.                                                                                                 |
+| Concurrency / parallel sessions | Re-running with a single worker made it worse, not better.                                                                                               |
+| Slow response                   | Timings are binary: a successful attempt renders in 7–9s, a failing one never renders at all, even given 20s+. A latency problem would produce a spread. |
+| Automation typing too early     | The request carries serachstr=pension, so the query reached application state correctly.                                                                 |
+| A rendering crash               | No JavaScript error and no console message is produced.                                                                                                  |
 
 Note the shape of the "slow response" refutation in particular: the timings are
 **binary**, not spread. "It is sometimes slow" and "it sometimes never happens"

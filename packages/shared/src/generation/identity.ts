@@ -9,7 +9,8 @@ import type { AssertStep, CandidateCase, CaseStep, Grade, GroundingResult } from
  * they cannot fall behind it. See that file's header.
  */
 
-const sha = (input: string): string => createHash('sha256').update(input).digest('hex').slice(0, 16);
+const sha = (input: string): string =>
+  createHash('sha256').update(input).digest('hex').slice(0, 16);
 
 /**
  * The full basis of one approval.

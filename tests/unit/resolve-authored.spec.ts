@@ -98,7 +98,9 @@ test.describe('the column decides the clause kind (C1) @unit', () => {
   test('C1: text that READS like an action is still an assertion if the column says assert', () => {
     // "click" is the strongest possible action signal. The column says Then.
     const resolved = resolveAuthoredRow(
-      rowOf([{ text: 'click the "Sign in" button should be visible', source: 'then', kind: 'assert' }]),
+      rowOf([
+        { text: 'click the "Sign in" button should be visible', source: 'then', kind: 'assert' },
+      ]),
       CAPTURE,
       'login',
     );
@@ -210,10 +212,9 @@ test.describe('the one place classification is needed (C2) @unit', () => {
  * resolver that reads neither source.
  */
 test.describe('credentials never come from the sheet (C3) @unit', () => {
-  const withCredentials = rowOf(
-    [{ text: 'click "Sign in"', source: 'when', kind: 'action' }],
-    { testData: 'mail id : ***redacted***  Password : ***redacted***' },
-  );
+  const withCredentials = rowOf([{ text: 'click "Sign in"', source: 'when', kind: 'action' }], {
+    testData: 'mail id : ***redacted***  Password : ***redacted***',
+  });
 
   test('C3: nothing resolved from a row carries a credential forward', () => {
     const resolved = resolveAuthoredRow(withCredentials, CAPTURE, 'login');
@@ -380,7 +381,11 @@ test.describe('role, then collapse, then count (C6) @unit', () => {
   };
 
   const resolveClause = (text: string, kind: 'action' | 'assert' = 'assert') =>
-    resolveAuthoredRow(rowOf([{ text, source: kind === 'action' ? 'when' : 'then', kind }]), TWINNED, 'home');
+    resolveAuthoredRow(
+      rowOf([{ text, source: kind === 'action' ? 'when' : 'then', kind }]),
+      TWINNED,
+      'home',
+    );
 
   test('C6: a control and its own text are ONE candidate, not two', () => {
     // wrong: counted as two, this row is refused as ambiguous against its
@@ -512,6 +517,9 @@ test.describe('a Given clause is the entry state (C7) @unit', () => {
       'login',
     );
     expect(resolved.steps).toHaveLength(1);
-    expect(resolved.steps[0]).toEqual({ kind: 'action', description: 'click on the Sign in button' });
+    expect(resolved.steps[0]).toEqual({
+      kind: 'action',
+      description: 'click on the Sign in button',
+    });
   });
 });

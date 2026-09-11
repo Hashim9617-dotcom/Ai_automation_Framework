@@ -82,7 +82,9 @@ export default class AitpReporter implements Reporter {
     };
 
     const outcome =
-      test.outcome() === 'flaky' ? TestOutcome.Flaky : (outcomeMap[result.status] ?? TestOutcome.Failed);
+      test.outcome() === 'flaky'
+        ? TestOutcome.Flaky
+        : (outcomeMap[result.status] ?? TestOutcome.Failed);
 
     const entry: TestResult = {
       id: test.id,

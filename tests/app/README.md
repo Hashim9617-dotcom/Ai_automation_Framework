@@ -73,11 +73,11 @@ Playwright HTML report, which embeds the same traces under `html/data/*.zip`.
 
 These read from the environment, with the defaults observed during capture:
 
-| Variable | Default | Used by |
-| --- | --- | --- |
-| `DMS_SAMPLE_WORKSPACE` | `ABCD` | file-explorer, upload |
-| `DMS_SAMPLE_FOLDER` | `auto Test 123` | file-explorer, upload |
-| `DMS_SEARCH_TERM` | `pension` | global-search |
+| Variable               | Default         | Used by               |
+| ---------------------- | --------------- | --------------------- |
+| `DMS_SAMPLE_WORKSPACE` | `ABCD`          | file-explorer, upload |
+| `DMS_SAMPLE_FOLDER`    | `auto Test 123` | file-explorer, upload |
+| `DMS_SEARCH_TERM`      | `pension`       | global-search         |
 
 If your QA instance has different data, set these instead of editing specs.
 

@@ -32,7 +32,13 @@ export interface ModelCase {
 
 export interface ProposalAssertion {
   assertionId: string;
-  claim: { stateId: string | null; role: string; name: string; property: string; expected: boolean };
+  claim: {
+    stateId: string | null;
+    role: string;
+    name: string;
+    property: string;
+    expected: boolean;
+  };
   /** Kept verbatim — a rising override rate is a signal about prompt quality. */
   modelSaid: 'observed' | 'assumed';
   /** What checkGrounding derived. This is the one that counts. */
@@ -173,7 +179,13 @@ export function buildProposal(input: {
     steps: modelCase.steps.map((step) =>
       step.kind === 'action'
         ? { kind: 'action', description: step.description }
-        : { kind: 'assert', role: step.role, name: step.name, property: step.property, expected: step.expected },
+        : {
+            kind: 'assert',
+            role: step.role,
+            name: step.name,
+            property: step.property,
+            expected: step.expected,
+          },
     ),
   };
 

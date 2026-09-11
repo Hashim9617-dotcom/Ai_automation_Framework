@@ -75,7 +75,9 @@ test.describe('identity is the composite key (F1) @unit', () => {
     // Not "skip the duplicate": a duplicate identity means no row's result can
     // be traced, so a partly-read sheet would be a report nobody can rely on.
     expect(() =>
-      readFinalTestCases(gridOf(row({ 2: 'SI_001', 3: 'TC_001' }), row({ 2: 'SI_001', 3: 'TC_001' }))),
+      readFinalTestCases(
+        gridOf(row({ 2: 'SI_001', 3: 'TC_001' }), row({ 2: 'SI_001', 3: 'TC_001' })),
+      ),
     ).toThrow(/duplicate row identity/i);
   });
 });
@@ -102,7 +104,10 @@ test.describe('columns map by POSITION (F2, F4) @unit', () => {
     // is decoration.
     const moved: string[] = [...HEADER];
     moved[3] = 'Something Else';
-    const result = readFinalTestCases({ name: FINAL_TEST_CASES_SCHEMA.sheetName, rows: [moved, row()] });
+    const result = readFinalTestCases({
+      name: FINAL_TEST_CASES_SCHEMA.sheetName,
+      rows: [moved, row()],
+    });
     expect(result.headerWarnings.length).toBe(1);
     expect(result.headerWarnings[0]).toContain('column 4');
   });
@@ -111,7 +116,13 @@ test.describe('columns map by POSITION (F2, F4) @unit', () => {
     // Actual Result / Status / Issue No. / SOC DMS are the LAST MANUAL RUN's
     // outcome. Reading Status as an expectation would inherit a stale human
     // verdict as a requirement — rule 4 with extra steps.
-    const withOutputs = row({ 14: 'FAILED yesterday', 15: 'Fail', 16: 'BUG-1', 18: 'yes', 20: 'x' });
+    const withOutputs = row({
+      14: 'FAILED yesterday',
+      15: 'Fail',
+      16: 'BUG-1',
+      18: 'yes',
+      20: 'x',
+    });
     const result = readFinalTestCases(gridOf(withOutputs));
     const serialised = JSON.stringify(result.rows[0]);
     for (const value of ['FAILED yesterday', 'Fail', 'BUG-1']) {
@@ -149,9 +160,7 @@ test.describe('the And column mixes actions and assertions (F3) @unit', () => {
 
   test('F3: the column decides the kind everywhere except And', () => {
     const result = readFinalTestCases(gridOf(row()));
-    const bySource = Object.fromEntries(
-      result.rows[0]!.clauses.map((c) => [c.source, c.kind]),
-    );
+    const bySource = Object.fromEntries(result.rows[0]!.clauses.map((c) => [c.source, c.kind]));
     expect(bySource.given).toBe('action');
     expect(bySource.when).toBe('action');
     expect(bySource.then).toBe('assert');
@@ -255,9 +264,9 @@ test.describe('no row silently vanishes (F6, F7) @unit', () => {
     // The workbook holds five competing test-case sheets with different
     // layouts. Reading one with another's reader produces garbage that looks
     // like data.
-    expect(() => readFinalTestCases({ name: 'Automation test cases', rows: [HEADER, row()] })).toThrow(
-      /Automation test cases/,
-    );
+    expect(() =>
+      readFinalTestCases({ name: 'Automation test cases', rows: [HEADER, row()] }),
+    ).toThrow(/Automation test cases/);
   });
 });
 
@@ -434,10 +443,39 @@ test.describe('the xlsx reader (X1) @unit', () => {
           ['only one'],
           [],
           ['', '', 'trailing only'],
-          ['x', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'col22'],
+          [
+            'x',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            '',
+            'col22',
+          ],
         ],
       },
-      { name: 'two columns', rows: [['k', 'v'], ['a', '1']] },
+      {
+        name: 'two columns',
+        rows: [
+          ['k', 'v'],
+          ['a', '1'],
+        ],
+      },
     ]);
 
     const grid = readSheetGrid(odd, 'ragged');
@@ -458,7 +496,14 @@ test.describe('the xlsx reader (X1) @unit', () => {
     // through untouched; interpreting it is a different reader's job, and a
     // reader that served both layouts would get one of them subtly wrong.
     const book = buildXlsx([
-      { name: 'inherit-shaped', rows: [['Module', 'Case'], ['Login', 'first'], ['', 'second']] },
+      {
+        name: 'inherit-shaped',
+        rows: [
+          ['Module', 'Case'],
+          ['Login', 'first'],
+          ['', 'second'],
+        ],
+      },
     ]);
     const grid = readSheetGrid(book, 'inherit-shaped');
     expect(grid.rows[2]![0]).toBe('');

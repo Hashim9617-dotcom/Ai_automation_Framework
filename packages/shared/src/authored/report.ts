@@ -196,10 +196,7 @@ export function renderAuthoredReport(
  *   3. **every input id appears in it** — the check a count alone cannot make,
  *      since 470 lines with one row written twice still counts to 470.
  */
-export function writeAuthoredReport(
-  run: AuthoredRunResult,
-  options: ReportOptions,
-): WrittenReport {
+export function writeAuthoredReport(run: AuthoredRunResult, options: ReportOptions): WrittenReport {
   const markdown = renderAuthoredReport(run, options.sheetName, options.provenance, options.triage);
   mkdirSync(options.outputDir, { recursive: true });
   const file = path.join(options.outputDir, options.fileName ?? 'authored-run.md');
@@ -236,7 +233,9 @@ export function verifyReportOnDisk(file: string, run: AuthoredRunResult): string
   }
 
   const missing = run.results
-    .map((result) => (result.status === 'unreadable' ? `sheet row ${result.sheetRow}` : result.rowId))
+    .map((result) =>
+      result.status === 'unreadable' ? `sheet row ${result.sheetRow}` : result.rowId,
+    )
     .filter((id) => !landed.includes(id));
   if (missing.length > 0) {
     throw new Error(

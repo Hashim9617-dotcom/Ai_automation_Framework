@@ -66,11 +66,7 @@ export interface CapturedState {
  * a captured page, and treating page content as a regular expression is how a
  * workspace called `a.*` silently matches everything.
  */
-export function matchesCollapsedGroup(
-  group: CollapsedGroup,
-  role: string,
-  name: string,
-): boolean {
+export function matchesCollapsedGroup(group: CollapsedGroup, role: string, name: string): boolean {
   if (group.role !== role) return false;
   const escaped = group.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const source = `^${escaped.split('<name>').join('.+')}$`;
@@ -234,7 +230,8 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
       }
       const match = capture.transitions.find(
         (transition) =>
-          transition.from === cursor && normalise(transition.action) === normalise(step.description),
+          transition.from === cursor &&
+          normalise(transition.action) === normalise(step.description),
       );
       if (!match) {
         // Names the state the cursor was ACTUALLY standing in, not the case's
@@ -417,7 +414,10 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
           why: 'ambiguous-target',
           reason:
             `${matches.length} nodes match ${step.role} "${step.name}" in "${cursor}" and they ` +
-            `disagree on "${step.property}" (${[...values].map((v) => String(v)).sort().join(', ')}) — ` +
+            `disagree on "${step.property}" (${[...values]
+              .map((v) => String(v))
+              .sort()
+              .join(', ')}) — ` +
             'no value can be attributed without knowing which one was meant',
         });
         continue;

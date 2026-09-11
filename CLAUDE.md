@@ -18,7 +18,7 @@ printed a success message while doing nothing:**
 - A scan script reported `scan clean` while reading zero files — a `slice(3)`
   that `trim()` had shifted by one character, so every path was mangled.
   Caught only because the mangled path happened to throw `ENOENT`. A path that
-  merely *missed* would have printed `clean` forever.
+  merely _missed_ would have printed `clean` forever.
 
 Both would have been caught by one rule:
 
@@ -41,7 +41,7 @@ because there is no reason to doubt it. Both near-misses above were throwaways.
 Rule 4 in [`docs/phase-2-generation.md`](docs/phase-2-generation.md) says a
 test's expectations must come from an external source of truth, never from
 reading the implementation — because the process that wrote the bug writes the
-test and asserts what the code *does* rather than what is *correct*.
+test and asserts what the code _does_ rather than what is _correct_.
 
 Stating that rule does not make you obey it. **The verification is mutation
 testing:** break each rule in the implementation deliberately, and confirm a
@@ -76,7 +76,7 @@ first. It caught four tests where the easy ones caught one apiece.
 **A mutation run needs two controls before its number means anything.** Learned
 on 2026-09-07: three mutations were reported SURVIVED because the harness's
 `tsc` parser filtered on lines containing `error TS`, and TypeScript puts the
-missing property name on the *continuation* line. The mutations had been caught;
+missing property name on the _continuation_ line. The mutations had been caught;
 the instrument was broken.
 
 That direction is the lucky one. A false survivor is loud — it demands
@@ -102,30 +102,30 @@ believed.
 
 #### Three outcomes, not two: "did not compile" is not "was caught"
 
-The controls run once at the start. They prove the harness *can* detect and
-does not *always* claim detection — they say nothing about a per-mutation
+The controls run once at the start. They prove the harness _can_ detect and
+does not _always_ claim detection — they say nothing about a per-mutation
 verdict reached for the wrong reason, and a mutation that never compiled is
 exactly that. So each mutation declares what should catch it:
 
-| Verdict | Meaning |
-| --- | --- |
-| **caught by a test** | it compiled, and a named test failed. Report which. |
-| **caught by the type system** | declared per mutation, for one whose whole point is that it CANNOT BE EXPRESSED. |
-| **void** | it did not compile and was not declared structural. Not a pass — the mutation needs rewriting before it means anything. |
+| Verdict                       | Meaning                                                                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **caught by a test**          | it compiled, and a named test failed. Report which.                                                                     |
+| **caught by the type system** | declared per mutation, for one whose whole point is that it CANNOT BE EXPRESSED.                                        |
+| **void**                      | it did not compile and was not declared structural. Not a pass — the mutation needs rewriting before it means anything. |
 
 **Measured here, because the failure mode is not the obvious guess:** Playwright
-transpiles without typechecking, so a *type* error in a mutation is invisible
-and 203 tests still pass; a *syntax* error aborts Babel before any test runs,
+transpiles without typechecking, so a _type_ error in a mutation is invisible
+and 203 tests still pass; a _syntax_ error aborts Babel before any test runs,
 leaving an empty failure list. Both read as SURVIVED, which sends someone
 hunting for a missing test that is not missing. The false-CAUGHT direction shows
-up on the structural side, where any `tsc` error merely *containing* the expected
+up on the structural side, where any `tsc` error merely _containing_ the expected
 string counts.
 
 **This found a live one on 2026-09-07.** The `writeRisk: always hold` mutation —
 reported CAUGHT, and cited as the verification that the classifier was tested —
 inserted an early `return` that made the loop below unreachable, so TypeScript
 stopped narrowing the discriminated union and the file did not compile. It ran
-anyway under transpile-only and the right test did fail, so the *conclusion* was
+anyway under transpile-only and the right test did fail, so the _conclusion_ was
 correct; but it was reached from code `tsc` rejects, and nothing could tell that
 apart from a genuine catch. Rewritten to widen the word list instead, which is
 the same mutation expressed so it compiles.
@@ -137,7 +137,7 @@ can be silently broken, and malformed patches go back to being counted.
 Two harness bugs were caught by these controls rather than by inspection, which
 is the argument for having them: the `tsc` parser dropped continuation lines, and
 `expect.every()` over an empty array is vacuously true, so a mutation declared
-*expected to survive* read as caught.
+_expected to survive_ read as caught.
 
 **And keep one harness, current and correctly named.** A stale second copy left
 beside it will eventually be run by someone, against source it no longer
@@ -197,10 +197,10 @@ visible act, not a silent assumption.
 The distinction matters because reaching for the wrong fix wastes the
 discovery:
 
-| Species | Symptom | Fix |
-| --- | --- | --- |
-| **The fixture cannot discriminate** | the test runs the right code with data that gives the same answer either way | **the input is too weak — change the input** |
-| **The guard sits where nothing can trigger it** | no input can reach the failing case at all | **the input cannot help — extract the guard somewhere a test can hand it the failing case** |
+| Species                                         | Symptom                                                                      | Fix                                                                                         |
+| ----------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **The fixture cannot discriminate**             | the test runs the right code with data that gives the same answer either way | **the input is too weak — change the input**                                                |
+| **The guard sits where nothing can trigger it** | no input can reach the failing case at all                                   | **the input cannot help — extract the guard somewhere a test can hand it the failing case** |
 
 The second is the nastier one because it looks identical from outside: the guard
 is there, it is correct, it runs on every call, and **it would read as working
@@ -208,11 +208,11 @@ forever.**
 
 Both species, found on 2026-09-08 in one mutation pass over the report writer:
 
-- *First species* — E1 built its fixture from only PASSING rows, but the passed
+- _First species_ — E1 built its fixture from only PASSING rows, but the passed
   list prints `rowId` directly while every other section goes through a shared
   heading. The fixture never reached the code under test. Fixed by adding a
   failing row.
-- *Second species* — E6's missing-row check and its read-from-disk both lived
+- _Second species_ — E6's missing-row check and its read-from-disk both lived
   inside `writeAuthoredReport`, and **no input can make the renderer omit a
   row**, so nothing could ever make either fire. No fixture would have helped.
   Fixed by extracting `verifyReportOnDisk()`, which a test can hand a file with
@@ -220,21 +220,21 @@ Both species, found on 2026-09-08 in one mutation pass over the report writer:
 
 The four, because the mechanism differs each time and only the shape repeats:
 
-| # | Property | Why the fixture could not tell | Fix |
-| --- | --- | --- | --- |
-| 1 | gate ranks matches best-first | every score was tied, and a reversed list of ties equals its own sort | give the candidates different scores |
-| 2 | a transition's `verdict` is in the digest | compared a capture with NO transitions against one with a `suspect` transition, so they still differed on `from>to:action` | compare `consistent` against `suspect`, alike in all else |
-| 3 | a collapsed group's `examples` are in the digest | same shape, against a capture with no collapsed groups | vary only `examples` |
-| 4 | `parseCsv` strips the BOM | asserted through `readSheet`, which trims every header — and `String.trim()` already removes U+FEFF | assert on `parseCsv` directly, at the observation point where the strip is the only thing that could matter |
+| #   | Property                                         | Why the fixture could not tell                                                                                             | Fix                                                                                                         |
+| --- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 1   | gate ranks matches best-first                    | every score was tied, and a reversed list of ties equals its own sort                                                      | give the candidates different scores                                                                        |
+| 2   | a transition's `verdict` is in the digest        | compared a capture with NO transitions against one with a `suspect` transition, so they still differed on `from>to:action` | compare `consistent` against `suspect`, alike in all else                                                   |
+| 3   | a collapsed group's `examples` are in the digest | same shape, against a capture with no collapsed groups                                                                     | vary only `examples`                                                                                        |
+| 4   | `parseCsv` strips the BOM                        | asserted through `readSheet`, which trims every header — and `String.trim()` already removes U+FEFF                        | assert on `parseCsv` directly, at the observation point where the strip is the only thing that could matter |
 
 #3 and #4 differ in an instructive way. In #2 and #3 the **baseline** was wrong.
 In #4 the fixture and baseline were both fine and a **downstream transformation
 masked the difference** — so the counterfactual has to be stated about the
-OBSERVATION POINT, not only about the input. *"What would this expression
-evaluate to if the code were wrong?"* is the question, and it must be asked
+OBSERVATION POINT, not only about the input. _"What would this expression
+evaluate to if the code were wrong?"_ is the question, and it must be asked
 where the assertion actually looks.
 
-This is *not* rule 4, and the difference matters. Rule 4 is asserting the wrong
+This is _not_ rule 4, and the difference matters. Rule 4 is asserting the wrong
 thing. This is asserting exactly the right thing about data that cannot tell
 the difference — so no implementation, correct or broken, could ever fail it.
 
@@ -251,8 +251,8 @@ to review, caught only by the mutation surviving.
 
 **Ordering, precedence, selection, tie-breaking and ranking are all this
 shape**, and so is anything that bounds, filters or prioritises. For each,
-ask the fixture question directly: *would this data give a different answer if
-the behaviour were wrong?* If every element is identical, every score tied, or
+ask the fixture question directly: _would this data give a different answer if
+the behaviour were wrong?_ If every element is identical, every score tied, or
 every candidate equally eligible, the answer is no and the test is decorative.
 
 The same idea runs through the design docs, where it was learned three separate
@@ -281,8 +281,8 @@ own effect is the same error in miniature.
   strips a BOM. **The file was in scope and the scan did run afterwards**, so
   neither scope nor ordering was at fault: the detector's set was NUL plus the
   PUA range, and U+FEFF is in neither. Its planted-hit control reported a
-  confident 2/2, because *a control can only validate the classes someone
-  thought to plant*.
+  confident 2/2, because _a control can only validate the classes someone
+  thought to plant_.
 
   > **A detector built from a list of bad characters is bounded by the
   > imagination of whoever wrote the list.** Use the structural definition
@@ -294,6 +294,7 @@ own effect is the same error in miniature.
   Same lesson as the app-agnostic audit, where a keyword list was replaced by
   deleting `tests/app/` and rebuilding: when a check depends on a list you
   wrote, find the structural version of the question.
+
 - **Captures and traces are gitignored and stay that way.** They contain live
   session tokens and real customer data. See `docs/WHERE-WE-ARE.md`.
 
@@ -341,8 +342,8 @@ have cost every conclusion that eval produced.
 found a bug review had missed — `extractRole` reading a role word out of the
 target's own NAME — only because one name regressed from resolving to matching
 nothing. It also showed the fix barely moves the DMS number, because ambiguity
-was never DMS's binding constraint. Both halves get reported: *the fix is right
-AND this application's problem is elsewhere.* Saying only the first would be the
+was never DMS's binding constraint. Both halves get reported: _the fix is right
+AND this application's problem is elsewhere._ Saying only the first would be the
 more comfortable half of a true statement.
 
 ### Check the denominator before concluding from a ratio
@@ -410,8 +411,8 @@ A sheet-triage pass first asked "does this clause resolve to an element?" and
 then "what is it saying?". That order put the automation ceiling at 46.4%. The
 right order put it at **29.8%**.
 
-The cause: `extractTarget` slices `"record"` out of *"the record should be
-created successfully"* and `"ui"` out of *"the ui should show a colour change"*.
+The cause: `extractTarget` slices `"record"` out of _"the record should be
+created successfully"_ and `"ui"` out of _"the ui should show a colour change"_.
 Both look like element names. Neither is one.
 
 > **When a cheap syntactic test and an expensive semantic one disagree, run the
@@ -421,7 +422,7 @@ Both look like element names. Neither is one.
 ### Some rows are not automatable, and saying which IS the deliverable
 
 A QA sheet written for humans legitimately contains things only a human can
-check. *"the ui should show a colour change proper response and animations"* is
+check. _"the ui should show a colour change proper response and animations"_ is
 not automatable by anyone and never will be. Measured on the real sheet: **29.8%
 of rows have nothing structural in the way.**
 
@@ -443,10 +444,10 @@ that lives in a summary someone wrote once goes stale in silence.
 **Seen twice now, in different clothes**, which is why it is written as a rule
 rather than a note on either instance:
 
-| | what was asked | why it could not answer |
-| --- | --- | --- |
-| **Clause kind** | should the MODEL classify this clause? | the QA already wrote `Given`/`When`/`Then` in a column. Any tie-break makes the model the authority over the person who wrote the sheet. |
-| **Clause meaning** | does `extractTarget` find a name here? | it slices `"record"` out of *"the record should be created successfully"*. It is a string matcher; it cannot know that "record" is the object of an outcome. |
+|                    | what was asked                         | why it could not answer                                                                                                                                      |
+| ------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Clause kind**    | should the MODEL classify this clause? | the QA already wrote `Given`/`When`/`Then` in a column. Any tie-break makes the model the authority over the person who wrote the sheet.                     |
+| **Clause meaning** | does `extractTarget` find a name here? | it slices `"record"` out of _"the record should be created successfully"_. It is a string matcher; it cannot know that "record" is the object of an outcome. |
 
 > **When an upstream source already knows something, or a downstream mechanism
 > is not qualified to judge it, the downstream mechanism does not get a vote.**
@@ -455,8 +456,8 @@ The two failure modes are worth naming separately because they feel different in
 the moment:
 
 - **The upstream source already knows.** Deciding again downstream creates a
-  disagreement, and *every rule for settling it takes authority away from the
-  source*. The answer is not a better tie-break; it is not holding the election.
+  disagreement, and _every rule for settling it takes authority away from the
+  source_. The answer is not a better tie-break; it is not holding the election.
 - **The downstream mechanism cannot know.** It will still ANSWER — that is the
   trap. `extractTarget` returns a plausible-looking string with no way to signal
   "I have no idea", and its confidence is read as information. The answer is to
@@ -781,11 +782,11 @@ red in the meantime.
 **This is the THIRD variant of one family** — a verification that never meets the
 conditions it claims to verify:
 
-| variant | the verification | what it never met |
-| --- | --- | --- |
-| the mock gateway | "the engine handles the model's response" | a real response |
-| the stub executor | "the executor works" | a real page |
-| **an inherited environment** | "the API boots" | the environment it boots in |
+| variant                      | the verification                          | what it never met           |
+| ---------------------------- | ----------------------------------------- | --------------------------- |
+| the mock gateway             | "the engine handles the model's response" | a real response             |
+| the stub executor            | "the executor works"                      | a real page                 |
+| **an inherited environment** | "the API boots"                           | the environment it boots in |
 
 Playwright sets `NODE_PATH` to pnpm's hidden hoist store
 (`node_modules/.pnpm/node_modules`), which holds every transitively-installed
@@ -797,9 +798,9 @@ start.**
 #### The trap: DELETE the variable, never set it
 
 ```ts
-env.NODE_PATH = '';         // WRONG — empty string is still a value
-env.NODE_PATH = undefined;  // WRONG — some spawns stringify this
-delete env.NODE_PATH;       // RIGHT
+env.NODE_PATH = ''; // WRONG — empty string is still a value
+env.NODE_PATH = undefined; // WRONG — some spawns stringify this
+delete env.NODE_PATH; // RIGHT
 ```
 
 Any value is a value the real process does not have, and "set it to empty" is a

@@ -18,8 +18,8 @@ against a generic self-healing spec. Read `docs/dms-findings.md` before this
 the retrospective (updated with empirically re-verified data, not left as
 originally drafted) re-runs this design against that week's real failures.
 "Eval set results" is the more important section of the two: the
-retrospective only proves the design is *safe*; the eval set is what tests
-whether it's *useful*.
+retrospective only proves the design is _safe_; the eval set is what tests
+whether it's _useful_.
 
 ---
 
@@ -41,7 +41,7 @@ own test code (Findings 5→9, 8→retracted), one was app instability we
 misdiagnosed as a selector problem before finding the real cause (Finding 3),
 one was a locator bug with a completely different mechanism than assumed
 (Finding 11). A live healer, given any of those, does not fail loudly — it
-finds *some* element that satisfies its own criteria, resolves, and the test
+finds _some_ element that satisfies its own criteria, resolves, and the test
 goes green. A wrong green is worse than a red: a red gets investigated; a
 wrong green gets trusted. This document is designed to survive that failure
 mode, not just to add a feature.
@@ -50,16 +50,16 @@ mode, not just to add a feature.
 
 ## The gate
 
-Healing is only *considered* — not performed, considered — when every rule
+Healing is only _considered_ — not performed, considered — when every rule
 below holds. Each rule cites what broke this week that it exists to prevent.
 
-| # | Rule | Why |
-|---|------|-----|
-| 1 | Every candidate in the chain was exhausted (this is already true by construction — the gate only ever sees a `LocatorResolutionError`, which `SmartLocator.resolve()` only throws after the last candidate fails) | Not a new check, but worth stating: nothing here fires on candidate 0 failing if candidate 1 would have worked. That's what the chain is for. |
-| 2 | The page is confirmed authenticated at the moment of failure | Finding 3: 27 failures were misdiagnosed as locator bugs before `SessionExpiredError` existed to catch this. A dead session makes *every* locator on the page unresolvable — healing one would be nonsense, and if the healer ever got this far it would be strong evidence the session-detection itself regressed. |
-| 3 | The key has not resolved successfully earlier in the same test | If `users.form.submit` resolved fine at t=2s and fails at t=8s in the same test, the candidate isn't wrong — something about the *page's state* changed. That's Finding 7's whole distinction (never-present vs. present-then-unresolvable): healing only ever makes sense for the first kind. |
-| 4 | A DOM snapshot was captured, and it is not truncated | `captureDomSnapshot()` caps at `maxElements` (`packages/execution-engine/src/dom/snapshot.ts:24`) and silently stops — the array reaching that cap proves nothing about whether the target element exists past the cut-off. Proposing a candidate, or *failing* to find one, from a truncated view is a coin flip dressed as evidence. |
-| 5 | The failure is not explained by latency | A single failing candidate normally costs close to its own `candidateTimeout` on the way to throwing — `waitFor({ state: 'attached' })` polls to its deadline, it doesn't detect "this will never happen" early. So `durationMs` landing near the chain's own predicted `expectedBudgetMs` is the *ordinary* case, not evidence of anything. What this rule actually watches for is duration **exceeding** that predicted budget — latency the chain's own timeouts don't explain, e.g. a page still settling, or (Finding 5's real mechanism, see below) a candidate that was permanently wrong AND was compounding across repeated resolution attempts of the same broken key within one test, before the per-candidate timeout split existed to catch that shape. |
+| #   | Rule                                                                                                                                                                                                              | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Every candidate in the chain was exhausted (this is already true by construction — the gate only ever sees a `LocatorResolutionError`, which `SmartLocator.resolve()` only throws after the last candidate fails) | Not a new check, but worth stating: nothing here fires on candidate 0 failing if candidate 1 would have worked. That's what the chain is for.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 2   | The page is confirmed authenticated at the moment of failure                                                                                                                                                      | Finding 3: 27 failures were misdiagnosed as locator bugs before `SessionExpiredError` existed to catch this. A dead session makes _every_ locator on the page unresolvable — healing one would be nonsense, and if the healer ever got this far it would be strong evidence the session-detection itself regressed.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 3   | The key has not resolved successfully earlier in the same test                                                                                                                                                    | If `users.form.submit` resolved fine at t=2s and fails at t=8s in the same test, the candidate isn't wrong — something about the _page's state_ changed. That's Finding 7's whole distinction (never-present vs. present-then-unresolvable): healing only ever makes sense for the first kind.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 4   | A DOM snapshot was captured, and it is not truncated                                                                                                                                                              | `captureDomSnapshot()` caps at `maxElements` (`packages/execution-engine/src/dom/snapshot.ts:24`) and silently stops — the array reaching that cap proves nothing about whether the target element exists past the cut-off. Proposing a candidate, or _failing_ to find one, from a truncated view is a coin flip dressed as evidence.                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| 5   | The failure is not explained by latency                                                                                                                                                                           | A single failing candidate normally costs close to its own `candidateTimeout` on the way to throwing — `waitFor({ state: 'attached' })` polls to its deadline, it doesn't detect "this will never happen" early. So `durationMs` landing near the chain's own predicted `expectedBudgetMs` is the _ordinary_ case, not evidence of anything. What this rule actually watches for is duration **exceeding** that predicted budget — latency the chain's own timeouts don't explain, e.g. a page still settling, or (Finding 5's real mechanism, see below) a candidate that was permanently wrong AND was compounding across repeated resolution attempts of the same broken key within one test, before the per-candidate timeout split existed to catch that shape. |
 
 **On rule 5, the honest trade-off — and what it does NOT actually cost
 today.** Duration alone cannot distinguish "genuinely absent" from "would
@@ -107,9 +107,9 @@ they need to, so gate evaluation has both in one place at teardown.
 The existing socket — `SmartLocatorOptions.onHealRequested` (declared
 `smart-locator.ts:43`, called from inside `resolve()` at line ~176 when every
 candidate has failed, and stubbed for wiring at `fixtures/index.ts:59`) — is
-built for exactly the thing this design forbids: it's called *inside* the
+built for exactly the thing this design forbids: it's called _inside_ the
 resolution path, and whatever it returns is immediately `waitFor`'d and
-handed back as *this test's* live locator. That is live healing by
+handed back as _this test's_ live locator. That is live healing by
 construction, independent of what the healer itself does internally. **This
 socket is not used by v1** and should be removed rather than left dormant —
 dead code that does the one thing this whole design exists to prevent is a
@@ -123,7 +123,7 @@ between "capture while the page is alive" and "analyze later, out of band"
 fixture teardown that already captures the DOM snapshot on failure
 (`fixtures/index.ts:120-133`), when the failure is a `LocatorResolutionError`:
 evaluate the gate (pure logic — no network, no LLM) and attach the verdict.
-If eligible, *also* capture a richer artifact than the standard 150-element
+If eligible, _also_ capture a richer artifact than the standard 150-element
 snapshot: a full CDP accessibility-tree dump of the page (`Accessibility.getFullAXTree`),
 the same technique used by hand for Findings 10 and 11 this week. This is the
 one piece of context an LLM proposal genuinely needs that the lightweight
@@ -149,31 +149,31 @@ gives.
 interface HealingProposal {
   id: string;
   runId: string;
-  testId: string;              // TestResult.id that surfaced this
-  key: string;                 // LocatorSpec.key, e.g. "users.form.submit"
-  description: string;         // LocatorSpec.description
+  testId: string; // TestResult.id that surfaced this
+  key: string; // LocatorSpec.key, e.g. "users.form.submit"
+  description: string; // LocatorSpec.description
   existingCandidates: LocatorCandidate[]; // the chain as it stood — for the reviewer's diff
 
   candidate: LocatorCandidate; // in the EXACT LocatorSpec candidate format — nothing bespoke
 
   verification: {
-    matchCount: number;        // MUST be 1 — see below
+    matchCount: number; // MUST be 1 — see below
     role: string;
     accessibleName: string;
     visible: boolean;
     enabled: boolean;
-    verifiedAgainst: 'ax-tree-snapshot';  // states plainly this is not a live browser check
+    verifiedAgainst: 'ax-tree-snapshot'; // states plainly this is not a live browser check
     verifiedAt: string;
   };
 
-  rationale: string;           // plain language, one or two sentences
-  confidence: number;          // 0..1
+  rationale: string; // plain language, one or two sentences
+  confidence: number; // 0..1
 
   provenance: {
     source: 'healed';
     runId: string;
     generatedAt: string;
-    model: string;             // "provider/model", same shape RCA already uses
+    model: string; // "provider/model", same shape RCA already uses
   };
 
   status: 'pending' | 'approved' | 'rejected';
@@ -202,7 +202,7 @@ all — the candidate is checked:
 
 0. **Completeness — checked first, because the rest is meaningless without
    it.** If `axSnapshot.truncated` is set, `propose()` returns `null` and no
-   proposal is made. `matchCount === 1` is partly an *absence* claim ("no
+   proposal is made. `matchCount === 1` is partly an _absence_ claim ("no
    other node matches"), and absence cannot be established from a view that
    was cut off at its node cap: a second match may sit past the cutoff. A
    `matchCount: 1` derived that way is a false guarantee, which is worse than
@@ -210,8 +210,8 @@ all — the candidate is checked:
    re-check it. The gate's rule 4 applies the identical reasoning to the DOM
    snapshot; it went unapplied to the AX snapshot — the capture verification
    actually reads — until 3 Sept 2026. Generalised as **Finding 15**
-   (docs/dms-findings.md): *an absence claim is only as strong as the
-   completeness of the thing you looked in.* The fixtures' capture uses
+   (docs/dms-findings.md): _an absence claim is only as strong as the
+   completeness of the thing you looked in._ The fixtures' capture uses
    `maxNodes: 1000` (largest tree measured across twelve DMS states: ~400) so
    this refusal stays rare rather than trading a false guarantee for a healer
    that never proposes.
@@ -234,7 +234,7 @@ test is gone. Two ways to get a "live" check instead were considered and
 rejected:
 
 - Re-open a fresh page at the same URL and query it live. Rejected: most of
-  what's targeted here are *transient* states — an open dialog, an open
+  what's targeted here are _transient_ states — an open dialog, an open
   context menu, a specific wizard step (exactly what Findings 8, 11 and 14
   are about) — and a fresh navigation reproduces none of that. A "verified"
   result from a bare page load would be verifying the wrong thing.
@@ -263,7 +263,7 @@ treats "snapshot said unique" as a pre-filter, not a certificate.
   README as "the cap is per-process, not per-run," not silently assuming
   otherwise.
 - **Fingerprint + dedup, adapted from `rca/analyzer.ts`'s `fingerprint()`**:
-  one heal proposal per distinct `(key, spec.description)` per run — *not*
+  one heal proposal per distinct `(key, spec.description)` per run — _not_
   per error text. This has to differ from RCA's fingerprint: a
   `LocatorResolutionError`'s message is nearly identical every time for the
   same key regardless of cause ("Could not resolve locator X after N
@@ -352,8 +352,10 @@ for immediate use, which assumes live healing by its very shape:
 
 ```ts
 export interface SelfHealingEngine {
-  heal(input: { spec: LocatorSpec; snapshot: DomSnapshot }):
-    Promise<{ candidate: LocatorSpec['candidates'][number]; rationale: string } | null>;
+  heal(input: {
+    spec: LocatorSpec;
+    snapshot: DomSnapshot;
+  }): Promise<{ candidate: LocatorSpec['candidates'][number]; rationale: string } | null>;
 }
 ```
 
@@ -367,7 +369,9 @@ export interface HealingEligibility {
   reasons: string[];
 }
 
-export interface HealingProposal { /* see above */ }
+export interface HealingProposal {
+  /* see above */
+}
 
 export interface SelfHealingEngine {
   /**
@@ -419,7 +423,7 @@ export interface SelfHealingEngine {
   `durationMs`, per the gap noted under the gate.
 - **`LocatorEvent`** (`infra/prisma/schema.prisma:68-81`) already models
   resolution history generically (`healed: Boolean`) but has no concept of a
-  *pending, unapplied* proposal — it's shaped for "this is what happened,"
+  _pending, unapplied_ proposal — it's shaped for "this is what happened,"
   not "this is what we're suggesting." A `HealingProposal` Prisma model
   (mirroring `GeneratedTestCase`'s `approved: Boolean` pattern) is the right
   future home once the DB is activated; v1 stays on `run.json`, matching how
@@ -487,20 +491,20 @@ export interface SelfHealingEngine {
 This is the actual test of the design. Every locator-shaped failure from
 this week's shakedown, run against the gate:
 
-| Failure | Reaches the gate at all? | Gate verdict | Correct? |
-|---|---|---|---|
-| **Finding 5 / 6** — see the re-verified row below. Superseded by empirical re-testing, not left as originally written — the "refused, false negative" conclusion first drafted here turned out to be wrong once actually run. | — | — | — |
-| **Finding 11** — `treeNode()`'s `getByRole('treeitem', { name, exact: true })` never matching because the real name concatenates the row's nested "Expand"/"More options" button labels | **No — never reaches the gate.** `treeNode()` is a raw `page.getByRole()` call in `file-explorer.page.ts`, not a `LocatorSpec` resolved through `SmartLocator`. The failure surfaced as `expect(locator).toBeVisible()` timing out, not a `LocatorResolutionError`. | N/A — out of scope by architecture, not by gate logic. | Correct outcome (no bad heal proposed), for the reason called out in "what could go wrong" #3: this is exactly the scope gap, demonstrated live. |
-| **Finding 12, item 3** — intermittent `LocatorResolutionError` on `nav.fileExplorer` / `nav.upload`, single candidate, recovers on the framework's own whole-test retry | Yes | **Refused — rule 5.** The candidate is the *primary* (only) one, so it gets the full `candidateTimeout` (2s) before throwing — right at the "did this take the whole budget" line. | **Correct refusal, and this time also the correct underlying call**: the locator itself was never wrong (confirmed — three clean full-suite runs afterward with zero code change to it). Healing here would have proposed a fix for something that wasn't broken. |
-| **Finding 8** (retracted) / **Finding 14** — upload wizard: `goNext()` timing out clicking a `Next` button that resolved fine but was legitimately disabled; folder-step selection behaving inconsistently | **No — not a resolution failure at all.** The locator finds the button; Playwright's own actionability wait times out because the element is disabled. No `LocatorResolutionError`, nothing for the gate to ever see. | N/A | Correct — no candidate, however well-chosen, could fix "the button is correctly disabled and the test's model of the flow was wrong" or "the app's folder-selection state is inconsistent." Proposing a new locator is structurally the wrong tool for either. |
-| **Finding 9** (retracted) — `toBeDisabled()` assertions against buttons that were never disabled by this app's design | **No — not a resolution failure.** The button resolves fine; the assertion about its state was wrong. | N/A | Correct — same reasoning as above. |
+| Failure                                                                                                                                                                                                                       | Reaches the gate at all?                                                                                                                                                                                                                                            | Gate verdict                                                                                                                                                                       | Correct?                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Finding 5 / 6** — see the re-verified row below. Superseded by empirical re-testing, not left as originally written — the "refused, false negative" conclusion first drafted here turned out to be wrong once actually run. | —                                                                                                                                                                                                                                                                   | —                                                                                                                                                                                  | —                                                                                                                                                                                                                                                                 |
+| **Finding 11** — `treeNode()`'s `getByRole('treeitem', { name, exact: true })` never matching because the real name concatenates the row's nested "Expand"/"More options" button labels                                       | **No — never reaches the gate.** `treeNode()` is a raw `page.getByRole()` call in `file-explorer.page.ts`, not a `LocatorSpec` resolved through `SmartLocator`. The failure surfaced as `expect(locator).toBeVisible()` timing out, not a `LocatorResolutionError`. | N/A — out of scope by architecture, not by gate logic.                                                                                                                             | Correct outcome (no bad heal proposed), for the reason called out in "what could go wrong" #3: this is exactly the scope gap, demonstrated live.                                                                                                                  |
+| **Finding 12, item 3** — intermittent `LocatorResolutionError` on `nav.fileExplorer` / `nav.upload`, single candidate, recovers on the framework's own whole-test retry                                                       | Yes                                                                                                                                                                                                                                                                 | **Refused — rule 5.** The candidate is the _primary_ (only) one, so it gets the full `candidateTimeout` (2s) before throwing — right at the "did this take the whole budget" line. | **Correct refusal, and this time also the correct underlying call**: the locator itself was never wrong (confirmed — three clean full-suite runs afterward with zero code change to it). Healing here would have proposed a fix for something that wasn't broken. |
+| **Finding 8** (retracted) / **Finding 14** — upload wizard: `goNext()` timing out clicking a `Next` button that resolved fine but was legitimately disabled; folder-step selection behaving inconsistently                    | **No — not a resolution failure at all.** The locator finds the button; Playwright's own actionability wait times out because the element is disabled. No `LocatorResolutionError`, nothing for the gate to ever see.                                               | N/A                                                                                                                                                                                | Correct — no candidate, however well-chosen, could fix "the button is correctly disabled and the test's model of the flow was wrong" or "the app's folder-selection state is inconsistent." Proposing a new locator is structurally the wrong tool for either.    |
+| **Finding 9** (retracted) — `toBeDisabled()` assertions against buttons that were never disabled by this app's design                                                                                                         | **No — not a resolution failure.** The button resolves fine; the assertion about its state was wrong.                                                                                                                                                               | N/A                                                                                                                                                                                | Correct — same reasoning as above.                                                                                                                                                                                                                                |
 
 ### Finding 5 / 6, re-verified against today's code, not asserted
 
 The first draft of this table called Finding 5/6 "refused — false negative,"
 reasoning from the historical 8-second timeout. Told to verify that
 empirically against current behavior rather than assume it, because the
-per-candidate timeout split (rule 5 depends on it) shipped *after* Finding
+per-candidate timeout split (rule 5 depends on it) shipped _after_ Finding
 5/6 were fixed by hand. Two things needed checking, and both were run live
 against `dmsuiv3.aitalkx.com`, not reasoned about in the abstract:
 
@@ -516,7 +520,7 @@ reaches the gate either — not because the gate refuses it, but because
 there's nothing left to refuse.
 
 **2. If Finding 10's fix didn't exist, would the per-candidate timeout fix
-alone change the *timing* verdict?** Isolated the question by additionally
+alone change the _timing_ verdict?** Isolated the question by additionally
 disabling the `normalizeAccessibleName` fallback (one line,
 `smart-locator.ts`), keeping only the original impossible candidate. **It
 failed in ~2000ms** — matching today's `candidateTimeout` default exactly,
@@ -524,17 +528,17 @@ not the historical ~8000ms. Both changes were reverted immediately after
 (`git checkout --`); nothing here shipped as a real behavior change, it was
 a measurement.
 
-| Failure | Reaches the gate at all? | Gate verdict | Correct? |
-|---|---|---|---|
-| **Finding 5 / 6, as they'd behave with only the timeout fix (no Finding 10)** | Yes | **Eligible — rule 5 passes.** `durationMs` (~2000ms) lands at, not beyond, the chain's own `expectedBudgetMs` (2000ms) — the ordinary exhaustion window rule 5 is designed to let through, not the "took longer than the chain's own timeouts predict" signature it exists to catch. | This is the retrospective's first genuine **true positive** — not from a synthetic mutation, from real history. A healer given the real accessibility tree (confirmed elsewhere this session via CDP: computed name is `" Create User"`, PUA glyph U+EB62 prefix) has exactly the evidence needed to propose a correct `role: button, name: "Create User"` candidate. |
-| **Finding 5 / 6, as they actually exist in today's code** | No — Finding 10's fix already resolves it before any `LocatorResolutionError` is thrown | N/A — nothing to heal | Also correct: the bug is fixed at a more fundamental layer (normalizing the match itself) than a per-instance healed candidate would be. Healing was never going to be needed here once Finding 10 shipped. |
+| Failure                                                                       | Reaches the gate at all?                                                                | Gate verdict                                                                                                                                                                                                                                                                         | Correct?                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Finding 5 / 6, as they'd behave with only the timeout fix (no Finding 10)** | Yes                                                                                     | **Eligible — rule 5 passes.** `durationMs` (~2000ms) lands at, not beyond, the chain's own `expectedBudgetMs` (2000ms) — the ordinary exhaustion window rule 5 is designed to let through, not the "took longer than the chain's own timeouts predict" signature it exists to catch. | This is the retrospective's first genuine **true positive** — not from a synthetic mutation, from real history. A healer given the real accessibility tree (confirmed elsewhere this session via CDP: computed name is `" Create User"`, PUA glyph U+EB62 prefix) has exactly the evidence needed to propose a correct `role: button, name: "Create User"` candidate. |
+| **Finding 5 / 6, as they actually exist in today's code**                     | No — Finding 10's fix already resolves it before any `LocatorResolutionError` is thrown | N/A — nothing to heal                                                                                                                                                                                                                                                                | Also correct: the bug is fixed at a more fundamental layer (normalizing the match itself) than a per-instance healed candidate would be. Healing was never going to be needed here once Finding 10 shipped.                                                                                                                                                           |
 
 The original "honest false negative" framing was wrong on the facts, not
 just imprecise — worth stating plainly rather than quietly rewriting
 history. Corrected: rule 5's slack margin (`LATENCY_SLACK = 1.25` in
 `packages/shared/src/healing/gate.ts`) is compared against the chain's own
 predicted budget, not a fixed "small" constant, specifically because a
-single candidate normally costs close to its *own* full timeout on
+single candidate normally costs close to its _own_ full timeout on
 failure — that number was always expected to land near the budget, not
 near zero. The false-negative concern from the first draft doesn't apply to
 that design as actually built; it would have applied to a cruder "was
@@ -565,16 +569,16 @@ bugs fixed along the way — see below) **and the model IDs confirmed live
 against the API (`claude-sonnet-4-5`, `claude-haiku-4-5`, both HTTP 200,
 not guessed from memory): 6/6, real model, real verification.**
 
-| Scenario | Gate | Proposal | Result |
-|---|---|---|---|
-| (a) `data-testid` renamed | eligible | `role:button, name:"Login", exact:true` — confidence 0.95, verified matchCount=1 | **PASS** |
-| (b) button label reworded | eligible | `role:button, name:"Sign In", exact:true` — confidence 0.95, verified matchCount=1 | **PASS** |
-| (c) role changed, button → link | eligible | `role:link, name:"Login", exact:true` — confidence 0.85, verified matchCount=1 | **PASS** |
-| (d) element moved to a new container | eligible | `role:button, name:"Save employee", exact:true` — confidence 0.98, verified matchCount=1 | **PASS** |
-| (e) element genuinely deleted [negative] | eligible | refused (null) — `"Healer found nothing safe to propose"`, a real model decision this time, not a mock-parse artifact | **PASS** |
-| (f) present but slow to render [negative] | eligible | refused (null), **before any LLM call** | **PASS** |
+| Scenario                                  | Gate     | Proposal                                                                                                              | Result   |
+| ----------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------- | -------- |
+| (a) `data-testid` renamed                 | eligible | `role:button, name:"Login", exact:true` — confidence 0.95, verified matchCount=1                                      | **PASS** |
+| (b) button label reworded                 | eligible | `role:button, name:"Sign In", exact:true` — confidence 0.95, verified matchCount=1                                    | **PASS** |
+| (c) role changed, button → link           | eligible | `role:link, name:"Login", exact:true` — confidence 0.85, verified matchCount=1                                        | **PASS** |
+| (d) element moved to a new container      | eligible | `role:button, name:"Save employee", exact:true` — confidence 0.98, verified matchCount=1                              | **PASS** |
+| (e) element genuinely deleted [negative]  | eligible | refused (null) — `"Healer found nothing safe to propose"`, a real model decision this time, not a mock-parse artifact | **PASS** |
+| (f) present but slow to render [negative] | eligible | refused (null), **before any LLM call**                                                                               | **PASS** |
 
-**All four positives got the semantically correct answer, not just *a*
+**All four positives got the semantically correct answer, not just _a_
 answer** — (b)'s renamed label, (c)'s changed role, and (d)'s moved
 container all produced the specific fix each mutation actually called for,
 not a generic fallback. Confidence tracked plausibility sensibly too: (c)
@@ -584,7 +588,7 @@ the description, the least certain inference of the four.
 **(f) is still the strongest result, and remains independent of model
 quality.** `propose()`'s pre-check — implemented specifically because this
 scenario surfaced the need for it — re-checks each of the locator's
-*existing* candidates against the freshly captured accessibility snapshot
+_existing_ candidates against the freshly captured accessibility snapshot
 before ever calling a model. In this scenario the button is injected 2.5s
 after page load; the first resolution attempt genuinely fails at the 2s
 `candidateTimeout` mark, exactly like a real "not yet rendered" case — but
@@ -620,10 +624,10 @@ runs (reporting 0 real calls, all 5 served from cache — honest, but not
 what "the real cost of the run" means), then again with the cache cleared
 for a genuine cold measurement.
 
-| Scenario | Result |
-|---|---|
-| (a)–(f) | Same as the six-scenario run above — all still PASS, (c)'s proposal came back at confidence 0.95 this time rather than 0.85 (same correct `role:link, name:"Login"` answer both times; temperature 0 is not byte-identical across separate API calls, which is expected and not a concern) |
-| (g) icon swap | Locator **resolved successfully** — `"resolution succeeded — normalizeAccessibleName handled the PUA glyph automatically; the gate/healer were never reached"`. **PASS** |
+| Scenario      | Result                                                                                                                                                                                                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| (a)–(f)       | Same as the six-scenario run above — all still PASS, (c)'s proposal came back at confidence 0.95 this time rather than 0.85 (same correct `role:link, name:"Login"` answer both times; temperature 0 is not byte-identical across separate API calls, which is expected and not a concern) |
+| (g) icon swap | Locator **resolved successfully** — `"resolution succeeded — normalizeAccessibleName handled the PUA glyph automatically; the gate/healer were never reached"`. **PASS**                                                                                                                   |
 
 **7/7, cold cache. Real usage: 5 LLM calls (a–e; f and g needed none), 4029
 prompt + 546 completion tokens = 4575 tokens total.** (Dollar cost
@@ -654,7 +658,7 @@ a non-deterministic model response at `temperature: 0`.
    (`"Using the real LLM gateway"`, provider + both model IDs) to
    `packages/ai-engine/src/gateway/factory.ts` on the success path — before
    this, only the mock-fallback path logged anything, so "which gateway is
-   actually in use" required inferring it from the *absence* of a warning.
+   actually in use" required inferring it from the _absence_ of a warning.
 2. **The `/login` gate bug** — see above, found by the same run that first
    surfaced (f)'s pre-check need.
 
@@ -665,11 +669,11 @@ shared with an already-shipped command, and a gate rule that needed the
 eval's specific pressure to expose.
 
 **A real design bug, found by the eval, not asserted around.** The first
-run of this harness failed (a)–(d) *and* (e) with `not eligible: page is on
+run of this harness failed (a)–(d) _and_ (e) with `not eligible: page is on
 /login` — rule 2, as first written, disqualified any failure whose
 `pageUrl` contained `/login`, intended to catch a session-expiry redirect
 (Finding 3). It instead caught every locator that legitimately targets an
-element *on* a login page — which describes a login page's own tests by
+element _on_ a login page — which describes a login page's own tests by
 definition, in this app and in DmsSynergy's (`tests/app/pages/login.page.ts`
 also extends `BasePage`, not `AppPage`, for exactly this reason: there is no
 session to have expired yet). Fixed by removing the URL check entirely —

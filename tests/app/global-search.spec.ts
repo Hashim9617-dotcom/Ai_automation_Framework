@@ -42,7 +42,9 @@ test.describe('Global Search', { tag: ['@regression', '@search'] }, () => {
       // A mismatch here is the classic pagination-versus-total bug: the chip
       // counts everything, the page shows a slice. Rendered must never exceed
       // reported — that would mean the summary is simply wrong.
-      expect(rendered, 'more rows rendered than the app claims exist').toBeLessThanOrEqual(reported);
+      expect(rendered, 'more rows rendered than the app claims exist').toBeLessThanOrEqual(
+        reported,
+      );
     },
   );
 

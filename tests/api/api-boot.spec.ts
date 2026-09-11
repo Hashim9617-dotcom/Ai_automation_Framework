@@ -64,9 +64,13 @@ test.describe('the API boots @api', () => {
     let stdout = '';
     let failed = false;
     try {
-      stdout = execFileSyncClean(process.execPath, [path.join(ROOT, 'scripts', 'check-api-deps.mjs')], {
-        cwd: ROOT,
-      });
+      stdout = execFileSyncClean(
+        process.execPath,
+        [path.join(ROOT, 'scripts', 'check-api-deps.mjs')],
+        {
+          cwd: ROOT,
+        },
+      );
     } catch (error) {
       failed = true;
       const err = error as { stdout?: string; stderr?: string };

@@ -76,7 +76,10 @@ interface MistakeCase {
 function serve(): Promise<{ server: Server; baseUrl: string }> {
   return new Promise((resolve) => {
     const server = createServer((_req, res) => {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+      });
       res.end(html);
     });
     server.listen(0, '127.0.0.1', () => {
@@ -157,13 +160,14 @@ async function buildCapture(baseUrl: string): Promise<StateCapture> {
       verdict: check.verdict,
     });
     if (check.verdict === 'suspect') {
-      console.log(`  cross-check flagged the fixture's own transition: ${check.reasons.join('; ')}`);
+      console.log(
+        `  cross-check flagged the fixture's own transition: ${check.reasons.join('; ')}`,
+      );
     }
 
     await page.click('#select-all');
     await page.waitForTimeout(200);
     states.push(await captureState(page, 'search.all-selected', 'Search results, all selected'));
-
   } finally {
     await browser.close();
   }
@@ -182,11 +186,15 @@ const MISTAKES: MistakeCase[] = [
       'the dialog state is captured and holds button "Create" enabled=true, so the capture actively refutes this — an empty capture could not',
     wrong: {
       entryState: 'admin.create-role.empty',
-      steps: [{ kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: false }],
+      steps: [
+        { kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: false },
+      ],
     },
     right: {
       entryState: 'admin.create-role.empty',
-      steps: [{ kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: true }],
+      steps: [
+        { kind: 'assert', role: 'button', name: 'Create', property: 'enabled', expected: true },
+      ],
     },
   },
   {
@@ -223,7 +231,13 @@ const MISTAKES: MistakeCase[] = [
     wrong: {
       entryState: 'search.all-selected',
       steps: [
-        { kind: 'assert', role: 'button', name: 'Download File', property: 'present', expected: true },
+        {
+          kind: 'assert',
+          role: 'button',
+          name: 'Download File',
+          property: 'present',
+          expected: true,
+        },
       ],
     },
     right: {
@@ -249,7 +263,9 @@ const MISTAKES: MistakeCase[] = [
       'the tree state is captured and complete, and the row is named "Expand WS-ALPHA More options" — the bare name is positively absent',
     wrong: {
       entryState: 'files.tree',
-      steps: [{ kind: 'assert', role: 'treeitem', name: 'WS-ALPHA', property: 'present', expected: true }],
+      steps: [
+        { kind: 'assert', role: 'treeitem', name: 'WS-ALPHA', property: 'present', expected: true },
+      ],
     },
     right: {
       entryState: 'files.tree',

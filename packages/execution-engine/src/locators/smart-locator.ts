@@ -92,8 +92,7 @@ function build(scope: LocatorScope, candidate: LocatorCandidate): Locator {
     case 'role': {
       const roleValue = candidate.value as Parameters<Page['getByRole']>[0];
       const roleOptions = candidate.options as
-        | ({ name?: string | RegExp; exact?: boolean } & Record<string, unknown>)
-        | undefined;
+        ({ name?: string | RegExp; exact?: boolean } & Record<string, unknown>) | undefined;
       const primary = scope.getByRole(roleValue, roleOptions as Parameters<Page['getByRole']>[1]);
 
       // Only role + exact + a plain string name is unsafe this way — a

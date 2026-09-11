@@ -87,7 +87,7 @@ nothing valid to use.
 In File Explorer, opening a workspace's "More options" menu (a dropdown
 menu with actions like Star, Edit, Download, Share, Delete) and then
 pressing the `Escape` key does nothing — the menu stays open. Clicking
-anywhere else on the page *does* close it immediately, so the menu isn't
+anywhere else on the page _does_ close it immediately, so the menu isn't
 stuck; it's just that `Escape` specifically isn't wired up to close it.
 
 This matters because `Escape` closing an open menu is the standard,
@@ -127,6 +127,7 @@ folder-picking step, no complaints there).
 
 **What we saw, across a few separate attempts on that folder-picking
 step:**
+
 - Clicking a folder sometimes left the "Next" button disabled for several
   seconds afterward, with nothing on screen changing in that time.
 - In one attempt, a folder row that appeared visually highlighted before
@@ -145,7 +146,7 @@ be more useful than anything further we could say about it right now.
 
 ---
 
-*How we found these: we're building an automated test suite against this
+_How we found these: we're building an automated test suite against this
 application, and both confirmed issues above turned up while writing tests
 for ordinary, everyday flows (staying logged in during normal use; using a
-dropdown menu). Happy to share more detail on either one if useful.*
+dropdown menu). Happy to share more detail on either one if useful._

@@ -55,7 +55,11 @@ function section(title: string, body: string | undefined): string {
  * would make analysis fail on exactly the noisy runs that need it most.
  * The last N entries are kept: the ones nearest the failure.
  */
-function evidenceList(entries: string[] | undefined, limit = 40, chars = 1_500): string | undefined {
+function evidenceList(
+  entries: string[] | undefined,
+  limit = 40,
+  chars = 1_500,
+): string | undefined {
   if (!entries?.length) return undefined;
   const kept = entries.slice(-limit);
   const omitted = entries.length - kept.length;
@@ -71,12 +75,13 @@ function evidenceList(entries: string[] | undefined, limit = 40, chars = 1_500):
 export function buildRcaPrompt(input: RootCauseAnalysisInput): string {
   const context = redactSecrets(input.context ?? {});
 
-  const stack = input.stack
-    ? input.stack.split('\n').slice(0, 12).join('\n')
-    : undefined;
+  const stack = input.stack ? input.stack.split('\n').slice(0, 12).join('\n') : undefined;
 
   const steps = input.steps?.length
-    ? input.steps.slice(-12).map((step, index) => `${index + 1}. ${step}`).join('\n')
+    ? input.steps
+        .slice(-12)
+        .map((step, index) => `${index + 1}. ${step}`)
+        .join('\n')
     : undefined;
 
   const snapshot = context.domSnapshot

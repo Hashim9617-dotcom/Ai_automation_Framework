@@ -4,13 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
 import { findRepoRoot } from '@aitp/shared';
 import { RunsService } from '../runs/runs.service';
-import {
-  flattenSuites,
-  rank,
-  tokenize,
-  escapeRegex,
-  type InventoryEntry,
-} from '@aitp/shared';
+import { flattenSuites, rank, tokenize, escapeRegex, type InventoryEntry } from '@aitp/shared';
 
 const execFileAsync = promisify(execFile);
 
@@ -23,8 +17,6 @@ export const commandRequestSchema = z.object({
   dryRun: z.boolean().default(false),
 });
 export type CommandRequest = z.infer<typeof commandRequestSchema>;
-
-
 
 /**
  * AI Command Box — Phase 1 implementation.

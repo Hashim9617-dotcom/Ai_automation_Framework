@@ -92,9 +92,10 @@ export class EmployeesPage extends BasePage {
   }
 
   async expectInDirectory(employeeId: string): Promise<void> {
-    await expect(
-      this.page.getByTestId('employee-row').filter({ hasText: employeeId }),
-    ).toHaveCount(1, { timeout: this.env.timeouts.expect });
+    await expect(this.page.getByTestId('employee-row').filter({ hasText: employeeId })).toHaveCount(
+      1,
+      { timeout: this.env.timeouts.expect },
+    );
   }
 
   async isDirectoryEmpty(): Promise<boolean> {

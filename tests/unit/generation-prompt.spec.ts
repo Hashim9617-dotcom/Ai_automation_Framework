@@ -162,7 +162,9 @@ test.describe('the prompt digest — differences the prompt RENDERS (K1) @unit',
     {
       what: 'a declared transition',
       changed: bounded([state('workspace', [node('tab', 'Workspace', { selected: true })])], {
-        transitions: [{ from: 'workspace', to: 'folder', action: 'clicked', verdict: 'consistent' }],
+        transitions: [
+          { from: 'workspace', to: 'folder', action: 'clicked', verdict: 'consistent' },
+        ],
       }),
     },
     {
@@ -229,9 +231,7 @@ test.describe('the prompt digest — differences the prompt RENDERS (K1) @unit',
     },
     {
       what: 'a level VALUE',
-      from: bounded([
-        state('workspace', [node('tab', 'Workspace', { selected: true, level: 2 })]),
-      ]),
+      from: bounded([state('workspace', [node('tab', 'Workspace', { selected: true, level: 2 })])]),
       changed: bounded([
         state('workspace', [node('tab', 'Workspace', { selected: true, level: 3 })]),
       ]),
@@ -324,14 +324,8 @@ test.describe('the prompt digest — differences the prompt IGNORES (K2) @unit',
    *
    * What sorting still buys is below: the rendered layout is canonical.
    */
-  const orderedA = bounded([
-    state('a', [node('button', 'A')]),
-    state('b', [node('button', 'B')]),
-  ]);
-  const orderedB = bounded([
-    state('b', [node('button', 'B')]),
-    state('a', [node('button', 'A')]),
-  ]);
+  const orderedA = bounded([state('a', [node('button', 'A')]), state('b', [node('button', 'B')])]);
+  const orderedB = bounded([state('b', [node('button', 'B')]), state('a', [node('button', 'A')])]);
 
   test('K1: capture order IS the visit sequence, so it changes the prompt', () => {
     expect(promptFor(orderedA)).not.toBe(promptFor(orderedB));
@@ -462,7 +456,7 @@ test.describe('the cache key — every component is load-bearing (K3) @unit', ()
     );
   });
 
-  test("the provenance capture digest tracks the capture and not the command", () => {
+  test('the provenance capture digest tracks the capture and not the command', () => {
     // It answers "approved when the app looked like this", so a reworded
     // command must not appear to be a different app.
     const changed = bounded([state('workspace', [node('tab', 'Folder', { selected: true })])]);
@@ -620,7 +614,8 @@ test.describe('the builder reads its argument and nothing else (K5) @unit', () =
   /** Everything from the first render helper to the end of the file. */
   const renderSection = (): string => {
     const start = SOURCE.indexOf('const renderNode');
-    if (start === -1) throw new Error('could not find the render section — this test is scanning nothing');
+    if (start === -1)
+      throw new Error('could not find the render section — this test is scanning nothing');
     const section = SOURCE.slice(start);
     // Asserts its own effect: a scan that found the wrong region would pass
     // every forbidden-token check below while reading none of the renderer.
@@ -685,7 +680,12 @@ test.describe('the builder reads its argument and nothing else (K5) @unit', () =
       capture: withCollapsed(),
       shows: ['Repeated shapes'],
     },
-    { what: 'no collapsed groups', capture: BASE, shows: ['### state:'], hides: ['Repeated shapes'] },
+    {
+      what: 'no collapsed groups',
+      capture: BASE,
+      shows: ['### state:'],
+      hides: ['Repeated shapes'],
+    },
     {
       what: 'a declared transition',
       capture: withTransition('suspect'),
@@ -890,7 +890,13 @@ test.describe('visit order is a pure function of the capture (K6) @unit', () => 
       states: [
         // Scores 0 on the command, so it is only ever kept as a neighbour —
         // and it was visited FIRST.
-        { id: 'lobby', label: 'lobby', url: 'u', nodes: [node('button', 'Lobby')], truncated: false },
+        {
+          id: 'lobby',
+          label: 'lobby',
+          url: 'u',
+          nodes: [node('button', 'Lobby')],
+          truncated: false,
+        },
         {
           id: 'upload',
           label: 'upload',

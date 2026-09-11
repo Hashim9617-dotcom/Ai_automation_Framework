@@ -1,8 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import {
-  authStatePath,
-  loadEnvironment,
-} from './packages/execution-engine/src/config/environment';
+import { authStatePath, loadEnvironment } from './packages/execution-engine/src/config/environment';
 
 const env = loadEnvironment();
 const isCI = Boolean(process.env.CI);
@@ -56,7 +53,10 @@ export default defineConfig({
     ['list'],
     ['html', { outputFolder: './artifacts/reports/html', open: 'never' }],
     ['junit', { outputFile: './artifacts/reports/junit.xml' }],
-    ['./packages/reporting-engine/src/reporters/aitp-reporter.ts', { outputDir: './artifacts/reports' }],
+    [
+      './packages/reporting-engine/src/reporters/aitp-reporter.ts',
+      { outputDir: './artifacts/reports' },
+    ],
   ],
 
   use: {
@@ -133,12 +133,13 @@ export default defineConfig({
 
   // Starts the bundled demo app so a fresh clone can run the suite immediately.
   // Remove or point elsewhere once you target the real application.
-  webServer: isDemoEnvironment && env.baseUrl.includes('127.0.0.1:4173')
-    ? {
-        command: 'node scripts/serve-demo.mjs',
-        url: 'http://127.0.0.1:4173/login',
-        reuseExistingServer: !isCI,
-        timeout: 30_000,
-      }
-    : undefined,
+  webServer:
+    isDemoEnvironment && env.baseUrl.includes('127.0.0.1:4173')
+      ? {
+          command: 'node scripts/serve-demo.mjs',
+          url: 'http://127.0.0.1:4173/login',
+          reuseExistingServer: !isCI,
+          timeout: 30_000,
+        }
+      : undefined,
 });

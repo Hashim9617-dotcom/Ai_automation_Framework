@@ -91,8 +91,7 @@ export class HttpLlmGateway implements LlmGateway {
   }
 
   private async dispatch(request: LlmCompletionRequest): Promise<LlmCompletion<string>> {
-    const model =
-      request.model === 'fast' ? this.config.models.fast : this.config.models.reasoning;
+    const model = request.model === 'fast' ? this.config.models.fast : this.config.models.reasoning;
     const url = this.config.baseUrl ?? DEFAULT_BASE_URL[this.config.provider];
     const maxRetries = this.config.maxRetries ?? 3;
 

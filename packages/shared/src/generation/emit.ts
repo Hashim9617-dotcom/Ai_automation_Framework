@@ -55,8 +55,12 @@ const literal = (value: string): string => JSON.stringify(value);
  * The id is ours.
  */
 export function specFileName(proposal: TestCaseProposal): string {
-  const safe = proposal.id.replace(/[^a-z0-9-]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase();
-  if (safe.length === 0) throw new Error('the proposal id yields no safe file name — refusing to emit');
+  const safe = proposal.id
+    .replace(/[^a-z0-9-]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+  if (safe.length === 0)
+    throw new Error('the proposal id yields no safe file name — refusing to emit');
   return `generated-${safe}.spec.ts`;
 }
 
@@ -114,9 +118,13 @@ export function emitSpec(review: ReviewableProposal): EmittedSpec {
     const locator = `page.getByRole(${literal(role)}, { name: ${literal(name)}, exact: true })`;
     const matcher =
       property === 'present'
-        ? expected ? 'toBeVisible()' : 'not.toBeVisible()'
+        ? expected
+          ? 'toBeVisible()'
+          : 'not.toBeVisible()'
         : property === 'enabled'
-          ? expected ? 'toBeEnabled()' : 'toBeDisabled()'
+          ? expected
+            ? 'toBeEnabled()'
+            : 'toBeDisabled()'
           : `toHaveAttribute('aria-selected', ${literal(String(expected))})`;
     return [
       `    // ${assertion.assertionId} — grade ${assertion.grade} (${assertion.why})`,

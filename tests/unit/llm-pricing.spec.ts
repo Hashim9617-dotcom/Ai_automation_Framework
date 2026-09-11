@@ -87,7 +87,12 @@ test.describe('LLM pricing is model-aware @unit', () => {
     const unknown = resolveModelRate('some-model-we-have-never-seen');
     expect(unknown.known).toBe(false);
 
-    for (const model of ['claude-sonnet-4-5', 'claude-sonnet-5', 'claude-haiku-4-5', 'claude-opus-5']) {
+    for (const model of [
+      'claude-sonnet-4-5',
+      'claude-sonnet-5',
+      'claude-haiku-4-5',
+      'claude-opus-5',
+    ]) {
       // Over-estimating trips the budget guard early. Under-estimating lets a
       // run overspend silently, which is the failure that actually costs money.
       expect(unknown.inputPerMTok, model).toBeGreaterThan(resolveModelRate(model).inputPerMTok);

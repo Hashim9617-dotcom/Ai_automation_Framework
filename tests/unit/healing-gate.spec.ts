@@ -36,7 +36,10 @@ function makeSpec(candidateCount = 1): LocatorSpec {
   };
 }
 
-function makeError(details?: { durationMs?: number; expectedBudgetMs?: number }): LocatorResolutionError {
+function makeError(details?: {
+  durationMs?: number;
+  expectedBudgetMs?: number;
+}): LocatorResolutionError {
   return new LocatorResolutionError('test.target', 1, {
     description: 'Test target element',
     url: 'https://app.example.com/dashboard',
@@ -81,7 +84,9 @@ test.describe('checkHealingEligibility — rule 1: chain exhausted', () => {
       pageUrl: 'https://app.example.com/dashboard',
     });
     expect(result.eligible).toBe(true);
-    expect(result.reasons.some((r) => r.includes('chain exhausted: all 3 candidate(s)'))).toBe(true);
+    expect(result.reasons.some((r) => r.includes('chain exhausted: all 3 candidate(s)'))).toBe(
+      true,
+    );
   });
 });
 
@@ -105,7 +110,9 @@ test.describe('checkHealingEligibility — rule 2: session-expiry filtering', ()
       pageUrl: 'https://app.example.com/login',
     });
     expect(result.eligible).toBe(true);
-    expect(result.reasons.some((r) => r.includes('page: https://app.example.com/login'))).toBe(true);
+    expect(result.reasons.some((r) => r.includes('page: https://app.example.com/login'))).toBe(
+      true,
+    );
   });
 });
 
@@ -119,9 +126,9 @@ test.describe('checkHealingEligibility — rule 3: key not resolved earlier in t
       pageUrl: 'https://app.example.com/dashboard',
     });
     expect(result.eligible).toBe(true);
-    expect(result.reasons.some((r) => r === '"test.target" never resolved successfully in this test')).toBe(
-      true,
-    );
+    expect(
+      result.reasons.some((r) => r === '"test.target" never resolved successfully in this test'),
+    ).toBe(true);
   });
 
   test('REFUSED by rule 3: the same key already resolved earlier in this test', () => {
@@ -134,7 +141,10 @@ test.describe('checkHealingEligibility — rule 3: key not resolved earlier in t
     });
     expect(result.eligible).toBe(false);
     expect(
-      result.reasons.some((r) => r.includes('resolved successfully earlier in this test') && r.includes('not eligible')),
+      result.reasons.some(
+        (r) =>
+          r.includes('resolved successfully earlier in this test') && r.includes('not eligible'),
+      ),
     ).toBe(true);
   });
 });
@@ -161,12 +171,14 @@ test.describe('checkHealingEligibility — rule 4: DOM snapshot not truncated', 
       pageUrl: 'https://app.example.com/dashboard',
     });
     expect(result.eligible).toBe(false);
-    expect(result.reasons.some((r) => r.includes('not eligible') && r.includes('truncated'))).toBe(true);
+    expect(result.reasons.some((r) => r.includes('not eligible') && r.includes('truncated'))).toBe(
+      true,
+    );
   });
 });
 
 test.describe('checkHealingEligibility — rule 5: not explained by latency', () => {
-  test('PASS: duration lands within the chain\'s own predicted budget', () => {
+  test("PASS: duration lands within the chain's own predicted budget", () => {
     const result = checkHealingEligibility({
       spec: makeSpec(),
       error: makeError({ durationMs: 2000, expectedBudgetMs: 2000 }),
@@ -175,7 +187,9 @@ test.describe('checkHealingEligibility — rule 5: not explained by latency', ()
       pageUrl: 'https://app.example.com/dashboard',
     });
     expect(result.eligible).toBe(true);
-    expect(result.reasons.some((r) => r.includes('within the ordinary exhaustion window'))).toBe(true);
+    expect(result.reasons.some((r) => r.includes('within the ordinary exhaustion window'))).toBe(
+      true,
+    );
   });
 
   test('PASS: duration within the 1.25x slack margin over budget', () => {
@@ -201,7 +215,11 @@ test.describe('checkHealingEligibility — rule 5: not explained by latency', ()
     });
     expect(result.eligible).toBe(false);
     expect(
-      result.reasons.some((r) => r.includes('not eligible') && r.includes("latency the chain's own timeouts don't explain")),
+      result.reasons.some(
+        (r) =>
+          r.includes('not eligible') &&
+          r.includes("latency the chain's own timeouts don't explain"),
+      ),
     ).toBe(true);
   });
 

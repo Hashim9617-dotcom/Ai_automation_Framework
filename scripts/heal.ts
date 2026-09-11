@@ -55,7 +55,9 @@ async function main(): Promise<void> {
   }
 
   const run = JSON.parse(readFileSync(runJson, 'utf8')) as Run;
-  const eligibleCount = run.results.filter((r) => r.context?.healingGate?.some((v) => v.eligible)).length;
+  const eligibleCount = run.results.filter((r) =>
+    r.context?.healingGate?.some((v) => v.eligible),
+  ).length;
 
   if (eligibleCount === 0) {
     log.info('No gate-eligible locator failures in the last run — nothing to propose.', {
@@ -78,7 +80,10 @@ async function main(): Promise<void> {
 
   const engine = new LlmSelfHealingEngine(gateway);
 
-  const { proposed, declined, reused, skipped, ineligible } = await enrichRunWithHealing(run, engine);
+  const { proposed, declined, reused, skipped, ineligible } = await enrichRunWithHealing(
+    run,
+    engine,
+  );
 
   writeFileSync(runJson, JSON.stringify(run, null, 2), 'utf8');
 

@@ -79,13 +79,20 @@ export function collapseRepeatedShapes(
 
     // Longest shared prefix and suffix of words across the whole group.
     let prefix = 0;
-    while (prefix < first.length && words.every((w) => w.length > prefix && w[prefix] === first[prefix])) {
+    while (
+      prefix < first.length &&
+      words.every((w) => w.length > prefix && w[prefix] === first[prefix])
+    ) {
       prefix += 1;
     }
     let suffix = 0;
     while (
       suffix < first.length - prefix &&
-      words.every((w) => w.length > prefix + suffix && w[w.length - 1 - suffix] === first[first.length - 1 - suffix])
+      words.every(
+        (w) =>
+          w.length > prefix + suffix &&
+          w[w.length - 1 - suffix] === first[first.length - 1 - suffix],
+      )
     ) {
       suffix += 1;
     }
@@ -116,8 +123,8 @@ export function collapseRepeatedShapes(
 
 /** Scores a state against the command's keywords, by id and by node names. */
 function scoreState(state: CapturedState, keywords: string[]): number {
-  const haystack = `${state.id} ${state.label} ${state.nodes.map((n) => n.name).join(' ')}`
-    .toLowerCase();
+  const haystack =
+    `${state.id} ${state.label} ${state.nodes.map((n) => n.name).join(' ')}`.toLowerCase();
   return keywords.reduce((total, keyword) => (haystack.includes(keyword) ? total + 1 : total), 0);
 }
 
@@ -162,16 +169,28 @@ export function boundCaptureForCommand(
   const existingIds = new Set(capture.states.map((s) => s.id));
   const neighbourIds = new Set<string>();
   for (const transition of capture.transitions) {
-    if (chosenIds.has(transition.from) && !chosenIds.has(transition.to) && existingIds.has(transition.to)) {
+    if (
+      chosenIds.has(transition.from) &&
+      !chosenIds.has(transition.to) &&
+      existingIds.has(transition.to)
+    ) {
       neighbourIds.add(transition.to);
     }
-    if (chosenIds.has(transition.to) && !chosenIds.has(transition.from) && existingIds.has(transition.from)) {
+    if (
+      chosenIds.has(transition.to) &&
+      !chosenIds.has(transition.from) &&
+      existingIds.has(transition.from)
+    ) {
       neighbourIds.add(transition.from);
     }
   }
 
   const chosen: StateSelectionRecord['chosen'] = [
-    ...chosenByScore.map((entry) => ({ id: entry.state.id, score: entry.score, why: 'score' as const })),
+    ...chosenByScore.map((entry) => ({
+      id: entry.state.id,
+      score: entry.score,
+      why: 'score' as const,
+    })),
     ...[...neighbourIds].map((id) => ({
       id,
       score: available.find((entry) => entry.id === id)?.score ?? 0,

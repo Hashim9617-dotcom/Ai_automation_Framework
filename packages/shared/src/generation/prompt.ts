@@ -30,7 +30,8 @@ import type { CollapsedGroup } from './grounding';
  * not an omission nobody can see.
  */
 
-const sha = (input: string): string => createHash('sha256').update(input).digest('hex').slice(0, 16);
+const sha = (input: string): string =>
+  createHash('sha256').update(input).digest('hex').slice(0, 16);
 
 /** The prompt's contract version. Bumping it invalidates every cache entry. */
 export const PROMPT_VERSION = 'gen-1';
@@ -179,9 +180,7 @@ export function buildPromptInput(input: {
 
   const transitions: PromptTransition[] = input.capture.transitions
     .map((t) => ({ from: t.from, to: t.to, action: t.action, verdict: t.verdict }))
-    .sort((a, b) =>
-      `${a.from}>${a.to}:${a.action}`.localeCompare(`${b.from}>${b.to}:${b.action}`),
-    );
+    .sort((a, b) => `${a.from}>${a.to}:${a.action}`.localeCompare(`${b.from}>${b.to}:${b.action}`));
 
   return {
     promptVersion: input.promptVersion ?? PROMPT_VERSION,
@@ -418,7 +417,7 @@ export function renderGenerationPrompt(input: PromptInput): string {
     '1a. A node marked `text only` is page TEXT, not a control. You may assert on it. You may',
     '   NOT write an action step targeting it — nothing can be clicked there, and a step that',
     '   tries becomes a test that fails for a reason the application is not responsible for.',
-    '2. An action step must quote a declared transition\'s action verbatim. There is no other',
+    "2. An action step must quote a declared transition's action verbatim. There is no other",
     '   way to move between states: an action that matches no declared transition leaves the',
     '   test standing somewhere unknown, and everything after it becomes a question.',
     '3. Do not assert what an action CAUSES unless a transition below declares it. If you',

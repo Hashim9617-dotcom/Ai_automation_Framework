@@ -148,7 +148,8 @@ export interface FinalSheetReadResult {
  * an assertion, and neither fails loudly: an assertion mistaken for an action
  * is never checked, and the test goes green having verified nothing.
  */
-const ASSERT_VERBS = /^(verify|verifies|expect|expects|check|checks|assert|asserts|ensure|ensures)\b/i;
+const ASSERT_VERBS =
+  /^(verify|verifies|expect|expects|check|checks|assert|asserts|ensure|ensures)\b/i;
 const ACTION_VERBS =
   /^(click|clicks|press|presses|tap|taps|enter|enters|type|types|select|selects|navigate|navigates|open|opens|upload|uploads|search|searches)\b/i;
 /** "X should be Y" is an assertion however it starts. */
@@ -193,7 +194,7 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
     throw new Error(
       `readFinalTestCases was given the sheet "${grid.name}", but this reader is for ` +
         `"${FINAL_TEST_CASES_SCHEMA.sheetName}". The workbook holds several test-case sheets ` +
-        'with different layouts; reading one with another\'s reader produces garbage that looks like data.',
+        "with different layouts; reading one with another's reader produces garbage that looks like data.",
     );
   }
   if (grid.rows.length < 2) throw new Error('the sheet has no data rows');
@@ -230,12 +231,14 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
       // Non-blank without an identity is REPORTED, never skipped. But WHICH
       // kind matters: a stray cell wastes a QA's time to look at, and a row
       // carrying real Gherkin content is a test case they can recover.
-      const orphaned = ([
-        [col.given, 'Given'],
-        [col.when, 'When'],
-        [col.and, 'And'],
-        [col.then, 'Then'],
-      ] as const)
+      const orphaned = (
+        [
+          [col.given, 'Given'],
+          [col.when, 'When'],
+          [col.and, 'And'],
+          [col.then, 'Then'],
+        ] as const
+      )
         .map(([column, label]) => [label, at(row, column)] as const)
         .filter(([, value]) => value !== '')
         .map(([label, value]) => `${label}: ${value}`);

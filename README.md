@@ -32,7 +32,7 @@ correctly advances the wizard to the Folder step immediately (confirmed via
 the wizard's own `aria-selected` tab state) — there is no separate manual
 "Next" click on that step. The actual bug was in the test/page-object's
 model of the flow: it called an extra, unnecessary `goNext()` after
-selecting a workspace, which hung clicking the *next* step's own
+selecting a workspace, which hung clicking the _next_ step's own
 (correctly) disabled `Next` button. Fixed in `tests/app/upload.spec.ts`.
 
 **Genuinely fixed, both confirmed live before being called fixed, neither an
@@ -211,7 +211,7 @@ caps how many distinct failures are analyzed; and `LLM_BUDGET_USD` is a hard sto
 ## The four ideas that matter
 
 **1. Locators are data, not code.** A page object declares a `LocatorSpec`: a key,
-a human description, and an *ordered list of candidates*. `SmartLocator` walks the
+a human description, and an _ordered list of candidates_. `SmartLocator` walks the
 list and records which candidate won.
 
 ```ts
@@ -282,11 +282,11 @@ a confusing test failure later.
 
 ## Roadmap
 
-| Phase                     | Scope                                                                 | Status |
-| ------------------------- | --------------------------------------------------------------------- | ------ |
-| 1 — Foundation            | Monorepo, Playwright + POM + fixtures, config, reporting, Docker, CI   | Done   |
-| 2 — AI layer              | DOM understanding + root cause analysis **done**; self-healing, test-case and script generation next | Started |
-| 3 — Dashboard             | Live browser view, live logs, pass/fail, screenshots, video, timeline  | Later  |
-| 4 — Enterprise            | Jira, Azure DevOps, Slack, Teams, test management, RBAC, analytics     | Later  |
+| Phase          | Scope                                                                                                | Status  |
+| -------------- | ---------------------------------------------------------------------------------------------------- | ------- |
+| 1 — Foundation | Monorepo, Playwright + POM + fixtures, config, reporting, Docker, CI                                 | Done    |
+| 2 — AI layer   | DOM understanding + root cause analysis **done**; self-healing, test-case and script generation next | Started |
+| 3 — Dashboard  | Live browser view, live logs, pass/fail, screenshots, video, timeline                                | Later   |
+| 4 — Enterprise | Jira, Azure DevOps, Slack, Teams, test management, RBAC, analytics                                   | Later   |
 
 See `docs/` for the architecture decisions and the Phase 2 implementation order.

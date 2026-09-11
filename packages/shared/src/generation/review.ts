@@ -210,9 +210,13 @@ export function renderReview(review: ReviewableProposal): string {
       `- ${box} \`${assertion.assertionId}\` — ${assertion.claim.role} ` +
         `"${assertion.claim.name}" ${assertion.claim.property}=${assertion.claim.expected}`,
     );
-    lines.push(`      grade **${assertion.grade}** (${assertion.why}) in \`${assertion.claim.stateId ?? 'unknown state'}\``);
+    lines.push(
+      `      grade **${assertion.grade}** (${assertion.why}) in \`${assertion.claim.stateId ?? 'unknown state'}\``,
+    );
     if (assertion.overrodeModel) {
-      lines.push(`      _the model said ${assertion.modelSaid}; the capture says ${assertion.grade}_`);
+      lines.push(
+        `      _the model said ${assertion.modelSaid}; the capture says ${assertion.grade}_`,
+      );
     }
     if (entry.state === 'lapsed') {
       lines.push(
@@ -230,7 +234,8 @@ export function renderReview(review: ReviewableProposal): string {
       'The model asserted these and the capture cannot confirm them. Each names the fault.',
       '',
       ...proposal.ungroundedAssertions.map(
-        (item) => `- ${item.question}  \n      _${item.whyUngrounded}: ${item.whyUngroundedDetail}_`,
+        (item) =>
+          `- ${item.question}  \n      _${item.whyUngrounded}: ${item.whyUngroundedDetail}_`,
       ),
       '',
     );

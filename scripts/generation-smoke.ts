@@ -110,7 +110,8 @@ function loadCapture(root: string): { states: CapturedState[]; label: string } {
       }
     }
   }
-  if (!best) throw new Error('every capture on disk has zero nodes — refusing to smoke against nothing');
+  if (!best)
+    throw new Error('every capture on disk has zero nodes — refusing to smoke against nothing');
   return best;
 }
 
@@ -150,7 +151,8 @@ async function main(): Promise<void> {
   // sourcing it into a terminal prints them on any parse error.
   loadEnvFile(path.join(root, '.env'));
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY is not set — this smoke exists to hit the real API');
+  if (!apiKey)
+    throw new Error('ANTHROPIC_API_KEY is not set — this smoke exists to hit the real API');
 
   const { states, label } = loadCapture(root);
   // Keywords that actually appear in this capture. State selection scores on
@@ -164,7 +166,9 @@ async function main(): Promise<void> {
     { sessionId: 'smoke', states, transitions: [] },
     COMMAND_A,
   );
-  line(`capture: "${label}" — ${states[0]!.nodes.length} nodes, bounded to ${capture.states.length} state(s)`);
+  line(
+    `capture: "${label}" — ${states[0]!.nodes.length} nodes, bounded to ${capture.states.length} state(s)`,
+  );
 
   // ASSERT THE SMOKE'S OWN PREMISE. A capture that bounded to nothing produces
   // a model call about an empty page, and "0 proposals" then reads as a
@@ -203,10 +207,16 @@ async function main(): Promise<void> {
   const before1 = budget.snapshot();
   const first = await generate(COMMAND_A);
   const after1 = budget.snapshot();
-  line(`proposals ${first.proposals.length}  refusals ${first.refusals.length}  called ${first.called}`);
-  line(`budget: ${before1.spentUsd} -> ${after1.spentUsd} USD, calls ${before1.calls} -> ${after1.calls}`);
+  line(
+    `proposals ${first.proposals.length}  refusals ${first.refusals.length}  called ${first.called}`,
+  );
+  line(
+    `budget: ${before1.spentUsd} -> ${after1.spentUsd} USD, calls ${before1.calls} -> ${after1.calls}`,
+  );
   line(`usage: ${JSON.stringify(gateway.completions.at(-1)?.usage)}`);
-  line(`provider/model: ${gateway.completions.at(-1)?.provider}/${gateway.completions.at(-1)?.model}`);
+  line(
+    `provider/model: ${gateway.completions.at(-1)?.provider}/${gateway.completions.at(-1)?.model}`,
+  );
 
   // ---- call 2: same command, must not reach the network ---------------------
   heading('CALL 2 — same command, cache must avoid the MODEL');
@@ -214,7 +224,9 @@ async function main(): Promise<void> {
   const after2 = budget.snapshot();
   line(`same cacheKey: ${second.cacheKey === first.cacheKey}`);
   line(`usage.cached on second: ${gateway.completions.at(-1)?.usage.cached}`);
-  line(`budget after: ${after2.spentUsd} USD, calls ${after2.calls}  (unchanged means no dispatch)`);
+  line(
+    `budget after: ${after2.spentUsd} USD, calls ${after2.calls}  (unchanged means no dispatch)`,
+  );
 
   // ---- call 3: different command, must dispatch -----------------------------
   heading('CALL 3 — different command, must dispatch again');
@@ -226,8 +238,9 @@ async function main(): Promise<void> {
 
   // ---- the comparison -------------------------------------------------------
   heading('WHAT THE MODEL ACTUALLY RETURNED');
-  const raw = gateway.rawResponses[0] as { cases?: unknown[]; openQuestions?: unknown[] } | undefined;
-  line(`top-level keys the model sent: ${Object.keys(raw ?? {}).join(", ")}`);
+  const raw = gateway.rawResponses[0] as
+    { cases?: unknown[]; openQuestions?: unknown[] } | undefined;
+  line(`top-level keys the model sent: ${Object.keys(raw ?? {}).join(', ')}`);
   line(`the engine reads only: cases`);
   line(JSON.stringify(raw, null, 2).slice(0, 2600));
 
@@ -238,11 +251,15 @@ async function main(): Promise<void> {
         `  modelSaid=${assertion.modelSaid.padEnd(8)} grade=${assertion.grade.padEnd(12)} ` +
           `overrode=${String(assertion.overrodeModel).padEnd(5)} why=${assertion.why}`,
       );
-      line(`     claim: ${assertion.claim.role} "${assertion.claim.name}" ${assertion.claim.property}=${assertion.claim.expected}`);
+      line(
+        `     claim: ${assertion.claim.role} "${assertion.claim.name}" ${assertion.claim.property}=${assertion.claim.expected}`,
+      );
     }
   }
   for (const refusal of [...first.refusals, ...third.refusals]) {
-    line(`  REFUSED "${refusal.title}" — invented entryState ${JSON.stringify(refusal.claimedEntryState)}`);
+    line(
+      `  REFUSED "${refusal.title}" — invented entryState ${JSON.stringify(refusal.claimedEntryState)}`,
+    );
   }
 
   heading('COST');
@@ -284,7 +301,8 @@ async function main(): Promise<void> {
     'utf8',
   );
   const landed = readFileSync(file, 'utf8');
-  if (!landed.includes('rawResponses')) throw new Error('smoke output did not land — refusing to report success');
+  if (!landed.includes('rawResponses'))
+    throw new Error('smoke output did not land — refusing to report success');
   line(`\nraw material written and verified: ${file}`);
 }
 

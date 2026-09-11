@@ -7,13 +7,7 @@
  * has training data from day one.
  */
 export type LocatorStrategy =
-  | 'testId'
-  | 'role'
-  | 'label'
-  | 'placeholder'
-  | 'text'
-  | 'css'
-  | 'xpath';
+  'testId' | 'role' | 'label' | 'placeholder' | 'text' | 'css' | 'xpath';
 
 export interface LocatorCandidate {
   strategy: LocatorStrategy;

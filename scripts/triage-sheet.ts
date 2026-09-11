@@ -91,7 +91,8 @@ function main(): void {
 
   const root = findRepoRoot();
   const routes = capturedRoutes(root);
-  if (routes.size === 0) throw new Error('no captures found under artifacts/inspect — refusing to report a ceiling');
+  if (routes.size === 0)
+    throw new Error('no captures found under artifacts/inspect — refusing to report a ceiling');
 
   const capturedModules = new Set(
     Object.entries(MODULE_ROUTES)
@@ -102,7 +103,9 @@ function main(): void {
   console.log(`captures on disk: ${[...routes].sort().join(', ')}`);
   console.log('\nmodule -> capture pairing used (check this by eye):');
   for (const [module, route] of Object.entries(MODULE_ROUTES)) {
-    console.log(`  ${module.padEnd(30)} -> ${route}${routes.has(route) ? '' : '   ** NOT ON DISK **'}`);
+    console.log(
+      `  ${module.padEnd(30)} -> ${route}${routes.has(route) ? '' : '   ** NOT ON DISK **'}`,
+    );
   }
 
   const sheet = readFinalTestCases(readSheetGrid(readFileSync(workbook), 'Final Test cases'));
@@ -130,7 +133,9 @@ function main(): void {
     // The script asserts its own effect before reporting success.
     const landed = readFileSync(file, 'utf8');
     if (!landed.includes("With today's captures")) {
-      throw new Error(`the triage at ${file} does not carry both ceilings — refusing to report success`);
+      throw new Error(
+        `the triage at ${file} does not carry both ceilings — refusing to report success`,
+      );
     }
     console.log(`\nwritten and verified: ${file}`);
   }

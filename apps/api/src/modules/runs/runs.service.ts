@@ -36,9 +36,11 @@ export class RunsService {
     });
 
     // Returns immediately; the caller polls GET /runs/:id or subscribes to SSE.
-    this.queue = this.queue.then(() => this.process(run.id)).catch((error: Error) => {
-      this.logger.error(`Run ${run.id} crashed: ${error.message}`);
-    });
+    this.queue = this.queue
+      .then(() => this.process(run.id))
+      .catch((error: Error) => {
+        this.logger.error(`Run ${run.id} crashed: ${error.message}`);
+      });
 
     return run;
   }

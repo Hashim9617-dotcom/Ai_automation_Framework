@@ -46,7 +46,11 @@ export interface ExecutorPage {
 }
 
 const slug = (value: string): string =>
-  value.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase().slice(0, 60);
+  value
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-|-$/g, '')
+    .toLowerCase()
+    .slice(0, 60);
 
 export function createPlaywrightStepExecutor(
   page: ExecutorPage,
@@ -167,6 +171,11 @@ async function observeProperty(
   }
 }
 
-function describe(step: { kind: string; description?: string; role?: string; name?: string }): string {
+function describe(step: {
+  kind: string;
+  description?: string;
+  role?: string;
+  name?: string;
+}): string {
   return step.kind === 'action' ? (step.description ?? '') : `${step.role} "${step.name}"`;
 }

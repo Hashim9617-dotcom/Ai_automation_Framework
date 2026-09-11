@@ -109,7 +109,10 @@ export interface TestCaseGenerator {
 
 export interface ScriptGenerator {
   /** Compile a structured case into an executable Playwright spec file. */
-  compile(testCase: TestCase, snapshot?: DomSnapshot): Promise<{ filePath: string; source: string }>;
+  compile(
+    testCase: TestCase,
+    snapshot?: DomSnapshot,
+  ): Promise<{ filePath: string; source: string }>;
 }
 
 /**

@@ -67,8 +67,11 @@ import {
  */
 function proposeLabel(url: string, nodes: AccessibilityNode[]): string {
   const route =
-    new URL(url).pathname.split('/').filter(Boolean).join('.').replace(/[^a-z0-9.-]/gi, '') ||
-    'root';
+    new URL(url).pathname
+      .split('/')
+      .filter(Boolean)
+      .join('.')
+      .replace(/[^a-z0-9.-]/gi, '') || 'root';
   const heading = nodes.find((node) => node.role === 'heading' && node.name)?.name;
   return heading ? `${route}.${slugify(heading)}` : route;
 }
@@ -148,9 +151,8 @@ async function waitForPageToRender(page: Page): Promise<void> {
   try {
     await page.waitForFunction(
       () =>
-        document.querySelectorAll(
-          'a[href], button, input, select, textarea, [role], [data-testid]',
-        ).length > 0,
+        document.querySelectorAll('a[href], button, input, select, textarea, [role], [data-testid]')
+          .length > 0,
       undefined,
       { timeout: 10_000 },
     );
@@ -167,7 +169,6 @@ async function waitForPageToRender(page: Page): Promise<void> {
   await page.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => {});
 }
 
-
 function renderDivergences(divergences: NameDivergence[]): string {
   if (divergences.length === 0) {
     return '_No name divergences: every element’s visible label matches its computed accessible name on this page._';
@@ -178,9 +179,7 @@ function renderDivergences(divergences: NameDivergence[]): string {
     .map(
       (d) =>
         `| ${d.role} | "${d.domName}" | "${d.axName}" | ${
-          d.exactTrueStillResolves
-            ? 'yes — auto-fallback covers it'
-            : '**NO — will never match**'
+          d.exactTrueStillResolves ? 'yes — auto-fallback covers it' : '**NO — will never match**'
         } |`,
     )
     .join('\n');
@@ -227,13 +226,14 @@ function renderPage(
     .sort((a, b) => b[1].length - a[1].length)
     .map(([role, elements]) => {
       const rows = elements
-        .map((element) =>
-          `| ${[
-            element.name ? `"${element.name}"` : '—',
-            element.testId ? `\`${element.testId}\`` : '—',
-            element.placeholder ? `"${element.placeholder}"` : '—',
-            element.enabled ? '' : 'disabled',
-          ].join(' | ')} |`,
+        .map(
+          (element) =>
+            `| ${[
+              element.name ? `"${element.name}"` : '—',
+              element.testId ? `\`${element.testId}\`` : '—',
+              element.placeholder ? `"${element.placeholder}"` : '—',
+              element.enabled ? '' : 'disabled',
+            ].join(' | ')} |`,
         )
         .join('\n');
       return `#### ${role} (${elements.length})\n\n| name | data-testid | placeholder | state |\n| --- | --- | --- | --- |\n${rows}`;

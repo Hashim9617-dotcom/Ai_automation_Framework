@@ -221,7 +221,8 @@ export function readSheet(csv: string, schema: SheetSchema = PROVISIONAL_SCHEMA)
 
     const extras: Record<string, string> = {};
     for (const [i, header] of headers.entries()) {
-      if (i === idColumn || i === titleColumn || i === stepsColumn || i === expectedColumn) continue;
+      if (i === idColumn || i === titleColumn || i === stepsColumn || i === expectedColumn)
+        continue;
       const value = (cells[i] ?? '').trim();
       if (value) extras[header] = value;
     }
@@ -231,8 +232,14 @@ export function readSheet(csv: string, schema: SheetSchema = PROVISIONAL_SCHEMA)
       rowIdSynthesised,
       sheetRow,
       title,
-      steps: stepText.split(separator).map((s) => s.trim()).filter(Boolean),
-      expected: cell(expectedColumn).split(separator).map((s) => s.trim()).filter(Boolean),
+      steps: stepText
+        .split(separator)
+        .map((s) => s.trim())
+        .filter(Boolean),
+      expected: cell(expectedColumn)
+        .split(separator)
+        .map((s) => s.trim())
+        .filter(Boolean),
       extras,
     });
   }

@@ -65,9 +65,11 @@ export class FileExplorerPage extends AppPage {
     },
   ]);
 
-  private readonly createDocumentButton = locator('files.createDocument', 'Create Document button', [
-    { strategy: 'role', value: 'button', options: { name: 'Create Document' }, confidence: 1 },
-  ]);
+  private readonly createDocumentButton = locator(
+    'files.createDocument',
+    'Create Document button',
+    [{ strategy: 'role', value: 'button', options: { name: 'Create Document' }, confidence: 1 }],
+  );
 
   private readonly workspaceTree = locator('files.tree', 'Workspaces tree', [
     { strategy: 'role', value: 'tree', options: { name: 'Workspaces' }, confidence: 1 },
@@ -100,7 +102,12 @@ export class FileExplorerPage extends AppPage {
   ]);
 
   private readonly documentTypesPicker = locator('files.dialog.docTypes', 'Document types picker', [
-    { strategy: 'role', value: 'button', options: { name: 'Select document types' }, confidence: 1 },
+    {
+      strategy: 'role',
+      value: 'button',
+      options: { name: 'Select document types' },
+      confidence: 1,
+    },
   ]);
 
   private readonly dialogCreate = locator('files.dialog.create', 'Create button in the dialog', [

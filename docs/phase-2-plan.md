@@ -69,7 +69,7 @@ report the heal, and still fail loudly if the element is genuinely gone.
 
 - Implement `TestCaseGenerator.generate()`: command + DOM snapshot + existing
   cases → `TestCase[]` (schema already defined and zod-validated).
-- Pass existing cases in so the model produces *missing* coverage rather than
+- Pass existing cases in so the model produces _missing_ coverage rather than
   duplicating the suite.
 - Persist to `GeneratedTestCase` with `approved: false`.
 

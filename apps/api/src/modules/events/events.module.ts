@@ -19,9 +19,7 @@ class EventsController {
   /** Server-sent events — what the Phase 3 dashboard subscribes to. */
   @Sse('stream/:runId')
   stream(@Param('runId') runId: string): Observable<{ data: string }> {
-    return this.events
-      .subscribe(runId)
-      .pipe(map((event) => ({ data: JSON.stringify(event) })));
+    return this.events.subscribe(runId).pipe(map((event) => ({ data: JSON.stringify(event) })));
   }
 
   @Get('history/:runId')

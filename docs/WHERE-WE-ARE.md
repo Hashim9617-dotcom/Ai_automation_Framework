@@ -59,7 +59,7 @@ any locator code.
 `artifacts/inspect/` and keeps the newest 20 — **count-capped but never aged
 out**, unlike failure archives below. The difference is deliberate: a failure
 archive is diagnostics (worthless once the failure is understood, bulky enough
-to need an expiry), while a capture is *provenance* — it is what a locator was
+to need an expiry), while a capture is _provenance_ — it is what a locator was
 written against, and an old one is more valuable than a new one for answering
 "why does this locator say ABCD". Ageing them out would recreate exactly the
 loss this retention exists to prevent: the original 24-page capture the whole
@@ -72,7 +72,7 @@ names, document titles and user names from a live customer system, and
 committing that copies customer data into permanent git history. A redacted
 version was considered and rejected: redaction destroys precisely the detail
 that makes a capture useful ("why does this locator say ABCD" needs the real
-name), while the facts that *survive* redaction — 0% testid coverage, the
+name), while the facts that _survive_ redaction — 0% testid coverage, the
 role+name strategy, Finding 11's name shape — are already written down in
 reviewed prose in [`tests/app/README.md`](../tests/app/README.md) and
 [`dms-findings.md`](dms-findings.md). So it would restate documented knowledge
@@ -101,7 +101,7 @@ records network traffic and storage state, so `trace.zip` holds the
 localStorage — confirmed by extracting an archived trace and matching
 against `artifacts/auth/app.json`. This is inherent to trace capture, not
 to archiving, and it was already true of `artifacts/test-results`. What
-archiving changed is the *lifetime*: those tokens used to be wiped at the
+archiving changed is the _lifetime_: those tokens used to be wiped at the
 next run, and now persist up to 10 failing runs / 14 days. Mitigating:
 `artifacts/` is gitignored so none of it reaches the repo, and the exposure
 window is bounded by the **access token's 60-minute TTL** — that's the token
@@ -138,7 +138,7 @@ localStorage — verified by unzipping one and matching it against
 
 **It would not have been limited to failing builds.** This is the part worth
 carrying forward. `trace: 'retain-on-failure'` keeps the trace of a failed
-*attempt*, so a test that fails and then passes on retry leaves a trace
+_attempt_, so a test that fails and then passes on retry leaves a trace
 behind while the build finishes **green**. Verified deliberately with a
 throwaway probe spec that failed on attempt 0 and passed on retry: run
 status `passed`, exit code 0, Jenkins would have shown it blue — and a
@@ -195,14 +195,14 @@ in this project. Don't set it without deciding that on purpose.**
 
 **What it is.** When a locator (a `LocatorSpec` — an ordered list of
 fallback candidates for finding one element) exhausts every candidate and
-fails, self-healing can *propose* a replacement candidate for a human to
+fails, self-healing can _propose_ a replacement candidate for a human to
 review. Design lives in full at
 [`docs/phase-2-healing.md`](phase-2-healing.md); this is the short version.
 
 **The core decision: propose, never heal.** The healer NEVER substitutes a
 locator mid-test. When a locator fails, the test still fails — same as with
 no healer installed at all. Separately, if the failure clears a 5-rule
-eligibility gate, an out-of-band pass may later produce a *proposal*: a
+eligibility gate, an out-of-band pass may later produce a _proposal_: a
 candidate, verified unique against a captured accessibility snapshot, with
 evidence, written to `run.json`. A human runs `pnpm heal:review`, looks at
 the evidence and an exact diff, and only then does anything touch a page
@@ -212,13 +212,14 @@ object.
 things that looked like locator bugs weren't — dead sessions misread as
 selector failures, a genuine app defect, a test asserting the wrong
 contract, a locator bug with a completely different mechanism than assumed.
-A live healer, given any of those, doesn't fail loudly — it finds *some*
+A live healer, given any of those, doesn't fail loudly — it finds _some_
 element satisfying its own criteria, resolves, and the test goes green. A
 wrong green is worse than a red: a red gets investigated, a wrong green
 gets trusted. The whole design is built to survive that failure mode, not
 just add a feature.
 
 **Implemented:**
+
 - `checkHealingEligibility` (`packages/shared/src/healing/gate.ts`) — the
   5-rule gate, pure/sync/zero I/O, unit-tested
   (`tests/unit/healing-gate.spec.ts`, 13 tests)
@@ -239,6 +240,7 @@ just add a feature.
   against the bundled demo app, see below
 
 **Not implemented / not done:**
+
 - `env.features.selfHealing` is `true` for DmsSynergy as of 2026-09-01. It
   was flipped on when the flag still controlled nothing (logged at startup
   only) — caught immediately as a real problem ("someone will later set it
@@ -261,7 +263,7 @@ just add a feature.
   Reverted immediately after — synthetic, not committed. The eval set
   (synthetic, demo-app) remains the repeatable regression check; this was a
   one-off confirmation that the pipeline also works against the real app.
-- The eval set says the *pipeline* works; it doesn't say the healer will
+- The eval set says the _pipeline_ works; it doesn't say the healer will
   produce equally good proposals against DmsSynergy's actual component
   quirks (the tree-row name-concatenation pattern from Finding 11, for
   instance) — the demo app doesn't reproduce those.
@@ -282,7 +284,7 @@ chasing the wrong thing.
 
 **Now:** `packages/ai-engine/src/gateway/pricing.ts` resolves a per-model rate
 by family (opus / sonnet / haiku, matched by substring so dated variants
-resolve too), and `HttpLlmGateway` prices each completion at *its own* model's
+resolve too), and `HttpLlmGateway` prices each completion at _its own_ model's
 rate. Unit-covered in `tests/unit/llm-pricing.spec.ts`, including the exact
 regression this fixes: Haiku and Sonnet must not cost the same for identical
 token counts.
@@ -294,21 +296,21 @@ early is an annoyance, a run that quietly overspends is a bill.
 **Rates are keyed by family AND version**, verified against Anthropic's
 official pricing page on 2026-09-05:
 
-| Model | Input / MTok | Output / MTok |
-| --- | --- | --- |
-| `claude-sonnet-4-5` | $3 | $15 |
-| `claude-sonnet-5` | $2 | $10 |
-| `claude-haiku-4-5` | $1 | $5 |
-| `claude-opus-5` | $5 | $25 |
+| Model               | Input / MTok | Output / MTok |
+| ------------------- | ------------ | ------------- |
+| `claude-sonnet-4-5` | $3           | $15           |
+| `claude-sonnet-5`   | $2           | $10           |
+| `claude-haiku-4-5`  | $1           | $5            |
+| `claude-opus-5`     | $5           | $25           |
 
 The version half is load-bearing, and a first attempt got it wrong: matching
-the family by *substring* made `claude-sonnet-4-5` and `claude-sonnet-5`
+the family by _substring_ made `claude-sonnet-4-5` and `claude-sonnet-5`
 resolve to the same rate, pricing one of them 50% wrong. Worse, the first test
 suite asserted both ids resolve to family `sonnet` — it **enshrined the bug as
 intended behaviour**. A test that pins the wrong answer is worse than no test.
-So: an unrecognised *version* now falls back to the conservative rate rather
+So: an unrecognised _version_ now falls back to the conservative rate rather
 than inheriting its family's price, and `tests/unit/llm-pricing.spec.ts`
-asserts Sonnet 4.5 and Sonnet 5 price *differently*.
+asserts Sonnet 4.5 and Sonnet 5 price _differently_.
 
 **Still true, and worth keeping in mind:** the rates are hardcoded and
 therefore perishable. Nothing reads live pricing, so they drift as list prices
@@ -334,7 +336,6 @@ mid-flight swap.
 
 ---
 
-
 ## The seven eval cases, and what each one actually proves
 
 `pnpm eval:healing` — six mutations to the bundled demo app plus one
@@ -346,20 +347,20 @@ arithmetic checks out by hand at Sonnet's $3/$15 per MTok (4029/1e6 × 3 +
 computed at the model's own rate; the token counts remain the exact
 measurement, since those come from the provider.
 
-| # | Mutation | Proves |
-|---|---|---|
-| a | `data-testid` renamed | The healer proposes a correct replacement when the *only* candidate strategy breaks. |
-| b | Button label reworded | The proposal tracks a *semantic* change (new visible text), not a generic fallback. |
-| c | Role changed, button → link | The proposal follows a structural change, and self-reports lower confidence for the least-evidenced inference. |
-| d | Element moved outside its container | A CSS-scoped candidate breaking doesn't strand the healer — it proposes a container-independent fix. |
-| e | Element genuinely deleted | **Negative control.** The healer must propose nothing. It calls the model, which correctly finds nothing plausible and declines. |
-| f | Element rendered 2.5s late (genuinely slow, not broken) | **Negative control, and the strongest one.** A pre-check re-checks the *original* candidates against the fresh snapshot before ever calling a model — by teardown time the element has appeared, so it refuses without spending a token. Proves a merely-slow locator can't be "healed" into an unnecessary change. |
-| g | Icon-font glyph prefix on the accessible name (simulates Findings 5/6/10) | **Negative control, different mechanism.** The locator should never even fail — `normalizeAccessibleName`'s existing automatic fallback resolves it upstream, so the gate and healer are never reached at all. This is "propose nothing" in its strongest form: not refused, never asked. |
+| #   | Mutation                                                                  | Proves                                                                                                                                                                                                                                                                                                              |
+| --- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a   | `data-testid` renamed                                                     | The healer proposes a correct replacement when the _only_ candidate strategy breaks.                                                                                                                                                                                                                                |
+| b   | Button label reworded                                                     | The proposal tracks a _semantic_ change (new visible text), not a generic fallback.                                                                                                                                                                                                                                 |
+| c   | Role changed, button → link                                               | The proposal follows a structural change, and self-reports lower confidence for the least-evidenced inference.                                                                                                                                                                                                      |
+| d   | Element moved outside its container                                       | A CSS-scoped candidate breaking doesn't strand the healer — it proposes a container-independent fix.                                                                                                                                                                                                                |
+| e   | Element genuinely deleted                                                 | **Negative control.** The healer must propose nothing. It calls the model, which correctly finds nothing plausible and declines.                                                                                                                                                                                    |
+| f   | Element rendered 2.5s late (genuinely slow, not broken)                   | **Negative control, and the strongest one.** A pre-check re-checks the _original_ candidates against the fresh snapshot before ever calling a model — by teardown time the element has appeared, so it refuses without spending a token. Proves a merely-slow locator can't be "healed" into an unnecessary change. |
+| g   | Icon-font glyph prefix on the accessible name (simulates Findings 5/6/10) | **Negative control, different mechanism.** The locator should never even fail — `normalizeAccessibleName`'s existing automatic fallback resolves it upstream, so the gate and healer are never reached at all. This is "propose nothing" in its strongest form: not refused, never asked.                           |
 
 a–d are true positives (must propose); e–g are true negatives (must not).
 Both halves passing, with real evidence for each, is the acceptance bar —
 not the retrospective against last week's history, which only proves the
-gate is *safe*. The eval set is what proves it's *useful*.
+gate is _safe_. The eval set is what proves it's _useful_.
 
 ---
 
@@ -370,26 +371,26 @@ authority. This is the orientation summary.
 
 **Where it stands as of 2026-09-04 (all committed and pushed):**
 
-| | Status |
-| --- | --- |
-| **P1** — AX-tree capture in `pnpm inspect` | **done** |
-| **P2a** — `selected`/`expanded`/`checked`/`level` in `captureAccessibilityTree` | **done** |
-| **P2** — state-oriented capture with declared, cross-checked transitions | **done** |
-| **P3** — the generator itself | **designed, NOT built.** This is next. |
+|                                                                                 | Status                                 |
+| ------------------------------------------------------------------------------- | -------------------------------------- |
+| **P1** — AX-tree capture in `pnpm inspect`                                      | **done**                               |
+| **P2a** — `selected`/`expanded`/`checked`/`level` in `captureAccessibilityTree` | **done**                               |
+| **P2** — state-oriented capture with declared, cross-checked transitions        | **done**                               |
+| **P3** — the generator itself                                                   | **designed, NOT built.** This is next. |
 
 **The fixture exists and the scores ARE recorded** — `pnpm eval:generation`,
 `scripts/eval-generation-fixture.ts`. Every stage is reproducible with
 `AITP_FIXTURE_STAGE=baseline|p2a|p2`, which recreates an earlier stage by
 removing exactly what that prerequisite added:
 
-| Stage | #1 | #2 | #3 | #4 | Score |
-| --- | --- | --- | --- | --- | --- |
-| empty capture (ignorance check, runs every time) | ✗ | ✗ | ✗ | ✗ | **0/4** |
-| baseline (after P1) | ✓ | **✗** | ✓ | ✓ | **3/4** |
-| after P2a | ✓ | **✗** | ✓ | ✓ | **3/4** |
-| after P2 | ✓ | **✓** | ✓ | ✓ | **4/4** |
+| Stage                                            | #1  | #2    | #3  | #4  | Score   |
+| ------------------------------------------------ | --- | ----- | --- | --- | ------- |
+| empty capture (ignorance check, runs every time) | ✗   | ✗     | ✗   | ✗   | **0/4** |
+| baseline (after P1)                              | ✓   | **✗** | ✓   | ✓   | **3/4** |
+| after P2a                                        | ✓   | **✗** | ✓   | ✓   | **3/4** |
+| after P2                                         | ✓   | **✓** | ✓   | ✓   | **4/4** |
 
-P2a moved nothing alone — #2 fails at the *transition* step before ever
+P2a moved nothing alone — #2 fails at the _transition_ step before ever
 reaching the selection assertion — but with a transition present and
 `selected` missing it still fails. **Necessary but not sufficient**; the two
 prerequisites only carry #2 together.
@@ -402,7 +403,7 @@ transition step before any node lookup. The degradation was genuinely working;
 nothing could see it. A **prerequisite probe** now isolates P2a by asserting
 `tab "Workspace" selected=true`, which needs no transition: it FAILs at
 baseline and PASSes from p2a on. Note the corrected intuition — #2's blocking
-reason does *not* move from "missing property" to "missing transition" across
+reason does _not_ move from "missing property" to "missing transition" across
 those stages; it is the transition at both.
 
 ### The pass criterion, and why the first one was wrong
@@ -420,7 +421,7 @@ The general rule, recorded because it is not specific to this fixture:
 
 > **A criterion that can be satisfied by knowing nothing is not a criterion.**
 
-Refusing to assert anything is free, so any criterion phrased as an *absence*
+Refusing to assert anything is free, so any criterion phrased as an _absence_
 ("does not claim X", "emits no false positive") is passed perfectly by a system
 that has not looked. This is [Finding 15](dms-findings.md)'s shape one level
 up: there, an absence claim needed a completeness guarantee; here, a pass
@@ -428,12 +429,12 @@ criterion needs positive evidence.
 
 So `caught` is **two positive halves**:
 
-- **safety** — the wrong assertion must reach a *specific* grade, not merely
+- **safety** — the wrong assertion must reach a _specific_ grade, not merely
   "anything but observed". #1/#3/#4 must reach `contradicted`, which requires
-  the state to be captured *and complete*. #2 cannot (nobody captured what
+  the state to be captured _and complete_. #2 cannot (nobody captured what
   `Next` does, so `assumed` is the honest grade) and therefore rests entirely
   on its capability half.
-- **capability** — the *right* assertion must grade `observed`.
+- **capability** — the _right_ assertion must grade `observed`.
 
 Two guards, because the halves fail to ignorance differently:
 `expectedWrongGrade` stops safety being satisfiable by silence; the ignorance
@@ -502,23 +503,25 @@ skip its "there is no git remote" section, that part's done).
 
 **Resuming the generation work specifically:**
 
-| To run | Needs |
-| --- | --- |
-| `pnpm eval:generation` (the four-mistake fixture) | **nothing** — offline, deterministic, no key, no session |
-| `pnpm test --project=unit` | **nothing** |
-| `pnpm inspect` against the real app (P2 captures) | `TEST_ENV`, `BASE_URL`, `APP_USERNAME`, `APP_PASSWORD` |
+| To run                                                           | Needs                                                                                       |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `pnpm eval:generation` (the four-mistake fixture)                | **nothing** — offline, deterministic, no key, no session                                    |
+| `pnpm test --project=unit`                                       | **nothing**                                                                                 |
+| `pnpm inspect` against the real app (P2 captures)                | `TEST_ENV`, `BASE_URL`, `APP_USERNAME`, `APP_PASSWORD`                                      |
 | `pnpm eval:healing`, `pnpm heal`, `pnpm rca`, and P3's generator | the above plus `LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `LLM_MODEL_REASONING`, `LLM_MODEL_FAST` |
 
 So a machine with no `.env` at all can still verify P1/P2a/P2 are intact —
 that is deliberate, and the reason the fixture was built offline.
 
 **Core, required to run anything against the real app:**
+
 - `TEST_ENV`
 - `BASE_URL`
 - `APP_USERNAME`
 - `APP_PASSWORD`
 
 **AI layer (Phase 2 — RCA and self-healing both use this):**
+
 - `LLM_PROVIDER`
 - `ANTHROPIC_API_KEY`
 - `LLM_MODEL_REASONING`

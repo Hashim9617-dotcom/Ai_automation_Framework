@@ -33,7 +33,7 @@ hides genuine application changes behind silent auto-fixes. Recording every
 resolution also produces the dataset the healer needs to be any good.
 
 **Consequence.** `LocatorResolution` telemetry is attached to any test that used a
-fallback, so a rotting selector is visible *before* it breaks.
+fallback, so a rotting selector is visible _before_ it breaks.
 
 ---
 

@@ -21,7 +21,13 @@ import path from 'node:path';
 import readline from 'node:readline';
 import * as prettier from 'prettier';
 import * as ts from 'typescript';
-import { findRepoRoot, rootLogger, type HealingProposal, type LocatorCandidate, type Run } from '@aitp/shared';
+import {
+  findRepoRoot,
+  rootLogger,
+  type HealingProposal,
+  type LocatorCandidate,
+  type Run,
+} from '@aitp/shared';
 
 const log = rootLogger.child('heal-review');
 const repoRoot = findRepoRoot(__dirname);
@@ -89,7 +95,10 @@ function locateInsertionPoint(
     visit(sourceFile);
   }
 
-  if (hits.length === 0) return { error: `no locator('${key}', ...) call found in any tests/**/pages/**/*.page.ts file` };
+  if (hits.length === 0)
+    return {
+      error: `no locator('${key}', ...) call found in any tests/**/pages/**/*.page.ts file`,
+    };
   if (hits.length > 1) {
     return {
       error: `key "${key}" defined in ${hits.length} files (${hits.map((h) => path.relative(repoRoot, h.file)).join(', ')}) — refusing to guess`,
@@ -99,7 +108,10 @@ function locateInsertionPoint(
 }
 
 function serializeCandidate(candidate: LocatorCandidate): string {
-  const parts = [`strategy: ${JSON.stringify(candidate.strategy)}`, `value: ${JSON.stringify(candidate.value)}`];
+  const parts = [
+    `strategy: ${JSON.stringify(candidate.strategy)}`,
+    `value: ${JSON.stringify(candidate.value)}`,
+  ];
   if (candidate.options) {
     const optsBody = Object.entries(candidate.options)
       .map(([k, v]) => `${k}: ${typeof v === 'string' ? JSON.stringify(v) : String(v)}`)
@@ -132,7 +144,9 @@ function hasUncommittedChanges(absFile: string): boolean {
 }
 
 function ask(rl: readline.Interface, prompt: string): Promise<string> {
-  return new Promise((resolve) => rl.question(prompt, (answer) => resolve(answer.trim().toLowerCase())));
+  return new Promise((resolve) =>
+    rl.question(prompt, (answer) => resolve(answer.trim().toLowerCase())),
+  );
 }
 
 async function reviewOne(
@@ -186,12 +200,15 @@ async function reviewOne(
     return answer === 'r' ? { ...proposal, status: 'rejected' } : proposal;
   }
 
-  const newSource = located.source.slice(0, located.insertAt) + insertion + located.source.slice(located.insertAt);
+  const newSource =
+    located.source.slice(0, located.insertAt) + insertion + located.source.slice(located.insertAt);
   writeFileSync(located.file, newSource, 'utf8');
 
   const typeError = typecheckProject();
   if (typeError) {
-    console.log(`  Typecheck FAILED after applying this edit — rolling back.\n  ${typeError.slice(0, 1000)}`);
+    console.log(
+      `  Typecheck FAILED after applying this edit — rolling back.\n  ${typeError.slice(0, 1000)}`,
+    );
     writeFileSync(located.file, located.source, 'utf8');
     return { ...proposal, status: 'approved', appliedError: typeError };
   }

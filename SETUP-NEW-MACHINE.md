@@ -109,10 +109,10 @@ After that, any machine is one `git clone` + `pnpm.cmd install` away.
 
 ## Where to read next
 
-| File | What it covers |
-| --- | --- |
-| `docs/dms-findings.md` | Every finding so far — app bugs and platform bugs, with evidence |
-| `docs/dms-suite.md` | What the 45 DMS tests cover and how to tune them |
-| `tests/app/README.md` | Locator strategy, safety rules, sample-data env vars |
-| `docs/architecture-decisions.md` | Why the platform is built the way it is |
-| `docs/phase-2-plan.md` | What comes next in the AI layer |
+| File                             | What it covers                                                   |
+| -------------------------------- | ---------------------------------------------------------------- |
+| `docs/dms-findings.md`           | Every finding so far — app bugs and platform bugs, with evidence |
+| `docs/dms-suite.md`              | What the 45 DMS tests cover and how to tune them                 |
+| `tests/app/README.md`            | Locator strategy, safety rules, sample-data env vars             |
+| `docs/architecture-decisions.md` | Why the platform is built the way it is                          |
+| `docs/phase-2-plan.md`           | What comes next in the AI layer                                  |

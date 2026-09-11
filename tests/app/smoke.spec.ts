@@ -31,7 +31,11 @@ test.describe('DmsSynergy is reachable', { tag: ['@smoke', '@platform'] }, () =>
     log.info('Signed in', { landedOn: page.url() });
   });
 
-  test('records what the engine can see, for tracking over time', async ({ makePage, page, log }) => {
+  test('records what the engine can see, for tracking over time', async ({
+    makePage,
+    page,
+    log,
+  }) => {
     const dashboard = makePage(DashboardPage);
     await dashboard.open();
     await dashboard.waitForStable();

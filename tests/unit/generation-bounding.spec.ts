@@ -39,7 +39,10 @@ const state = (id: string, nodes: AccessibilityNode[], truncated = false): Captu
   truncated,
 });
 
-const capture = (states: CapturedState[], transitions: StateCapture['transitions'] = []): StateCapture => ({
+const capture = (
+  states: CapturedState[],
+  transitions: StateCapture['transitions'] = [],
+): StateCapture => ({
   sessionId: 'test',
   states,
   transitions,
@@ -138,7 +141,14 @@ test.describe('capture bounding — state selection (B1-B3) @unit', () => {
   test('B3: a transition whose other end was dropped is not sent', () => {
     const withDangling = capture(
       [state('upload.workspace', [node('heading', 'Choose a workspace')])],
-      [{ from: 'upload.workspace', to: 'never-captured', action: 'clicked', verdict: 'consistent' }],
+      [
+        {
+          from: 'upload.workspace',
+          to: 'never-captured',
+          action: 'clicked',
+          verdict: 'consistent',
+        },
+      ],
     );
     const bounded = boundCaptureForCommand(withDangling, 'upload workspace');
     expect(bounded.transitions).toEqual([]);
@@ -170,7 +180,10 @@ test.describe('capture bounding — node filtering (B4-B7) @unit', () => {
 
   test('B5: bounding SETS truncated when its own cap bites', () => {
     const many = capture([
-      state('s', Array.from({ length: 20 }, (_, i) => node('button', `Button ${i}`))),
+      state(
+        's',
+        Array.from({ length: 20 }, (_, i) => node('button', `Button ${i}`)),
+      ),
     ]);
     const bounded = boundCaptureForCommand(many, 'button', { maxNodesPerState: 5 });
     expect(bounded.states[0]!.nodes.length).toBe(5);

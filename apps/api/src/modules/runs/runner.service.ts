@@ -90,7 +90,9 @@ export class RunnerService {
     try {
       const gateway = createLlmGateway();
       if (gateway instanceof MockLlmGateway) {
-        this.logger.warn(`Run ${run.id} has failures but no LLM key is configured — skipping analysis.`);
+        this.logger.warn(
+          `Run ${run.id} has failures but no LLM key is configured — skipping analysis.`,
+        );
         return run;
       }
 
@@ -184,4 +186,3 @@ export class RunnerService {
     }
   }
 }
-

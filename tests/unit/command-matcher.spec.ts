@@ -1,10 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {
-  flattenSuites,
-  rank,
-  tokenize,
-  escapeRegex,
-} from '@aitp/shared';
+import { flattenSuites, rank, tokenize, escapeRegex } from '@aitp/shared';
 
 /**
  * Locks in two behaviours that are easy to get wrong and expensive to debug:

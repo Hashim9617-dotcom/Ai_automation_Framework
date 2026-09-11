@@ -176,7 +176,12 @@ const scenarios: Scenario[] = [
       key: 'eval.b.submit',
       description: 'Primary sign-in button',
       candidates: [
-        { strategy: 'role', value: 'button', options: { name: 'Login', exact: true }, confidence: 1 },
+        {
+          strategy: 'role',
+          value: 'button',
+          options: { name: 'Login', exact: true },
+          confidence: 1,
+        },
       ],
     },
     prepare: loginOnly,
@@ -200,7 +205,12 @@ const scenarios: Scenario[] = [
       key: 'eval.c.submit',
       description: 'Primary sign-in button',
       candidates: [
-        { strategy: 'role', value: 'button', options: { name: 'Login', exact: true }, confidence: 1 },
+        {
+          strategy: 'role',
+          value: 'button',
+          options: { name: 'Login', exact: true },
+          confidence: 1,
+        },
       ],
     },
     prepare: loginOnly,
@@ -260,7 +270,12 @@ const scenarios: Scenario[] = [
       key: 'eval.e.logout',
       description: 'Log out button in the top bar',
       candidates: [
-        { strategy: 'role', value: 'button', options: { name: 'Log out', exact: true }, confidence: 1 },
+        {
+          strategy: 'role',
+          value: 'button',
+          options: { name: 'Log out', exact: true },
+          confidence: 1,
+        },
       ],
     },
     prepare: loginAndReachEmployees,
@@ -298,7 +313,12 @@ const scenarios: Scenario[] = [
       key: 'eval.f.submit',
       description: 'Primary sign-in button',
       candidates: [
-        { strategy: 'role', value: 'button', options: { name: 'Login', exact: true }, confidence: 1 },
+        {
+          strategy: 'role',
+          value: 'button',
+          options: { name: 'Login', exact: true },
+          confidence: 1,
+        },
       ],
     },
     prepare: loginOnly,
@@ -331,7 +351,12 @@ const scenarios: Scenario[] = [
       key: 'eval.g.submit',
       description: 'Primary sign-in button',
       candidates: [
-        { strategy: 'role', value: 'button', options: { name: 'Login', exact: true }, confidence: 1 },
+        {
+          strategy: 'role',
+          value: 'button',
+          options: { name: 'Login', exact: true },
+          confidence: 1,
+        },
       ],
     },
     prepare: loginOnly,
@@ -341,7 +366,10 @@ const scenarios: Scenario[] = [
 function serveHtml(html: string): Promise<{ server: Server; baseUrl: string }> {
   return new Promise((resolve) => {
     const server = createServer((_req, res) => {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+      });
       res.end(html);
     });
     server.listen(0, '127.0.0.1', () => {
@@ -407,11 +435,14 @@ async function runScenario(
       return {
         scenario,
         gateEligible: false,
-        gateReasons: ['resolution succeeded — normalizeAccessibleName handled the PUA glyph automatically; the gate/healer were never reached'],
+        gateReasons: [
+          'resolution succeeded — normalizeAccessibleName handled the PUA glyph automatically; the gate/healer were never reached',
+        ],
         proposal: null,
         proposalStatus: 'refused',
         verdict: 'PASS',
-        detail: 'correctly proposed nothing — because nothing ever failed, not because anything was refused',
+        detail:
+          'correctly proposed nothing — because nothing ever failed, not because anything was refused',
       };
     }
 
@@ -482,7 +513,15 @@ async function runScenario(
         : `proposed ${JSON.stringify(proposal.candidate)} but it does not look like the right fix`;
     }
 
-    return { scenario, gateEligible: gate.eligible, gateReasons: gate.reasons, proposal, proposalStatus, verdict, detail };
+    return {
+      scenario,
+      gateEligible: gate.eligible,
+      gateReasons: gate.reasons,
+      proposal,
+      proposalStatus,
+      verdict,
+      detail,
+    };
   } finally {
     await page.close().catch(() => {});
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -530,7 +569,9 @@ async function main(): Promise<void> {
 
   const blocked = results.filter((r) => r.proposalStatus === 'blocked-no-llm').length;
   const passed = results.filter((r) => r.verdict === 'PASS').length;
-  console.log(`${passed}/${results.length} scenarios passed. ${blocked} blocked on missing LLM API key.`);
+  console.log(
+    `${passed}/${results.length} scenarios passed. ${blocked} blocked on missing LLM API key.`,
+  );
   console.log(
     `Real LLM cost this run: ${gateway.calls} call(s), ${gateway.cachedCalls} served from cache, ` +
       `${gateway.promptTokens} prompt + ${gateway.completionTokens} completion tokens, $${gateway.costUsd.toFixed(4)}.`,

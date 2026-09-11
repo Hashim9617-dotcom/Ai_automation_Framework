@@ -61,7 +61,10 @@ test.describe('approval is per assertion (R) @unit', () => {
     // wrong: approving per proposal means one click accepts assertions a human
     // never read — and the second one here is a different claim entirely.
     const proposal = proposalOf({
-      assertions: [assertion(), assertion({ assertionId: 'a2', claim: { ...assertion().claim, name: 'Export' } })],
+      assertions: [
+        assertion(),
+        assertion({ assertionId: 'a2', claim: { ...assertion().claim, name: 'Export' } }),
+      ],
     });
     const review = reviewProposal(proposal, [approvalOf()]);
 
@@ -95,7 +98,11 @@ test.describe('approval is per assertion (R) @unit', () => {
     // wrong: carried forward, a human's signature lands on a claim whose grade,
     // path or state has moved since they read it — an unreviewed claim wearing
     // a reviewed one's approval.
-    const regraded = assertion({ assertionId: 'a1-regraded', grade: 'assumed', why: 'property-not-recorded' });
+    const regraded = assertion({
+      assertionId: 'a1-regraded',
+      grade: 'assumed',
+      why: 'property-not-recorded',
+    });
     const review = reviewProposal(proposalOf({ assertions: [regraded] }), [approvalOf()]);
 
     expect(review.assertions[0]!.state).toBe('lapsed');
@@ -121,7 +128,10 @@ test.describe('approval is per assertion (R) @unit', () => {
     // re-read produces a test no human reviewed end to end.
     const review = reviewProposal(
       proposalOf({
-        assertions: [assertion(), assertion({ assertionId: 'moved', claim: { ...assertion().claim, name: 'Export' } })],
+        assertions: [
+          assertion(),
+          assertion({ assertionId: 'moved', claim: { ...assertion().claim, name: 'Export' } }),
+        ],
       }),
       [approvalOf(), approvalOf({ assertionId: 'gone', claimKey: 'button|Export|present|1' })],
     );
@@ -207,7 +217,10 @@ test.describe('the emitter refuses what it cannot express (E) @unit', () => {
   const emitOf = (over: Partial<ProposalAssertion>) =>
     emitSpec(
       reviewProposal(proposalOf({ assertions: [assertion(over)] }), [
-        approvalOf({ assertionId: over.assertionId ?? 'a1', claimKey: claimKeyOf(assertion(over)) }),
+        approvalOf({
+          assertionId: over.assertionId ?? 'a1',
+          claimKey: claimKeyOf(assertion(over)),
+        }),
       ]),
     );
 
@@ -217,7 +230,7 @@ test.describe('the emitter refuses what it cannot express (E) @unit', () => {
     const spec = emitOf({});
     expect(spec.emitted).toHaveLength(1);
     expect(spec.refusals).toEqual([]);
-    expect(spec.source).toContain("getByRole(\"button\", { name: \"Refresh\", exact: true })");
+    expect(spec.source).toContain('getByRole("button", { name: "Refresh", exact: true })');
     expect(spec.source).toContain('toBeVisible()');
   });
 
@@ -256,10 +269,7 @@ test.describe('the emitter refuses what it cannot express (E) @unit', () => {
     // wrong: interpolated bare, a title is model output derived from capture
     // content — a document named `", async () => {});//` closes the test call.
     const spec = emitSpec(
-      reviewProposal(
-        proposalOf({ title: '"); process.exit(1); //' }),
-        [approvalOf()],
-      ),
+      reviewProposal(proposalOf({ title: '"); process.exit(1); //' }), [approvalOf()]),
     );
     expect(spec.source).toContain('test("\\"); process.exit(1); //"');
     expect(spec.source).not.toContain('test(""); process.exit(1);');
@@ -287,7 +297,10 @@ test.describe('the emitter refuses what it cannot express (E) @unit', () => {
   test('E8: verification catches a REFUSED assertion leaking into the file', () => {
     // wrong: the inverse of E7, and worse — a refused assertion in an emitted
     // file is a claim nobody approved being run as a test.
-    const spec = emitOf({ assertionId: 'text-1', claim: { ...assertion().claim, role: 'StaticText' } });
+    const spec = emitOf({
+      assertionId: 'text-1',
+      claim: { ...assertion().claim, role: 'StaticText' },
+    });
     expect(spec.refusals).toHaveLength(1);
     expect(() =>
       verifyEmittedSpec(`${spec.source}\n// ${spec.refusals[0]!.assertionId}`, spec),

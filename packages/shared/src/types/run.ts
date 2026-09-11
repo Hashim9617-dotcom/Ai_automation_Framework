@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import type { AccessibilityTreeSnapshot, DomSnapshot, HealingGateVerdict, HealingProposal } from './ai';
+import type {
+  AccessibilityTreeSnapshot,
+  DomSnapshot,
+  HealingGateVerdict,
+  HealingProposal,
+} from './ai';
 import type { LocatorResolution } from './locator';
 
 /** Lifecycle of a single execution request (one "run" = one suite invocation). */

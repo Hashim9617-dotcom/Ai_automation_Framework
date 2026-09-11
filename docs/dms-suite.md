@@ -59,14 +59,14 @@ pnpm.cmd rca
 
 ## What each file covers
 
-| File | Tests | Covers |
-| --- | --- | --- |
-| `smoke.spec.ts` | 5 | App reachable, session valid, shell renders, test-id coverage logged |
-| `navigation.spec.ts` | 9 | Every nav link lands on the right page; collapsible sections open |
-| `file-explorer.spec.ts` | 11 | Workspace tree, filtering, contents pane, view/scope switching, context menus, create-workspace dialog |
-| `global-search.spec.ts` | 6 | Query, type filters, count consistency, clear, select-all |
-| `upload.spec.ts` | 9 | Both wizards' step gating — you cannot skip a step or submit nothing |
-| `admin.spec.ts` | 10 | Users / Roles / Groups lists, search, pagination, create-form validation |
+| File                    | Tests | Covers                                                                                                 |
+| ----------------------- | ----- | ------------------------------------------------------------------------------------------------------ |
+| `smoke.spec.ts`         | 5     | App reachable, session valid, shell renders, test-id coverage logged                                   |
+| `navigation.spec.ts`    | 9     | Every nav link lands on the right page; collapsible sections open                                      |
+| `file-explorer.spec.ts` | 11    | Workspace tree, filtering, contents pane, view/scope switching, context menus, create-workspace dialog |
+| `global-search.spec.ts` | 6     | Query, type filters, count consistency, clear, select-all                                              |
+| `upload.spec.ts`        | 9     | Both wizards' step gating — you cannot skip a step or submit nothing                                   |
+| `admin.spec.ts`         | 10    | Users / Roles / Groups lists, search, pagination, create-form validation                               |
 
 ## The three tests worth knowing about
 
@@ -97,11 +97,11 @@ find and clean up afterwards. Run these against QA, never production.
 
 ## Sample data
 
-| Variable | Default | Change it if… |
-| --- | --- | --- |
-| `DMS_SAMPLE_WORKSPACE` | `ABCD` | your instance has no `ABCD` workspace |
-| `DMS_SAMPLE_FOLDER` | `auto Test 123` | that folder doesn't exist under it |
-| `DMS_SEARCH_TERM` | `pension` | no document on your instance matches it |
+| Variable               | Default         | Change it if…                           |
+| ---------------------- | --------------- | --------------------------------------- |
+| `DMS_SAMPLE_WORKSPACE` | `ABCD`          | your instance has no `ABCD` workspace   |
+| `DMS_SAMPLE_FOLDER`    | `auto Test 123` | that folder doesn't exist under it      |
+| `DMS_SEARCH_TERM`      | `pension`       | no document on your instance matches it |
 
 ```powershell
 $env:DMS_SAMPLE_WORKSPACE="Finance"
@@ -121,11 +121,11 @@ Two places needed care:
 
 - **Tree chevrons are all named just "Expand"** — there is no folder name on
   them in File Explorer. So `expandTreeNode()` scopes the chevron inside its own
-  `treeitem` before clicking. (Bulk Upload's chevrons *are* named per folder,
+  `treeitem` before clicking. (Bulk Upload's chevrons _are_ named per folder,
   "Expand bulk1" — that wizard gets the simpler version.)
 - **"More options" repeats on every row and every tile.** Both
   `openTreeNodeMenu()` and `openTileMenu()` scope it to the parent node first,
   which is why they take a name argument.
 
-Each locator is still a *chain* of candidates, so when a test id does appear, it
+Each locator is still a _chain_ of candidates, so when a test id does appear, it
 slots in front as the preferred strategy and every spec picks it up for free.

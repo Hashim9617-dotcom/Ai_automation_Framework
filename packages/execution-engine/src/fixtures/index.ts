@@ -67,7 +67,10 @@ export const test = coreTest.extend<UiFixtures>({
   smartLocatorOptions: async ({ locatorTelemetry, locatorFailures, env }, use) => {
     await use({
       // Only the primary and last candidate in a chain need this — see fallbackCandidateTimeout.
-      candidateTimeout: Math.min(env.timeouts.action, Number(process.env.LOCATOR_CANDIDATE_TIMEOUT ?? 2_000)),
+      candidateTimeout: Math.min(
+        env.timeouts.action,
+        Number(process.env.LOCATOR_CANDIDATE_TIMEOUT ?? 2_000),
+      ),
       // Deliberately short: a demoted middle candidate should fail fast so the
       // chain can reach a working one without burning the test's budget — see
       // SmartLocatorOptions.fallbackCandidateTimeout for why this excludes the

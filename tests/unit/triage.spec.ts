@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { triageSheet, renderTriage, looksLikeAccessibleName, extractTarget, type AuthoredRow } from '@aitp/shared';
+import {
+  triageSheet,
+  renderTriage,
+  looksLikeAccessibleName,
+  extractTarget,
+  type AuthoredRow,
+} from '@aitp/shared';
 
 /**
  * Sheet triage (T) and the target plausibility check (P).
@@ -9,14 +15,20 @@ import { triageSheet, renderTriage, looksLikeAccessibleName, extractTarget, type
  * can NEVER be automated and what a human should do about each.
  */
 
-const rowOf = (
-  rowId: string,
-  module: string,
-  clauses: AuthoredRow['clauses'],
-): AuthoredRow => ({
-  rowId, scenarioId: rowId.split(' / ')[0]!, testCaseId: rowId.split(' / ')[1]!,
-  sheetRow: 3, module, feature: 'f', scenarioName: rowId, objective: '',
-  testType: 'Functional', priority: 'High', preconditions: '', testData: '', type: 'Positive',
+const rowOf = (rowId: string, module: string, clauses: AuthoredRow['clauses']): AuthoredRow => ({
+  rowId,
+  scenarioId: rowId.split(' / ')[0]!,
+  testCaseId: rowId.split(' / ')[1]!,
+  sheetRow: 3,
+  module,
+  feature: 'f',
+  scenarioName: rowId,
+  objective: '',
+  testType: 'Functional',
+  priority: 'High',
+  preconditions: '',
+  testData: '',
+  type: 'Positive',
   clauses,
 });
 
@@ -66,10 +78,12 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
     // wrong: judged on its clauses, a perfectly good row in an uncaptured
     // module is blamed on the QA for evidence we never gathered.
     const triage = triageSheet(
-      [rowOf('SI_1 / TC_1', 'Workflow', [
-        { text: 'click the "Approve" button', source: 'when', kind: 'action' },
-        { text: 'verify "Approved" is visible', source: 'then', kind: 'assert' },
-      ])],
+      [
+        rowOf('SI_1 / TC_1', 'Workflow', [
+          { text: 'click the "Approve" button', source: 'when', kind: 'action' },
+          { text: 'verify "Approved" is visible', source: 'then', kind: 'assert' },
+        ]),
+      ],
       CAPTURED,
     );
     expect(triage.rows[0]!.reason).toBe('no-capture-for-module');
@@ -80,10 +94,12 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
     // wrong: filed as too-vague, a buildable page-assertion row is sent back to
     // its author to rewrite, and the same row comes back unchanged.
     const triage = triageSheet(
-      [rowOf('SI_2 / TC_1', 'Dashboard', [
-        { text: 'click the "Save" button', source: 'when', kind: 'action' },
-        { text: 'the record should be created successfully', source: 'then', kind: 'assert' },
-      ])],
+      [
+        rowOf('SI_2 / TC_1', 'Dashboard', [
+          { text: 'click the "Save" button', source: 'when', kind: 'action' },
+          { text: 'the record should be created successfully', source: 'then', kind: 'assert' },
+        ]),
+      ],
       CAPTURED,
     );
     expect(triage.rows[0]!.reason).toBe('outcome-not-element');
@@ -93,9 +109,15 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
     // wrong: filed as an outcome, it joins a buildable backlog and waits for
     // work that could never make it verifiable.
     const triage = triageSheet(
-      [rowOf('SI_3 / TC_1', 'Dashboard', [
-        { text: 'the ui should show a colour change proper response and animations', source: 'then', kind: 'assert' },
-      ])],
+      [
+        rowOf('SI_3 / TC_1', 'Dashboard', [
+          {
+            text: 'the ui should show a colour change proper response and animations',
+            source: 'then',
+            kind: 'assert',
+          },
+        ]),
+      ],
       CAPTURED,
     );
     expect(triage.rows[0]!.reason).toBe('too-vague-to-verify');
@@ -107,10 +129,12 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
     // execution as `no-observable-check`. Promising it here then refusing it
     // there is the worst of both.
     const triage = triageSheet(
-      [rowOf('SI_4 / TC_1', 'Dashboard', [
-        { text: 'click the "Save" button', source: 'when', kind: 'action' },
-        { text: 'everything should look proper', source: 'then', kind: 'assert' },
-      ])],
+      [
+        rowOf('SI_4 / TC_1', 'Dashboard', [
+          { text: 'click the "Save" button', source: 'when', kind: 'action' },
+          { text: 'everything should look proper', source: 'then', kind: 'assert' },
+        ]),
+      ],
       CAPTURED,
     );
     expect(triage.rows[0]!.reason).not.toBe('automatable');
@@ -121,10 +145,12 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
     // is satisfied by knowing nothing — the refuses-everything failure, one
     // layer up. This is the fixture that tells the two apart.
     const triage = triageSheet(
-      [rowOf('SI_5 / TC_1', 'Dashboard', [
-        { text: 'click the "Save" button', source: 'when', kind: 'action' },
-        { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
-      ])],
+      [
+        rowOf('SI_5 / TC_1', 'Dashboard', [
+          { text: 'click the "Save" button', source: 'when', kind: 'action' },
+          { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
+        ]),
+      ],
       CAPTURED,
     );
     expect(triage.rows[0]!.reason).toBe('automatable');
@@ -142,10 +168,12 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
     // Then, where including it changed nothing at all — and the mutation duly
     // survived.
     const triage = triageSheet(
-      [rowOf('SI_6 / TC_1', 'Dashboard', [
-        { text: 'user on the dashboard', source: 'given', kind: 'action' },
-        { text: 'do the needful', source: 'when', kind: 'action' },
-      ])],
+      [
+        rowOf('SI_6 / TC_1', 'Dashboard', [
+          { text: 'user on the dashboard', source: 'given', kind: 'action' },
+          { text: 'do the needful', source: 'when', kind: 'action' },
+        ]),
+      ],
       CAPTURED,
     );
     expect(triage.rows[0]!.reason).toBe('too-vague-to-verify');
@@ -236,9 +264,11 @@ test.describe('the ceiling carries its own assumptions (T6) @unit', () => {
     // capture will fix rows whose clauses could never be verified, and the
     // delta measurement afterwards would then look like a failure.
     const triage = triageSheet(
-      [rowOf('SI_3 / TC_1', 'Workflow', [
-        { text: 'everything should look proper', source: 'then', kind: 'assert' },
-      ])],
+      [
+        rowOf('SI_3 / TC_1', 'Workflow', [
+          { text: 'everything should look proper', source: 'then', kind: 'assert' },
+        ]),
+      ],
       CAPTURED,
     );
     expect(triage.ceiling.withCurrentCaptures).toBe(0);

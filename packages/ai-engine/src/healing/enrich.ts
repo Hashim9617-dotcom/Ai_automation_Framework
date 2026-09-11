@@ -58,7 +58,8 @@ export async function enrichRunWithHealing(
   engine: SelfHealingEngine,
   options: HealingEnrichOptions = {},
 ): Promise<HealingEnrichResult> {
-  const maxProposals = options.maxProposals ?? positiveIntFromEnv(process.env.HEAL_MAX_PROPOSALS, 20);
+  const maxProposals =
+    options.maxProposals ?? positiveIntFromEnv(process.env.HEAL_MAX_PROPOSALS, 20);
   const concurrency = Math.max(1, options.concurrency ?? 3);
 
   const existingKeys = new Set(

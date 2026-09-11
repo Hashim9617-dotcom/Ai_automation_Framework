@@ -59,7 +59,10 @@ const alwaysOk: StepExecutor = async () => ({ kind: 'passed', observed: 'the ele
 const alwaysFails: StepExecutor = async () => ({
   kind: 'failed',
   observed: 'the button was not in the expected state',
-  evidence: { screenshot: 'artifacts/runs/run_x/shot.png', trace: 'artifacts/runs/run_x/trace.zip' },
+  evidence: {
+    screenshot: 'artifacts/runs/run_x/shot.png',
+    trace: 'artifacts/runs/run_x/trace.zip',
+  },
 });
 /** The live page does not have it — the CAPTURE is stale, not the app broken. */
 const targetMissing: StepExecutor = async () => ({
@@ -115,9 +118,19 @@ test.describe('the arithmetic balances (E2) @unit', () => {
     run(
       [
         resolved({ rowId: 'SI_1 / TC_1' }),
-        resolved({ rowId: 'SI_2 / TC_1', outcome: 'row-unclear', refusals: [
-          { stepIndex: 0, sentence: 'x', why: 'unparseable-step', candidates: [], reason: 'unclear' },
-        ] }),
+        resolved({
+          rowId: 'SI_2 / TC_1',
+          outcome: 'row-unclear',
+          refusals: [
+            {
+              stepIndex: 0,
+              sentence: 'x',
+              why: 'unparseable-step',
+              candidates: [],
+              reason: 'unclear',
+            },
+          ],
+        }),
         resolved({ rowId: 'SI_3 / TC_1', writeRisk: 'creates-data' }),
       ],
       [{ sheetRow: 15, why: 'stray-cells', reason: 'stray cells' }],
@@ -146,9 +159,9 @@ test.describe('the arithmetic balances (E2) @unit', () => {
     // Shrinking rowsRead instead would also trip the result-count check, and
     // the test could not tell which guard fired — a mutation on the first one
     // survived until this was fixed.
-    expect(() =>
-      assertTallyBalances({ ...tally, refused: 0 }, results),
-    ).toThrow(/does not balance/);
+    expect(() => assertTallyBalances({ ...tally, refused: 0 }, results)).toThrow(
+      /does not balance/,
+    );
     expect(() => assertTallyBalances(tally, results)).not.toThrow();
   });
 
@@ -156,9 +169,9 @@ test.describe('the arithmetic balances (E2) @unit', () => {
     // wrong: without the duplicate check, five results against four rows read pass as balanced.
     const { results, tally } = await mixed();
     const doubled = [...results, results[0]!];
-    expect(() =>
-      assertTallyBalances({ ...tally, rowsRead: doubled.length }, doubled),
-    ).toThrow(/counted a row twice|does not balance/);
+    expect(() => assertTallyBalances({ ...tally, rowsRead: doubled.length }, doubled)).toThrow(
+      /counted a row twice|does not balance/,
+    );
   });
 
   test('E2: the report states the sum, so a reader can check it', async () => {
@@ -176,9 +189,19 @@ test.describe('two failure kinds, two owners, never merged (E3) @unit', () => {
     const outcome = await run(
       [
         resolved({ rowId: 'SI_1 / TC_1' }),
-        resolved({ rowId: 'SI_2 / TC_1', outcome: 'row-unclear', refusals: [
-          { stepIndex: 0, sentence: 'x', why: 'unparseable-step', candidates: [], reason: 'could not read it' },
-        ] }),
+        resolved({
+          rowId: 'SI_2 / TC_1',
+          outcome: 'row-unclear',
+          refusals: [
+            {
+              stepIndex: 0,
+              sentence: 'x',
+              why: 'unparseable-step',
+              candidates: [],
+              reason: 'could not read it',
+            },
+          ],
+        }),
       ],
       [],
       alwaysFails,
@@ -207,9 +230,19 @@ test.describe('two failure kinds, two owners, never merged (E3) @unit', () => {
     const outcome = await run(
       [
         resolved({ rowId: 'SI_1 / TC_1' }),
-        resolved({ rowId: 'SI_2 / TC_1', outcome: 'row-unclear', refusals: [
-          { stepIndex: 0, sentence: 'x', why: 'unparseable-step', candidates: [], reason: 'could not read it' },
-        ] }),
+        resolved({
+          rowId: 'SI_2 / TC_1',
+          outcome: 'row-unclear',
+          refusals: [
+            {
+              stepIndex: 0,
+              sentence: 'x',
+              why: 'unparseable-step',
+              candidates: [],
+              reason: 'could not read it',
+            },
+          ],
+        }),
       ],
       [],
       alwaysFails,
@@ -229,14 +262,17 @@ test.describe('two failure kinds, two owners, never merged (E3) @unit', () => {
   test('E3: an orphaned row lands in the QA section with its content', async () => {
     // wrong: without the clauses the QA sees "row 208 skipped" and the recoverable test case stays lost.
     // Row 208. Presented so the case can be recovered, not as a skip count.
-    const outcome = await run([], [
-      {
-        sheetRow: 208,
-        why: 'content-without-identity',
-        reason: 'carries clauses but no identity',
-        orphanedContent: ['And: Page refresh (F5)', 'Then: The workspace should be restored'],
-      },
-    ]);
+    const outcome = await run(
+      [],
+      [
+        {
+          sheetRow: 208,
+          why: 'content-without-identity',
+          reason: 'carries clauses but no identity',
+          orphanedContent: ['And: Page refresh (F5)', 'Then: The workspace should be restored'],
+        },
+      ],
+    );
     const markdown = renderAuthoredReport(outcome, 'Final Test cases');
 
     expect(outcome.results[0]!.recoverable).toBe(true);
@@ -327,7 +363,9 @@ test.describe('the sheet is never written to (E5) @unit', () => {
     const forbidden = ['.xlsx', '.xls', 'workbook', 'Actual Result', 'sheetPath'];
 
     for (const file of ['execute.ts', 'report.ts']) {
-      const code = strip(readFileSync(path.join(root, 'packages/shared/src/authored', file), 'utf8'));
+      const code = strip(
+        readFileSync(path.join(root, 'packages/shared/src/authored', file), 'utf8'),
+      );
       // Asserts its own effect: the scan really read the file.
       expect(code.length).toBeGreaterThan(400);
       expect(forbidden.filter((term) => code.includes(term))).toEqual([]);
@@ -338,7 +376,18 @@ test.describe('the sheet is never written to (E5) @unit', () => {
     // wrong: a writer that ignored outputDir puts the file somewhere the caller did not choose — possibly beside the sheet.
     const dir = mkdtempSync(path.join(tmpdir(), 'aitp-report-'));
     const written = writeAuthoredReport(
-      { results: [], tally: { rowsRead: 0, passed: 0, failed: 0, refused: 0, held: 0, unreadable: 0, staleCapture: 0 } },
+      {
+        results: [],
+        tally: {
+          rowsRead: 0,
+          passed: 0,
+          failed: 0,
+          refused: 0,
+          held: 0,
+          unreadable: 0,
+          staleCapture: 0,
+        },
+      },
       { outputDir: dir, sheetName: 'Final Test cases', provenance: PROVENANCE },
     );
     expect(written.file.startsWith(dir)).toBe(true);
@@ -351,8 +400,15 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
 
   test('E6: a written report is re-read and verified', async () => {
     // wrong: a writer that reported success without writing returns a path to a file that is not there.
-    const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' }), resolved({ rowId: 'SI_2 / TC_1', sheetRow: 4 })]);
-    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'Final Test cases', provenance: PROVENANCE });
+    const outcome = await run([
+      resolved({ rowId: 'SI_1 / TC_1' }),
+      resolved({ rowId: 'SI_2 / TC_1', sheetRow: 4 }),
+    ]);
+    const written = writeAuthoredReport(outcome, {
+      outputDir: dir(),
+      sheetName: 'Final Test cases',
+      provenance: PROVENANCE,
+    });
 
     expect(written.rowsWritten).toBe(2);
     // Verified against the FILE, not against the string we meant to write.
@@ -370,15 +426,33 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
     // Its falsifier is a RENDERER mutation, not a fixture: the renderer emits
     // every status today, so no input can make a row legitimately absent. The
     // mutation suite drops the passed section and confirms the writer refuses.
-    const outcome = await run([
-      resolved({ rowId: 'SI_1 / TC_1' }),
-      resolved({ rowId: 'SI_2 / TC_1', sheetRow: 4, outcome: 'row-unclear', refusals: [
-        { stepIndex: 0, sentence: 'x', why: 'unparseable-step', candidates: [], reason: 'unclear' },
-      ] }),
-      resolved({ rowId: 'SI_3 / TC_1', sheetRow: 5, writeRisk: 'creates-data' }),
-    ], [{ sheetRow: 15, why: 'stray-cells', reason: 'stray cells' }]);
+    const outcome = await run(
+      [
+        resolved({ rowId: 'SI_1 / TC_1' }),
+        resolved({
+          rowId: 'SI_2 / TC_1',
+          sheetRow: 4,
+          outcome: 'row-unclear',
+          refusals: [
+            {
+              stepIndex: 0,
+              sentence: 'x',
+              why: 'unparseable-step',
+              candidates: [],
+              reason: 'unclear',
+            },
+          ],
+        }),
+        resolved({ rowId: 'SI_3 / TC_1', sheetRow: 5, writeRisk: 'creates-data' }),
+      ],
+      [{ sheetRow: 15, why: 'stray-cells', reason: 'stray cells' }],
+    );
 
-    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'x', provenance: PROVENANCE });
+    const written = writeAuthoredReport(outcome, {
+      outputDir: dir(),
+      sheetName: 'x',
+      provenance: PROVENANCE,
+    });
     const onDisk = readFileSync(written.file, 'utf8');
     for (const row of outcome.results) {
       const id = row.status === 'unreadable' ? `sheet row ${row.sheetRow}` : row.rowId;
@@ -398,7 +472,11 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
       resolved({ rowId: 'SI_1 / TC_1' }),
       resolved({ rowId: 'SI_2 / TC_1', sheetRow: 4 }),
     ]);
-    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'x', provenance: PROVENANCE });
+    const written = writeAuthoredReport(outcome, {
+      outputDir: dir(),
+      sheetName: 'x',
+      provenance: PROVENANCE,
+    });
 
     // Remove one row from the file, exactly as a renderer that dropped a
     // section would.
@@ -416,7 +494,11 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
     // The discriminating half. A verifier that checked its own in-memory
     // markdown would pass every test above while catching no failed write.
     const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })]);
-    const written = writeAuthoredReport(outcome, { outputDir: dir(), sheetName: 'x', provenance: PROVENANCE });
+    const written = writeAuthoredReport(outcome, {
+      outputDir: dir(),
+      sheetName: 'x',
+      provenance: PROVENANCE,
+    });
 
     writeFileSync(written.file, '', 'utf8');
     expect(() => verifyReportOnDisk(written.file, outcome)).toThrow(/empty after writing/);
@@ -438,11 +520,19 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
     // Discriminating: proves the check is against disk rather than memory.
     const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })]);
     const target = dir();
-    const written = writeAuthoredReport(outcome, { outputDir: target, sheetName: 'x', provenance: PROVENANCE });
+    const written = writeAuthoredReport(outcome, {
+      outputDir: target,
+      sheetName: 'x',
+      provenance: PROVENANCE,
+    });
     writeFileSync(written.file, '', 'utf8');
     expect(readFileSync(written.file, 'utf8')).toBe('');
     // Re-writing succeeds and restores the content, showing the writer reads back.
-    const again = writeAuthoredReport(outcome, { outputDir: target, sheetName: 'x', provenance: PROVENANCE });
+    const again = writeAuthoredReport(outcome, {
+      outputDir: target,
+      sheetName: 'x',
+      provenance: PROVENANCE,
+    });
     expect(readFileSync(again.file, 'utf8').length).toBeGreaterThan(0);
   });
 });
@@ -592,7 +682,6 @@ test.describe('every non-passing row carries its evidence (E10) @unit', () => {
     expect(markdown).not.toContain('data:image');
   });
 });
-
 
 /**
  * §11 — a written report says what it was run against.

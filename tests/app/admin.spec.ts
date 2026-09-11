@@ -84,20 +84,19 @@ test.describe('Admin create forms', { tag: ['@regression', '@admin'] }, () => {
     await users.expectGroupPickerDisabled();
   });
 
-  test(
-    'the create-role form shows validation errors instead of submitting when empty',
-    async ({ makePage }) => {
-      // Verified directly: clicking Create with every field empty fires no
-      // network request, leaves the dialog open, and shows exactly these
-      // three inline messages. See docs/dms-findings.md.
-      const roles = makePage(UserRolesPage);
-      await roles.open();
-      await roles.openCreateForm();
-      await roles.expectCreateFormOpen();
+  test('the create-role form shows validation errors instead of submitting when empty', async ({
+    makePage,
+  }) => {
+    // Verified directly: clicking Create with every field empty fires no
+    // network request, leaves the dialog open, and shows exactly these
+    // three inline messages. See docs/dms-findings.md.
+    const roles = makePage(UserRolesPage);
+    await roles.open();
+    await roles.openCreateForm();
+    await roles.expectCreateFormOpen();
 
-      await roles.expectCreateValidationErrors();
-    },
-  );
+    await roles.expectCreateValidationErrors();
+  });
 
   test('Clear empties a partially filled role form', async ({ makePage, data }) => {
     const roles = makePage(UserRolesPage);
@@ -113,17 +112,16 @@ test.describe('Admin create forms', { tag: ['@regression', '@admin'] }, () => {
     expect(await roles.nameFieldValue()).toBe('');
   });
 
-  test(
-    'the create-group form shows validation errors instead of submitting when empty',
-    async ({ makePage }) => {
-      const groups = makePage(UserGroupsPage);
-      await groups.open();
-      await groups.openCreateForm();
-      await groups.expectCreateFormOpen();
+  test('the create-group form shows validation errors instead of submitting when empty', async ({
+    makePage,
+  }) => {
+    const groups = makePage(UserGroupsPage);
+    await groups.open();
+    await groups.openCreateForm();
+    await groups.expectCreateFormOpen();
 
-      await groups.expectCreateValidationErrors();
-    },
-  );
+    await groups.expectCreateValidationErrors();
+  });
 });
 
 test.describe('Admin creation', { tag: ['@regression', '@admin', '@write'] }, () => {

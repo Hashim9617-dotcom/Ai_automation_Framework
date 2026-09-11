@@ -53,7 +53,12 @@ export abstract class AppPage extends BasePage {
   // Collapsible sections. `exact` matters: "Upload" the section button would
   // otherwise also match the "Upload Files" and "Upload Zip File" controls.
   private readonly navAiAgents = locator('nav.aiAgents', 'AI Agents section toggle', [
-    { strategy: 'role', value: 'button', options: { name: 'AI Agents', exact: true }, confidence: 1 },
+    {
+      strategy: 'role',
+      value: 'button',
+      options: { name: 'AI Agents', exact: true },
+      confidence: 1,
+    },
   ]);
 
   private readonly navUpload = locator('nav.upload', 'Upload section toggle', [
@@ -65,7 +70,12 @@ export abstract class AppPage extends BasePage {
   ]);
 
   private readonly navWorkflow = locator('nav.workflow', 'Workflow section toggle', [
-    { strategy: 'role', value: 'button', options: { name: 'Workflow', exact: true }, confidence: 1 },
+    {
+      strategy: 'role',
+      value: 'button',
+      options: { name: 'Workflow', exact: true },
+      confidence: 1,
+    },
   ]);
 
   // ── Top bar ───────────────────────────────────────────────────────────────

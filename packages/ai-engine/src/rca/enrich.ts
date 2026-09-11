@@ -44,8 +44,7 @@ export async function enrichRunWithRca(
   analyzer: RootCauseAnalyzer,
   options: EnrichOptions = {},
 ): Promise<EnrichResult> {
-  const maxFailures =
-    options.maxFailures ?? positiveIntFromEnv(process.env.RCA_MAX_FAILURES, 20);
+  const maxFailures = options.maxFailures ?? positiveIntFromEnv(process.env.RCA_MAX_FAILURES, 20);
   const concurrency = Math.max(1, options.concurrency ?? 3);
 
   const failures = run.results.filter(isFailure);

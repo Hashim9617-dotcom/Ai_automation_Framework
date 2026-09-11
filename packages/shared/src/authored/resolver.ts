@@ -38,10 +38,7 @@ import type { AuthoredCase } from './sheet';
 
 /** Why a row could not be turned into runnable steps. Machine-readable. */
 export type RefusalReason =
-  | 'unparseable-step'
-  | 'ambiguous-target'
-  | 'target-not-found'
-  | 'entry-state-not-captured';
+  'unparseable-step' | 'ambiguous-target' | 'target-not-found' | 'entry-state-not-captured';
 
 export interface StepRefusal {
   stepIndex: number;
@@ -86,8 +83,15 @@ export interface ResolvedRow {
 const norm = (value: string): string => value.replace(/\s+/g, ' ').trim().toLowerCase();
 
 /** Roles a click can plausibly land on. ARIA, not application vocabulary. */
-export const CLICKABLE_ROLES = ['button', 'link', 'tab', 'menuitem', 'treeitem', 'option', 'checkbox'];
-
+export const CLICKABLE_ROLES = [
+  'button',
+  'link',
+  'tab',
+  'menuitem',
+  'treeitem',
+  'option',
+  'checkbox',
+];
 
 const STATE_WORDS: Record<string, { property: AssertStep['property']; expected: boolean }> = {
   selected: { property: 'selected', expected: true },
@@ -143,7 +147,10 @@ export function parseStep(sentence: string): ParsedStep | undefined {
 }
 
 function stripQuotes(value: string): string {
-  return value.trim().replace(/^["'`](.*)["'`]$/s, '$1').trim();
+  return value
+    .trim()
+    .replace(/^["'`](.*)["'`]$/s, '$1')
+    .trim();
 }
 
 /** Every node in the entry state whose accessible name matches the target. */
@@ -197,7 +204,6 @@ export function extractRole(text: string): string | undefined {
   }
   return undefined;
 }
-
 
 /**
  * Resolves one authored row against a bounded capture.

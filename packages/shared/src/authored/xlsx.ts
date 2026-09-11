@@ -116,7 +116,9 @@ export function listSheets(file: Buffer): WorkbookSheet[] {
   }
 
   const sheets: WorkbookSheet[] = [];
-  for (const m of workbookXml.matchAll(/<sheet\b[^>]*?name="([^"]*)"[^>]*?r:id="([^"]+)"[^>]*\/>/g)) {
+  for (const m of workbookXml.matchAll(
+    /<sheet\b[^>]*?name="([^"]*)"[^>]*?r:id="([^"]+)"[^>]*\/>/g,
+  )) {
     const part = targets.get(m[2]!);
     if (part) sheets.push({ name: decodeXml(m[1]!), part });
   }
@@ -165,7 +167,9 @@ export function readSheetGrid(file: Buffer, sheetName: string): SheetGrid {
       if (type === 's') {
         value = shared[Number(/<v>(\d+)<\/v>/.exec(inner)?.[1] ?? -1)] ?? '';
       } else if (type === 'inlineStr' || type === 'str') {
-        value = decodeXml([...inner.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => t[1]!).join(''));
+        value = decodeXml(
+          [...inner.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => t[1]!).join(''),
+        );
       } else {
         value = decodeXml(/<v>([\s\S]*?)<\/v>/.exec(inner)?.[1] ?? '');
       }

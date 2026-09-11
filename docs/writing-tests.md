@@ -22,18 +22,18 @@ import `apiTest` instead, so no browser is launched.
 
 ## Fixtures
 
-| Fixture             | Use                                                              |
-| ------------------- | ---------------------------------------------------------------- |
-| `env`               | The resolved environment config (URLs, users, timeouts, flags)   |
-| `makePage(Page)`    | Builds a page object with the right locator options wired in     |
-| `api`               | `ApiClient` for backend calls and backend state verification     |
-| `data`              | Deterministic test-data factory (`data.employee()`)              |
-| `log`               | Scoped structured logger                                         |
-| `locatorTelemetry`  | Every locator resolution in this test                            |
-| `diagnostics`       | Auto: console errors, page errors, 5xx/failed requests           |
+| Fixture            | Use                                                            |
+| ------------------ | -------------------------------------------------------------- |
+| `env`              | The resolved environment config (URLs, users, timeouts, flags) |
+| `makePage(Page)`   | Builds a page object with the right locator options wired in   |
+| `api`              | `ApiClient` for backend calls and backend state verification   |
+| `data`             | Deterministic test-data factory (`data.employee()`)            |
+| `log`              | Scoped structured logger                                       |
+| `locatorTelemetry` | Every locator resolution in this test                          |
+| `diagnostics`      | Auto: console errors, page errors, 5xx/failed requests         |
 
 `diagnostics` runs automatically. On failure it attaches the console/network
-signals *and* a DOM snapshot of the page, captured while the page is still alive.
+signals _and_ a DOM snapshot of the page, captured while the page is still alive.
 Both are lifted into `run.json` and are exactly what `pnpm rca` reads.
 
 This is worth knowing when you write assertions: the more specific your failure,
@@ -42,7 +42,7 @@ something to work with; a bare `expect(true).toBe(false)` does not.
 
 ## Page objects
 
-Extend `BasePage`, declare a `path`, and express *business actions*. Keep
+Extend `BasePage`, declare a `path`, and express _business actions_. Keep
 assertions about the page's own state on the page object (`expectSaved()`), and
 assertions about the outcome of a scenario in the spec.
 
@@ -55,7 +55,9 @@ export class EmployeesPage extends BasePage {
     { strategy: 'role', value: 'button', options: { name: 'Save employee' } },
   ]);
 
-  async register(employee: EmployeeInput): Promise<void> { /* ... */ }
+  async register(employee: EmployeeInput): Promise<void> {
+    /* ... */
+  }
 }
 ```
 
@@ -76,12 +78,12 @@ has to re-derive the locator.
 
 ## Tags
 
-| Tag           | Meaning                                          |
-| ------------- | ------------------------------------------------ |
-| `@smoke`      | Fast, critical path. Runs on every commit.       |
-| `@regression` | Full coverage. Runs nightly.                     |
-| `@api`        | API-layer test.                                  |
-| `@<feature>`  | Feature area, e.g. `@auth`, `@pim`.              |
+| Tag           | Meaning                                    |
+| ------------- | ------------------------------------------ |
+| `@smoke`      | Fast, critical path. Runs on every commit. |
+| `@regression` | Full coverage. Runs nightly.               |
+| `@api`        | API-layer test.                            |
+| `@<feature>`  | Feature area, e.g. `@auth`, `@pim`.        |
 
 Tags are also how the AI Command Box finds tests, so they earn their keep twice.
 Run a subset with `pnpm exec playwright test --grep @smoke`.

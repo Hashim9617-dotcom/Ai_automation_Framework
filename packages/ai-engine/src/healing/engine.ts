@@ -141,7 +141,10 @@ export class LlmSelfHealingEngine implements SelfHealingEngine {
         ],
       });
     } catch (error) {
-      this.log.warn('Healing proposal call failed', { key: spec.key, error: (error as Error).message });
+      this.log.warn('Healing proposal call failed', {
+        key: spec.key,
+        error: (error as Error).message,
+      });
       return null;
     }
 

@@ -16,7 +16,14 @@ import {
 } from '@aitp/shared';
 
 /** Filesystem calls that would write. Named here so the scan has a detector. */
-const WRITE_CALLS = ['writeFileSync', 'appendFileSync', 'createWriteStream', 'writeFile', 'unlinkSync', 'rmSync'];
+const WRITE_CALLS = [
+  'writeFileSync',
+  'appendFileSync',
+  'createWriteStream',
+  'writeFile',
+  'unlinkSync',
+  'rmSync',
+];
 
 /**
  * Expectations derive from `docs/phase-2-authored-cases.md`, written before any
@@ -210,11 +217,7 @@ test.describe('ambiguity is a REFUSAL, never a choice (R1) @unit', () => {
     // `button "Delete"` is the normal shape of a data table, and a row that
     // asserts about "Delete" there is under-specified whatever it asserts —
     // the QA has to say which one, and only they can.
-    const row = resolveRow(
-      rowOf({ steps: ['verify Delete is enabled'] }),
-      TWO_DELETES,
-      'review',
-    );
+    const row = resolveRow(rowOf({ steps: ['verify Delete is enabled'] }), TWO_DELETES, 'review');
     expect(row.outcome).toBe('row-unclear');
     expect(row.owner).toBe('qa');
     expect(row.refusals[0]!.why).toBe('ambiguous-target');
@@ -225,11 +228,7 @@ test.describe('ambiguity is a REFUSAL, never a choice (R1) @unit', () => {
 
 test.describe('an unreadable sentence is refused, not guessed at (R2) @unit', () => {
   test('R2: a sentence the grammar does not cover is refused with the sentence', () => {
-    const row = resolveRow(
-      rowOf({ steps: ['somehow make the thing happen'] }),
-      CAPTURE,
-      'review',
-    );
+    const row = resolveRow(rowOf({ steps: ['somehow make the thing happen'] }), CAPTURE, 'review');
     expect(row.refusals[0]!.why).toBe('unparseable-step');
     expect(row.refusals[0]!.sentence).toBe('somehow make the thing happen');
     expect(row.owner).toBe('qa');
@@ -245,11 +244,7 @@ test.describe('an unreadable sentence is refused, not guessed at (R2) @unit', ()
 
   test('R2: an assertion against zero matches IS an app finding', () => {
     // The other half of that asymmetry, and the discriminating one.
-    const row = resolveRow(
-      rowOf({ steps: ['verify Nonexistent is present'] }),
-      CAPTURE,
-      'review',
-    );
+    const row = resolveRow(rowOf({ steps: ['verify Nonexistent is present'] }), CAPTURE, 'review');
     expect(row.outcome).toBe('app-disagrees');
     expect(row.owner).toBe('app-team');
   });
@@ -284,7 +279,13 @@ test.describe('two kinds of failure, two owners — plus capture (R3) @unit', ()
    * returned `row-unclear` — the cheap, safe-looking answer — must fail, so
    * each fixture below produces THAT outcome and not the others.
    */
-  const cases: Array<{ what: string; row: AuthoredCase; capture: BoundedCapture; outcome: string; owner: string }> = [
+  const cases: Array<{
+    what: string;
+    row: AuthoredCase;
+    capture: BoundedCapture;
+    outcome: string;
+    owner: string;
+  }> = [
     {
       what: 'a row the app agrees with',
       row: rowOf({ steps: ['verify Summary is selected'] }),
@@ -340,7 +341,12 @@ test.describe('row-level traceability end to end (R4) @unit', () => {
     const { rows, byOutcome } = resolveSheet(authored, CAPTURE, 'review');
 
     expect(rows.map((row) => row.rowId)).toEqual(['TC-1', 'TC-2', 'TC-3']);
-    expect(byOutcome.ok + byOutcome['row-unclear'] + byOutcome['app-disagrees'] + byOutcome['capture-thin']).toBe(3);
+    expect(
+      byOutcome.ok +
+        byOutcome['row-unclear'] +
+        byOutcome['app-disagrees'] +
+        byOutcome['capture-thin'],
+    ).toBe(3);
   });
 
   test('R4: every reported row carries its id and a non-empty summary', () => {

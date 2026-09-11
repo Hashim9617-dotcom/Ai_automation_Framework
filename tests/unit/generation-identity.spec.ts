@@ -142,7 +142,10 @@ test.describe('assertionIdsFor threads the whole basis (A1-A5) @unit', () => {
   const capture: StateCapture = {
     sessionId: 's',
     states: [
-      state('workspace', [node('tab', 'Workspace', { selected: true }), node('tab', 'Folder', { selected: false })]),
+      state('workspace', [
+        node('tab', 'Workspace', { selected: true }),
+        node('tab', 'Folder', { selected: false }),
+      ]),
       state('folder', [node('tab', 'Folder', { selected: true })]),
     ],
     transitions: [

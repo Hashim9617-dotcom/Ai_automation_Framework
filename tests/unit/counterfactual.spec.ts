@@ -92,7 +92,12 @@ test.describe('property tests state their counterfactual @unit', () => {
 
     // Asserts its own effect on a synthetic pair rather than trusting the real
     // files to contain one of each.
-    const sample = ["  test('x', () => {", '    // wrong: it would return 1.', "  test('y', () => {", '    const a = 1;'];
+    const sample = [
+      "  test('x', () => {",
+      '    // wrong: it would return 1.',
+      "  test('y', () => {",
+      '    const a = 1;',
+    ];
     const withLine = sample[1]!.includes('// wrong:');
     const withoutLine = sample[3]!.includes('// wrong:');
     expect([withLine, withoutLine]).toEqual([true, false]);

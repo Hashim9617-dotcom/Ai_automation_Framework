@@ -40,9 +40,11 @@ function renderAxSnapshot(snapshot: AccessibilityTreeSnapshot): string {
   const lines = snapshot.nodes
     .filter((n) => n.name.trim().length > 0)
     .map((n) => `- role=${n.role} name=${JSON.stringify(n.name)}${n.enabled ? '' : ' (disabled)'}`);
-  return [`URL: ${snapshot.url}`, `Nodes (${lines.length}${snapshot.truncated ? ', truncated' : ''}):`, ...lines].join(
-    '\n',
-  );
+  return [
+    `URL: ${snapshot.url}`,
+    `Nodes (${lines.length}${snapshot.truncated ? ', truncated' : ''}):`,
+    ...lines,
+  ].join('\n');
 }
 
 export function buildHealingPrompt(spec: LocatorSpec, snapshot: AccessibilityTreeSnapshot): string {

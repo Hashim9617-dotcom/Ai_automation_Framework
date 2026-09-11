@@ -33,11 +33,7 @@ import {
  *   Z1     a case with zero observed assertions is a question, not a case
  */
 
-function state(
-  id: string,
-  nodes: CapturedState['nodes'],
-  truncated = false,
-): CapturedState {
+function state(id: string, nodes: CapturedState['nodes'], truncated = false): CapturedState {
   return { id, label: id, url: `https://app.example/${id}`, nodes, truncated };
 }
 
@@ -263,10 +259,38 @@ test.describe('checkGrounding — property comparison @unit', () => {
     expected: boolean;
     grade: string;
   }> = [
-    { what: 'selected matches', property: 'selected', role: 'tab', name: 'Workspace', expected: true, grade: 'observed' },
-    { what: 'selected differs', property: 'selected', role: 'tab', name: 'Workspace', expected: false, grade: 'contradicted' },
-    { what: 'enabled matches', property: 'enabled', role: 'button', name: 'Next', expected: false, grade: 'observed' },
-    { what: 'enabled differs', property: 'enabled', role: 'button', name: 'Next', expected: true, grade: 'contradicted' },
+    {
+      what: 'selected matches',
+      property: 'selected',
+      role: 'tab',
+      name: 'Workspace',
+      expected: true,
+      grade: 'observed',
+    },
+    {
+      what: 'selected differs',
+      property: 'selected',
+      role: 'tab',
+      name: 'Workspace',
+      expected: false,
+      grade: 'contradicted',
+    },
+    {
+      what: 'enabled matches',
+      property: 'enabled',
+      role: 'button',
+      name: 'Next',
+      expected: false,
+      grade: 'observed',
+    },
+    {
+      what: 'enabled differs',
+      property: 'enabled',
+      role: 'button',
+      name: 'Next',
+      expected: true,
+      grade: 'contradicted',
+    },
   ];
 
   for (const c of cases) {
@@ -444,7 +468,12 @@ test.describe('checkGrounding — collapsed groups @unit', () => {
       truncated: false,
       nodes: [],
       collapsed: [
-        { role: 'button', pattern: 'Download Selected (<name>)', count: 3, examples: ['Download Selected (2)'] },
+        {
+          role: 'button',
+          pattern: 'Download Selected (<name>)',
+          count: 3,
+          examples: ['Download Selected (2)'],
+        },
       ],
     };
 
@@ -611,10 +640,13 @@ test.describe('checkGrounding — distinct faults get distinct reasons (R1) @uni
       capture([state('t', [{ role: 'button', name: 'A', enabled: true }], true)]),
       { entryState: 't', steps: [assertStep('button', 'Missing', 'present', true)] },
     );
-    const unrecorded = checkGrounding(capture([state('u', [{ role: 'tab', name: 'A', enabled: true }])]), {
-      entryState: 'u',
-      steps: [assertStep('tab', 'A', 'selected', true)],
-    });
+    const unrecorded = checkGrounding(
+      capture([state('u', [{ role: 'tab', name: 'A', enabled: true }])]),
+      {
+        entryState: 'u',
+        steps: [assertStep('tab', 'A', 'selected', true)],
+      },
+    );
 
     expect(truncatedState.steps[0]!.why).toBe('capture-truncated');
     expect(unrecorded.steps[0]!.why).toBe('property-not-recorded');
