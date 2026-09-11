@@ -2715,3 +2715,74 @@ whoever addresses it:
   A mutation that breaks a test NOT in `expect` is the "caught, but not for the
   reason claimed" signal — `T5` was found exactly that way — and a targeted run
   destroys it. The full suite is load-bearing.
+
+---
+
+## P. The spawn-environment audit (2026-09-11)
+
+§M's boot test passed while the API could not start, because it inherited
+Playwright's `NODE_PATH`. That generalises: **every test that spawns a process
+under Playwright inherits an environment the real process will never have.** This
+is the audit of every spawn site in the repo, and the mechanism that stops the
+next one.
+
+### P.1 Every spawn site, with both questions answered
+
+| site | inherits unscrubbed? | still checkable in production? |
+| --- | --- | --- |
+| `tests/api/api-boot.spec.ts:49` build | **was yes** → now `execFileSyncClean` | yes — a build's output does not depend on `NODE_PATH` (verified: build succeeds with it deleted) |
+| `tests/api/api-boot.spec.ts:67` dep check | no — scrubbed | **NO.** This is the site that produced the false pass. |
+| `tests/api/api-boot.spec.ts:90` boot | no — scrubbed | **NO.** Same. |
+| `tests/unit/invisible-characters.spec.ts:76` `git ls-files` | yes | **yes** — git consults neither variable |
+| `tests/unit/no-workbooks.spec.ts:18` `git ls-files` | yes | **yes** — same |
+| `tests/unit/no-workbooks.spec.ts:36` `git check-ignore` | yes | **yes** — same |
+| `scripts/heal-review.ts:30,44` `git` | yes | **yes** — same |
+| `apps/api/.../runner.service.ts:36` `npx playwright` | yes, and **correctly** | n/a — PRODUCTION code. It inherits the API's own environment, which IS the production environment. Inheriting is right here. |
+
+**Conclusion: the two sites that mattered were the ones already found**, and they
+are the only ones where question 2 answers "no, it would fail". Every remaining
+inheriting site launches `git`, whose verdict cannot differ between the
+environments — so they are inheriting but not dishonest.
+
+That is worth stating plainly rather than converting them anyway: a guard that
+flags what cannot break earns an allow-list, and an allow-list is how a real case
+eventually gets waved through.
+
+One unrelated finding from the audit: `check-api-deps.mjs` imported `execSync`
+and never used it. Removed.
+
+### P.2 The trap, because it is not obvious
+
+```ts
+env.NODE_PATH = '';         // WRONG — empty string is still a value
+env.NODE_PATH = undefined;  // WRONG — some spawns stringify this
+delete env.NODE_PATH;       // RIGHT
+```
+
+Any value is a value the real process does not have, and **"set it to empty" is a
+third environment**, different from both the runner's and production's.
+
+There is a second-order trap in testing that: `'NODE_PATH' in env` is the only
+check that distinguishes absent from empty, because reading the value gives a
+falsy result either way. The guard asserts with `in`.
+
+### P.3 One helper, one guard
+
+`tests/support/spawn-clean.ts` exports `spawnClean`, `execFileSyncClean` and
+`productionEnv`, and is **the only place the scrub list lives** — currently
+`NODE_PATH` and `NODE_OPTIONS`. The second is there because a registered loader
+(tsx, ts-node, Playwright's transform) inherited by a child gives it the ability
+to import TypeScript where the real process has only JavaScript.
+
+A caller's own variables are merged AFTER the scrub, so deliberately setting one
+is visible at the call site rather than an accident of inheritance.
+
+`tests/unit/no-unscrubbed-spawn.spec.ts` fails if a test spawns a JavaScript
+process without the helper. **Mutation-verified**: reverting the boot test to a
+raw `spawn` makes it report `tests/api/api-boot.spec.ts:90`.
+
+The guard's own first version was wrong in an instructive way — its
+"`git` is exempt" pattern required the closing quote immediately after `git`, but
+`execSync('git ls-files "*.ts"')` puts the arguments in the same string. It
+reported all six git sites as violations. Found because the count was
+implausible, not because the pattern was read carefully.

@@ -24,7 +24,6 @@
  * environment. It asserts its own effect — a scan that finds no files fails
  * rather than reporting success.
  */
-import { execSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -1,8 +1,9 @@
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { findRepoRoot } from '@aitp/shared';
+import { execFileSyncClean, spawnClean } from '../support/spawn-clean';
 
 /**
  * Does the API actually START?
@@ -42,23 +43,10 @@ const ROOT = findRepoRoot();
 const API_DIR = path.join(ROOT, 'apps', 'api');
 const ENTRY = path.join(API_DIR, 'dist', 'apps', 'api', 'src', 'main.js');
 
-/**
- * The environment the API actually runs in.
- *
- * `NODE_PATH` is REMOVED, not overridden: Playwright's value makes every
- * unhoisted dependency resolvable, which is precisely the condition these tests
- * exist to detect the absence of.
- */
-function cleanEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const env = { ...process.env, ...extra };
-  delete env.NODE_PATH;
-  return env;
-}
-
 test.describe('the API boots @api', () => {
   test.beforeAll(() => {
     if (!existsSync(ENTRY)) {
-      execFileSync('pnpm', ['--filter', '@aitp/api', 'build'], {
+      execFileSyncClean('pnpm', ['--filter', '@aitp/api', 'build'], {
         cwd: ROOT,
         stdio: 'pipe',
         shell: process.platform === 'win32',
@@ -76,10 +64,8 @@ test.describe('the API boots @api', () => {
     let stdout = '';
     let failed = false;
     try {
-      stdout = execFileSync(process.execPath, [path.join(ROOT, 'scripts', 'check-api-deps.mjs')], {
+      stdout = execFileSyncClean(process.execPath, [path.join(ROOT, 'scripts', 'check-api-deps.mjs')], {
         cwd: ROOT,
-        encoding: 'utf8',
-        env: cleanEnv(),
       });
     } catch (error) {
       failed = true;
@@ -101,9 +87,9 @@ test.describe('the API boots @api', () => {
     let child: ChildProcess | undefined;
 
     try {
-      child = spawn(process.execPath, [ENTRY], {
+      child = spawnClean(process.execPath, [ENTRY], {
         cwd: API_DIR,
-        env: cleanEnv({ API_PORT: String(port) }),
+        env: { API_PORT: String(port) },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 

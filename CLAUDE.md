@@ -771,3 +771,63 @@ The duplication remains a drift risk — the right fix is for the API to consume
 BUILT packages so pnpm resolves each package's dependencies from its own tree.
 That is a build migration, and the check above turns the drift from silent into
 red in the meantime.
+
+### A test that starts a process is only as honest as the environment it starts it in
+
+> **The runner's environment is not the production environment, and the
+> difference is invisible until something that resolves in one fails in the
+> other.**
+
+**This is the THIRD variant of one family** — a verification that never meets the
+conditions it claims to verify:
+
+| variant | the verification | what it never met |
+| --- | --- | --- |
+| the mock gateway | "the engine handles the model's response" | a real response |
+| the stub executor | "the executor works" | a real page |
+| **an inherited environment** | "the API boots" | the environment it boots in |
+
+Playwright sets `NODE_PATH` to pnpm's hidden hoist store
+(`node_modules/.pnpm/node_modules`), which holds every transitively-installed
+package FLAT. A child spawned with `env: { ...process.env }` inherits it, so every
+dependency pnpm declined to hoist resolves anyway. The boot test written
+specifically to catch a missing module **passed while `pnpm api:dev` could not
+start.**
+
+#### The trap: DELETE the variable, never set it
+
+```ts
+env.NODE_PATH = '';         // WRONG — empty string is still a value
+env.NODE_PATH = undefined;  // WRONG — some spawns stringify this
+delete env.NODE_PATH;       // RIGHT
+```
+
+Any value is a value the real process does not have, and "set it to empty" is a
+THIRD environment, different from both. Note that only `'NODE_PATH' in env` can
+tell the two apart — reading the value cannot, because `''` and absent both read
+as falsy. The guard asserts with `in` for exactly that reason.
+
+#### One helper, one guard, because remembering already failed
+
+`tests/support/spawn-clean.ts` is the ONLY place the scrub list lives
+(`NODE_PATH`, `NODE_OPTIONS`). Per-call-site scrubbing drifts, and a drifted
+scrub reads identically to a correct one.
+`tests/unit/no-unscrubbed-spawn.spec.ts` fails if any test spawns a JavaScript
+process without it.
+
+**`git` is deliberately exempt**, and the exemption is reasoned rather than
+convenient: git consults neither variable, so its verdict cannot differ between
+the two environments. A guard that flags what cannot break gets an allow-list,
+and an allow-list eventually swallows a real case.
+
+#### The audit question to ask at every spawn site
+
+Two questions, and only the pair is diagnostic:
+
+1. does it inherit `process.env` unscrubbed?
+2. **would the thing it checks still be checkable if the child ran in
+   production?**
+
+Yes to (1) alone is harmless — every git call site here is a yes. Yes to (1) with
+"no, it would fail" to (2) is a test measuring a friendlier world than the one
+that matters.
