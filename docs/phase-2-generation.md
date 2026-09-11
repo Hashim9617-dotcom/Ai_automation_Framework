@@ -1479,6 +1479,44 @@ real gap, and writing an expectation themselves is exactly the workflow intended
 — the human is the external source of truth there. What is forbidden is any
 *automatic* path from question text to an expectation, however convenient.
 
+#### A third entry point: command text over HTTP (2026-09-11)
+
+The two sources above are untrusted but **local**: a capture came from a page we
+drove, a sheet cell from a file on disk. The AI Command Box adds a third that is
+not — **command text arrives over HTTP, from whoever can reach the port.**
+
+Same rules, new entry point, stated here so the list is complete:
+
+> **A command string is never a file path, a shell argument, a locator, or
+> anything executable.** It reaches `tokenize()` and is stored on the run record
+> for display. Nothing derived from it is interpolated into a command line.
+
+**And specifying that found a live one that predates it.** `RunnerService` spawned
+with `shell: process.platform === 'win32'`, and under `shell: true` Node
+concatenates arguments into one command string **without escaping** (its own
+`DEP0190` warning says so). `buildArgs()` emits `--grep=${request.grep}` from a
+caller-supplied field, so `POST /api/runs {"grep": "@smoke & whoami"}` executed
+`whoami` on Windows. Demonstrated in isolation before being believed:
+
+```
+spawnSync('node', ['-e','console.log(1)','&','echo','INTERPRETED'], { shell: true })
+  -> "1
+INTERPRETED"       the & was interpreted by cmd.exe
+     with shell:false: "1"   the & was a literal argument
+```
+
+Fixed by removing the shell, not by filtering the value. Boundary validation was
+tried first and cannot work here: `|` is both a shell metacharacter and regex
+alternation, and `CommandService` joins every multi-test grep with it — the
+legitimate and the dangerous character sets intersect, so there is no set to
+admit. `RunnerService` now runs Playwright's CLI under `process.execPath`, so
+arguments are passed literally. See `docs/phase-2-command-box.md` §4 and
+`docs/security-findings.md` (SEC-1).
+
+> **The rule "untrusted text is never a shell argument" was already written. What
+> was missing was noticing that a field on an HTTP schema IS untrusted text.** The
+> rule protected the inputs someone had thought of as inputs.
+
 Two mitigations that cost nothing and are therefore worth having:
 
 - The prompt **delimits capture content and names it as data** — the rules

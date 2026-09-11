@@ -33,7 +33,23 @@ export class RunnerService {
 
     this.logger.log(`Starting run ${run.id}: npx playwright ${args.join(' ')}`);
 
-    const child = spawn('npx', ['playwright', ...args], {
+    // NO SHELL. Under `shell: true` Node concatenates the arguments into one
+    // command string WITHOUT escaping them — its own `DEP0190` warning says so —
+    // and `buildArgs()` interpolates the caller-supplied `grep`. Before this
+    // change, `POST /api/runs {"grep": "@smoke & whoami"}` executed `whoami` on
+    // Windows.
+    //
+    // The shell was here because `npx` is a `.cmd` shim that `spawn` cannot
+    // execute directly on Windows. Resolving Playwright's own CLI entry point and
+    // running it under THIS node removes the need for both: no shim, so no shell,
+    // so no concatenation, so the arguments are passed literally.
+    //
+    // Validation at the schema boundary was tried first and cannot work: `|` is
+    // both a shell metacharacter and regex alternation, and `CommandService`
+    // builds every multi-test grep by joining titles with it. The legitimate and
+    // the dangerous character sets overlap, so there is no set to allow.
+    const playwrightCli = require.resolve('@playwright/test/cli');
+    const child = spawn(process.execPath, [playwrightCli, ...args], {
       cwd: this.repoRoot,
       env: {
         ...process.env,
@@ -43,7 +59,6 @@ export class RunnerService {
         CI: 'true',
         FORCE_COLOR: '0',
       },
-      shell: process.platform === 'win32',
     });
     this.active.set(run.id, child);
 

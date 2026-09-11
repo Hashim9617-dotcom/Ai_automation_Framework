@@ -25,8 +25,32 @@ export type TestOutcome = (typeof TestOutcome)[keyof typeof TestOutcome];
 export const runRequestSchema = z.object({
   /** Human intent, e.g. "test complete employee registration flow". Optional for grep-based runs. */
   command: z.string().min(3).optional(),
-  /** Playwright --grep expression, e.g. "@smoke". */
-  grep: z.string().optional(),
+  /**
+   * Playwright `--grep` expression, e.g. `"@smoke"`.
+   *
+   * This value reaches a command line, so it was the subject of a live shell
+   * injection: `RunnerService` spawned through a shell on Windows, where Node
+   * concatenates arguments WITHOUT escaping them, and `POST /api/runs
+   * {"grep": "@smoke & whoami"}` executed `whoami`.
+   *
+   * **The real fix is in `RunnerService`, which no longer uses a shell** — so
+   * arguments are passed literally and no escaping or filtering is required for
+   * safety. Boundary validation was tried first and does not work here: `|` is
+   * both a shell metacharacter and regex alternation, and `CommandService` joins
+   * every multi-test grep with it. There is no character set that admits the
+   * legitimate values and excludes the dangerous ones.
+   *
+   * What remains is a bound and a control-character check — defence in depth for
+   * a future caller that does reach a shell, and cheap either way. Deliberately
+   * NOT a metacharacter blocklist, which would fail the same way.
+   */
+  grep: z
+    .string()
+    .max(500)
+    .refine((value) => !/\p{Cc}/u.test(value), {
+      message: 'grep may not contain control characters or newlines',
+    })
+    .optional(),
   /** Target environment key resolved against config/env/*.json. */
   environment: z.string().default('qa'),
   browsers: z.array(z.enum(['chromium', 'firefox', 'webkit'])).default(['chromium']),

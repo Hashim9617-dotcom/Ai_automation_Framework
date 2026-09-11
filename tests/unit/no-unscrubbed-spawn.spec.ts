@@ -53,11 +53,17 @@ interface Finding {
 }
 
 function scan(): { findings: Finding[]; filesScanned: number } {
+  // NOTE (2026-09-11): this hard-coded list is the same incomplete-enumeration
+  // shape the invisible-character guard was just fixed for — a file that spawns
+  // is governed only if someone remembered to add it here. Left as it is for now
+  // to keep the shell-injection fix reviewable, and recorded as the next thing
+  // to close: it should enumerate `tests/**` from git rather than from memory.
   const files = [
     'tests/api/api-boot.spec.ts',
     'tests/unit/invisible-characters.spec.ts',
     'tests/unit/no-workbooks.spec.ts',
     'tests/unit/no-unscrubbed-spawn.spec.ts',
+    'tests/unit/no-shell-spawn.spec.ts',
     'tests/support/spawn-clean.ts',
   ];
 
@@ -103,7 +109,7 @@ test.describe('no test spawns in the runner environment @unit', () => {
 
     expect(
       findings,
-      'these spawn a JavaScript process with the runner\'s environment. Use\n' +
+      "these spawn a JavaScript process with the runner's environment. Use\n" +
         '`spawnClean` / `execFileSyncClean` from tests/support/spawn-clean.ts:\n' +
         findings.map((f) => `  ${f.file}:${f.line}  ${f.text}`).join('\n'),
     ).toEqual([]);
