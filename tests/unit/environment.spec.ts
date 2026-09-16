@@ -123,6 +123,35 @@ test.describe('loadEnvironment and an ambient BASE_URL @unit', () => {
     expect(loadEnvironment('qa').baseUrl).toBe('https://injected-by-ci.example.com');
   });
 
+  test('an interpolated baseUrl that names ANOTHER variable still takes the override', () => {
+    // wrong: the override is suppressed for every placeholder, and this file
+    // resolves to ALTERNATE_URL — CI can no longer point a run anywhere.
+    //
+    // THE DISCRIMINATING FIXTURE, and the reason it looks odd. Every other
+    // placeholder case here writes `${BASE_URL}`, so interpolation ALREADY
+    // substitutes the ambient value and the override changes nothing: those
+    // tests pass with the override line deleted outright. Mutation confirmed
+    // it — "the override never wins" survived them both. Only a file that
+    // interpolates a DIFFERENT variable makes interpolation and the override
+    // disagree, so this is the one fixture that can tell them apart.
+    process.env.ALTERNATE_URL = 'https://from-the-file.example.com';
+    writeEnv('staging', '${ALTERNATE_URL}');
+    process.env.BASE_URL = 'https://injected-by-ci.example.com';
+
+    expect(loadEnvironment('staging').baseUrl).toBe('https://injected-by-ci.example.com');
+  });
+
+  test('...and with no ambient BASE_URL that same file keeps its own variable', () => {
+    // wrong: BASE_URL is applied even when unset (as '' or undefined), and the
+    // file's own variable is discarded for nothing. Pairs with the test above:
+    // same fixture, the ambient value removed, so the two differ only in that.
+    process.env.ALTERNATE_URL = 'https://from-the-file.example.com';
+    writeEnv('staging', '${ALTERNATE_URL}');
+    delete process.env.BASE_URL;
+
+    expect(loadEnvironment('staging').baseUrl).toBe('https://from-the-file.example.com');
+  });
+
   test('with no ambient BASE_URL a defaulted placeholder falls back', () => {
     // wrong: a fallback that never fires means a developer with no BASE_URL set
     // gets a config error instead of the local default the file promises.

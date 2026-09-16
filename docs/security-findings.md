@@ -109,3 +109,122 @@ which is a behavioural failure rather than a source-text assertion.
   missing was noticing that **a field on an HTTP schema is untrusted text** — the
   rule had been protecting only the inputs someone had already thought of as
   inputs.
+
+---
+
+## SEC-2 — an ambient `BASE_URL` silently redirected every environment, including `local`
+
+**Status: fixed** (2026-09-11), held by tests and a mutation run (2026-09-16).
+Found while building the AI Command Box, in code that predates it.
+
+### What was reachable
+
+`loadEnvironment()` applied its `process.env` overrides unconditionally:
+
+    if (process.env.BASE_URL) overrides.baseUrl = process.env.BASE_URL;
+
+`BASE_URL` lives in `.env`, which `ensureDotenv()` loads on every run, so this
+was not an exotic CI-only condition — it was the normal state of a developer
+machine. The override was applied **after** the environment file had been read,
+so it replaced the `baseUrl` of every key: `app`, `qa`, `staging`, and `local`,
+whose file says
+
+    "baseUrl": "http://127.0.0.1:4173"
+
+in plain text. A run explicitly requested against the bundled demo app therefore
+drove a real browser against the **live customer system**, and nothing in the
+request could have prevented it. The caller had no way to say "no, I meant the
+demo app" — `local` already said that, as a literal, and lost.
+
+No writes can have occurred: `ALLOW_WRITES` has never been set, so the three
+`@write` tests stay skipped. The exposure is navigation and login traffic against
+a customer system from a run labelled as local.
+
+### What it defeated, and why that is the interesting part
+
+This project had already built the safety property that should have caught it:
+**every run prints its resolved environment and baseUrl on the first line of
+output.** That property did not fail because it was missing, or because nobody
+read it. It failed because the override corrupted the value the statement was
+derived FROM — the run announced its target perfectly accurately, and the target
+was wrong.
+
+The archive shows the second half of the same mistake. `aitp-reporter.ts` records
+
+    environment: process.env.TEST_ENV ?? 'qa'
+
+— a label read from the same ambient environment that redirected the run — and it
+records **no `baseUrl` at all**. So the one pairing that would have made the
+mismatch visible after the fact, label next to target, was never written down.
+
+> **A label read from the source that could redirect it cannot check the
+> redirection.** A run stating its own target is only meaningful if the target is
+> resolved independently of whatever could redirect it — and if the label and the
+> target are recorded TOGETHER, because either alone is unfalsifiable.
+
+### What changed
+
+A `baseUrl` the file pins as a **literal** is no longer overridden; one written
+as an interpolation still is:
+
+    const pinnedLiteral = typeof rawBaseUrl(raw) === 'string' && !rawBaseUrl(raw)!.includes('${');
+    if (process.env.BASE_URL && !pinnedLiteral) overrides.baseUrl = process.env.BASE_URL;
+
+The override was never needed for the files it was written for. `app`, `qa` and
+`staging` consume `BASE_URL` through `${BASE_URL}` placeholders, so interpolation
+already applies it to them. It changed the outcome ONLY for a file pinning a
+literal — exactly the file whose author was saying "this environment IS this
+URL". Ambient state does not overrule a value someone wrote down on purpose.
+
+### How it is held
+
+`tests/unit/environment.spec.ts`, six tests, both directions: a literal survives
+an ambient `BASE_URL`; a placeholder takes it; a defaulted placeholder takes it;
+with no ambient value the default still fires.
+
+Verified by mutation on 2026-09-16, with the three controls this repo requires
+(known-CAUGHT, known-SURVIVING, known-VOID all correct, so the verdicts stand):
+
+| mutation                                               | verdict    | caught by                  |
+| ------------------------------------------------------ | ---------- | -------------------------- |
+| override ALWAYS wins (the original bug)                | **caught** | `a LITERAL baseUrl wins…`  |
+| override NEVER wins                                    | **caught** | `…names ANOTHER variable…` |
+| rule inverted (literal overridden, placeholder pinned) | **caught** | both directions            |
+| a DEFAULTED placeholder counts as pinned               | **caught** | `…names ANOTHER variable…` |
+
+**Two of those survived the first run, and that is the finding worth keeping.**
+Every environment file in this repo writes `${BASE_URL}`, so interpolation
+already substitutes the ambient value — which means the placeholder tests passed
+**with the override line deleted outright**. They asserted the right thing about
+data that could not tell the two mechanisms apart. Only a file interpolating a
+DIFFERENT variable makes interpolation and the override disagree, so that is now
+the fixture that carries the placeholder half of the rule.
+
+### Did it ever happen? What the archive can and cannot say
+
+Asked of `artifacts/runs/`: did any run carry a `local`/`demo` label while its
+traffic went to a non-loopback host?
+
+**Zero.** The honest qualifier belongs next to the number, because the corpus
+mostly cannot answer the question:
+
+|                                                |                                                             |
+| ---------------------------------------------- | ----------------------------------------------------------- |
+| record files scanned                           | 24                                                          |
+| carrying any environment label                 | 9 (5 `demo`, 2 `live`, 2 `app`)                             |
+| carrying a label **and** any URL               | **2** — both `app`, both to the customer domain, consistent |
+| suspect (local/demo label + non-loopback host) | **0**                                                       |
+
+The seven `demo`/`live` authored-run records name their target in prose and
+contain no URL at all, so for them the pairing cannot be checked. And
+`archiveIfNotClean()` archives a Playwright run only when it failed or flaked, so
+passing runs — the ones that would have gone quietly to the wrong host — leave no
+record whatsoever. Zero is the result, and it means _no evidence was found in a
+corpus that is structurally unable to hold most of it_, not _it never happened_.
+
+### Related
+
+- [`phase-2-command-box.md`](phase-2-command-box.md) — the specification work that
+  surfaced it; this is its requirement-5 hazard inverted, and the more dangerous
+  direction.
+- SEC-1 above — same week, same source: a field nobody had classified as input.

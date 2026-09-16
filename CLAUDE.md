@@ -876,3 +876,39 @@ against the demo app.
 
 Same family as the `NODE_PATH` finding: the environment a process is given is
 part of what it computes, not a neutral backdrop.
+
+### A run that states its own target is only as good as where the target came from
+
+Every run prints its resolved environment and `baseUrl` on the first line of
+output, so a wrong environment is obvious immediately rather than forty-five
+failures later. That property was already in place on 2026-09-11 when an ambient
+`BASE_URL` was found redirecting **every** environment key — `local` included,
+whose file pins `http://127.0.0.1:4173` as a literal — to the live customer
+system (SEC-2 in [`docs/security-findings.md`](docs/security-findings.md)).
+
+The statement did not fail. It was accurate. It was derived from the value that
+had already been redirected, so it printed the wrong target faithfully and read
+as normal.
+
+> **A run stating its own target is meaningful only if the target is resolved
+> INDEPENDENTLY of whatever could redirect it.** A label read from the same
+> source that can corrupt it cannot check that source — it launders the
+> corruption into a confident-looking claim.
+
+The archive showed the second half. `aitp-reporter.ts` records
+`environment: process.env.TEST_ENV ?? 'qa'` — the label, read from the ambient
+environment that did the redirecting — and records **no `baseUrl` at all**. So
+the pairing that would have made the mismatch checkable afterwards was never
+written down, and the question "did this ever happen?" is now answerable for 2 of
+9 labelled records.
+
+Two corollaries:
+
+- **Record the label and the target TOGETHER, at the point of resolution.**
+  Either alone is unfalsifiable: a label nothing can contradict, or a URL with
+  nothing to contradict it. Same shape as welding a headline number to the
+  assumption it was measured under.
+- **A safety property built on a derived value inherits every weakness of what
+  it derives from.** Before trusting one, ask what it would print if the thing it
+  is watching for had already happened. If the answer is "exactly what it prints
+  now", it is decoration.
