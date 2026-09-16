@@ -6,6 +6,7 @@ import type {
   HealingProposal,
 } from './ai';
 import type { LocatorResolution } from './locator';
+import type { RunTarget } from '../command/target';
 
 /** Lifecycle of a single execution request (one "run" = one suite invocation). */
 export const RunStatus = {
@@ -159,6 +160,20 @@ export interface Run {
   finishedAt?: string;
   summary?: RunSummary;
   results: TestResult[];
+  /**
+   * What this run actually ran against: the environment KEY and the URL it
+   * resolved to, recorded TOGETHER from one resolution (SEC-2 in
+   * docs/security-findings.md). `request.environment` alone cannot show a
+   * key that resolved somewhere it should not have — the label is exactly as
+   * confident either way.
+   *
+   * Three states, because they call for different actions:
+   *   - a RunTarget  -> recorded; an audit can compare the label to the URL
+   *   - `null`       -> this producer knew about targets and was given none;
+   *                     fix the config that constructs the reporter
+   *   - absent       -> written before this field existed; unanswerable
+   */
+  target?: RunTarget | null;
   /** Relative paths under artifacts/ for html report, trace, video, log. */
   artifacts: Record<string, string>;
   error?: string;

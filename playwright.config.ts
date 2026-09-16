@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import { authStatePath, loadEnvironment } from './packages/execution-engine/src/config/environment';
+import { describeTarget } from './packages/shared/src/command/target';
 
 const env = loadEnvironment();
 const isCI = Boolean(process.env.CI);
@@ -55,7 +56,14 @@ export default defineConfig({
     ['junit', { outputFile: './artifacts/reports/junit.xml' }],
     [
       './packages/reporting-engine/src/reporters/aitp-reporter.ts',
-      { outputDir: './artifacts/reports' },
+      {
+        outputDir: './artifacts/reports',
+        // From the SAME `env` that sets use.baseURL below, so run.json records
+        // the URL the browsers were actually pointed at, next to its label.
+        // SEC-2: the label alone could not show `local` resolving to a
+        // customer system.
+        target: describeTarget(env.name, env.baseUrl),
+      },
     ],
   ],
 

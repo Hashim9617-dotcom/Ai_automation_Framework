@@ -17,6 +17,7 @@ import {
   type FailureContext,
   type Logger,
   type Run,
+  type RunTarget,
   type TestResult,
 } from '@aitp/shared';
 import { renderRunSummaryHtml } from '../html/summary';
@@ -26,6 +27,17 @@ export interface AitpReporterOptions {
   outputDir?: string;
   /** POST live events here so the Phase 3 dashboard can stream them. */
   liveEndpoint?: string;
+  /**
+   * What this run is pointed at, resolved ONCE by whoever configures the
+   * browsers — pass `describeTarget(env.name, env.baseUrl)` from the same
+   * `env` that sets `use.baseURL`, so the URL recorded is the URL used.
+   *
+   * Not resolved here on purpose. Resolving again in the reporter would be a
+   * second resolution that could disagree with the first, and reading
+   * `process.env` would be SEC-2 again: a label taken from the same ambient
+   * source that can redirect the run.
+   */
+  target?: RunTarget;
 }
 
 /**
@@ -45,17 +57,30 @@ export default class AitpReporter implements Reporter {
   constructor(options: AitpReporterOptions = {}) {
     this.outputDir = options.outputDir ?? path.join(process.cwd(), 'artifacts', 'reports');
     this.liveEndpoint = options.liveEndpoint ?? process.env.AITP_LIVE_ENDPOINT;
+    // null, not undefined: JSON.stringify drops undefined, and an absent field
+    // is indistinguishable from a run.json written before targets existed.
+    const target = options.target ?? null;
+    if (!target) {
+      this.log.warn(
+        'No target was passed to the reporter — run.json will record target: null, ' +
+          'so this run cannot be audited for WHERE it ran. Pass describeTarget(env.name, env.baseUrl).',
+      );
+    }
     this.run = {
       id: process.env.AITP_RUN_ID ?? newId('run'),
       status: RunStatus.Queued,
       request: {
-        environment: process.env.TEST_ENV ?? 'qa',
+        // The label comes from the SAME object as the URL whenever there is one.
+        // The TEST_ENV fallback exists only for a reporter given no target, and
+        // that case is already recorded as target: null.
+        environment: target?.environment ?? process.env.TEST_ENV ?? 'qa',
         browsers: ['chromium'],
         headed: false,
         metadata: {},
       },
       createdAt: new Date().toISOString(),
       results: [],
+      target,
       artifacts: {},
     };
   }

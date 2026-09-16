@@ -42,6 +42,9 @@ const COVERED = [
   'tests/unit/model-questions.spec.ts',
   'tests/unit/gateway-fidelity.spec.ts',
   'tests/unit/triage.spec.ts',
+  // Added 2026-09-16 with the suite (SEC-2), each counterfactual written with the
+  // test and then checked by a mutation run: 5 caught, 1 declared survivor.
+  'tests/unit/reporter-target.spec.ts',
 ];
 
 /**

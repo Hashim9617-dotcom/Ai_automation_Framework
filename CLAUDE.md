@@ -900,7 +900,9 @@ The archive showed the second half. `aitp-reporter.ts` records
 environment that did the redirecting — and records **no `baseUrl` at all**. So
 the pairing that would have made the mismatch checkable afterwards was never
 written down, and the question "did this ever happen?" is now answerable for 2 of
-9 labelled records.
+9 labelled records. (Fixed 2026-09-16: `run.json` now records `target` — label and
+URL from the one `env` that sets `use.baseURL` — and `null`, never silence, when a
+reporter is given none.)
 
 Two corollaries:
 

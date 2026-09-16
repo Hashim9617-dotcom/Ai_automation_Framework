@@ -222,6 +222,49 @@ passing runs — the ones that would have gone quietly to the wrong host — lea
 record whatsoever. Zero is the result, and it means _no evidence was found in a
 corpus that is structurally unable to hold most of it_, not _it never happened_.
 
+From 2026-09-16 every `run.json` records its target, so the same question asked
+of future archives is a real one. The failures-only archiving policy still limits
+which runs are kept at all.
+
+### The second half, fixed (2026-09-16): run.json records where the run went
+
+`run.json` now carries `target: { environment, baseUrl, isDemoApp }` — the
+Command Box's `RunTarget`, not a second shape — and `request.environment` is
+taken from that same object instead of from `process.env.TEST_ENV`.
+
+It is resolved **once**, in `playwright.config.ts`, from the same `env` that sets
+every browser's `use.baseURL`, and handed to the reporter. The reporter does not
+resolve anything itself: a second resolution could disagree with the first, and
+reading `process.env` there would be this finding again.
+
+A reporter given no target writes `target: null` and warns — not an omitted
+field, which `JSON.stringify` would produce from `undefined`. The two mean
+different things: `null` is a misconfigured producer, fix the config; absent is
+an archive written before this field existed, unanswerable.
+
+Held by `tests/unit/reporter-target.spec.ts` (R1–R4), checked by mutation with
+the three controls correct:
+
+| mutation                                     | verdict                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------ |
+| label read from `TEST_ENV` before the target | caught (R1, R2)                                                          |
+| target never recorded                        | caught (R1, R2)                                                          |
+| missing target omitted instead of `null`     | caught (R3)                                                              |
+| config records a URL other than the one used | caught (R4)                                                              |
+| config records the wrong environment NAME    | caught (R4) — **survived the first version**, which checked only the URL |
+| config re-reads `BASE_URL` separately        | survives, **declared in advance**                                        |
+
+The declared survivor is a real limit, not an oversight: on this machine
+`app.json` is `${BASE_URL}`, so a separately re-read value equals the resolved
+one and no equality check can see provenance. The guarantee there is structural
+— one `env` object feeds both — and R4 says so.
+
+Verified end to end, not only in tests: a real run through the real config wrote
+`{"environment":"app","baseUrl":"https://dmsuiv3.aitalkx.com","isDemoApp":false}`.
+One trap on the way, worth knowing: **`--reporter=…` on the command line replaces
+the config's reporters entirely**, so any run invoked that way writes no
+`run.json` at all.
+
 ### Related
 
 - [`phase-2-command-box.md`](phase-2-command-box.md) — the specification work that
