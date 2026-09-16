@@ -52,7 +52,11 @@ class CommandController {
           type: 'string',
           minLength: 3,
           maxLength: 500,
-          example: 'test the employee registration flow',
+          // Worded without domain vocabulary on purpose: apps/ and packages/
+          // are app-agnostic, and tests/unit/app-agnostic.spec.ts scans CODE
+          // (comments are stripped). A concrete noun here couples the API
+          // schema to one customer's domain.
+          example: 'test the complete registration flow',
         },
         source: {
           type: 'string',
