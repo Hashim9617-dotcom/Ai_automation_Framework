@@ -134,6 +134,13 @@ function interpolate(value: unknown): unknown {
   return current;
 }
 
+/** The baseUrl exactly as written in the file, before any interpolation. */
+function rawBaseUrl(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = (raw as Record<string, unknown>).baseUrl;
+  return typeof value === 'string' ? value : undefined;
+}
+
 export function loadEnvironment(envName = resolveEnvName()): EnvironmentConfig {
   if (cached && cached.name === envName) return cached;
   ensureDotenv();
@@ -153,7 +160,22 @@ export function loadEnvironment(envName = resolveEnvName()): EnvironmentConfig {
 
   // Selected process.env overrides win over the file (CI / Jenkins parameter injection).
   const overrides: Partial<EnvironmentConfig> = {};
-  if (process.env.BASE_URL) overrides.baseUrl = process.env.BASE_URL;
+  // …EXCEPT a baseUrl the file pins as a LITERAL.
+  //
+  // Found on 2026-09-11 building the Command Box: with `BASE_URL` set in `.env`,
+  // every key — `local`, `qa`, `app` — resolved to the live customer system,
+  // including `local`, whose file says `http://127.0.0.1:4173` in plain text.
+  // A run requested against the demo app silently ran against a customer
+  // system, and nothing in the request could have prevented it.
+  //
+  // The override was never needed for the files it was written for. `app`,
+  // `qa` and `staging` consume `BASE_URL` through `${BASE_URL}` placeholders,
+  // so for them this line changed nothing. It changed the outcome ONLY for a
+  // file that pins a literal — which is exactly the file whose author was
+  // saying "this environment means this URL". Ambient state does not get to
+  // overrule a value someone wrote down on purpose.
+  const pinnedLiteral = typeof rawBaseUrl(raw) === 'string' && !rawBaseUrl(raw)!.includes('${');
+  if (process.env.BASE_URL && !pinnedLiteral) overrides.baseUrl = process.env.BASE_URL;
   if (process.env.API_BASE_URL) overrides.apiBaseUrl = process.env.API_BASE_URL;
   if (process.env.TEST_WORKERS) overrides.workers = Number(process.env.TEST_WORKERS);
   if (process.env.TEST_RETRIES) overrides.retries = Number(process.env.TEST_RETRIES);

@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { resolveEnvName, resetEnvironmentCache } from '@aitp/execution-engine';
+import { loadEnvironment, resolveEnvName, resetEnvironmentCache } from '@aitp/execution-engine';
 
 /**
  * Regression coverage for the bug that cost days to track down: TEST_ENV
@@ -49,5 +49,86 @@ test.describe('resolveEnvName', () => {
     writeFileSync(path.join(tempDir, '.env'), 'BASE_URL=https://example.test\n');
 
     expect(resolveEnvName()).toBe('qa');
+  });
+});
+
+/**
+ * A baseUrl the file PINS is not overruled by an ambient `BASE_URL`.
+ *
+ * **Found on 2026-09-11 while building the Command Box.** With `BASE_URL` set in
+ * `.env`, every environment key resolved to the live customer system — including
+ * `local`, whose file says `http://127.0.0.1:4173` in plain text. So a run
+ * requested against the demo app ran against a customer system, and nothing in
+ * the request could have prevented it. That is the Command Box's requirement-5
+ * hazard inverted, and the more dangerous direction.
+ *
+ * The override was never needed for the files it was written for: `app`, `qa`
+ * and `staging` take `BASE_URL` through `${BASE_URL}` placeholders, so
+ * interpolation already applies it. It changed the outcome ONLY for a file that
+ * pins a literal — precisely the file whose author was saying "this environment
+ * IS this URL".
+ */
+test.describe('loadEnvironment and an ambient BASE_URL @unit', () => {
+  let tempDir: string;
+  const originalEnv = { ...process.env };
+
+  const writeEnv = (name: string, baseUrl: string) => {
+    const dir = path.join(tempDir, 'config', 'env');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, `${name}.json`), JSON.stringify({ name, baseUrl }), 'utf8');
+  };
+
+  test.beforeEach(() => {
+    tempDir = mkdtempSync(path.join(tmpdir(), 'aitp-baseurl-test-'));
+    writeFileSync(path.join(tempDir, 'pnpm-workspace.yaml'), '');
+    process.env.AITP_REPO_ROOT = tempDir;
+    resetEnvironmentCache();
+  });
+
+  test.afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+    process.env = { ...originalEnv };
+    resetEnvironmentCache();
+  });
+
+  test('a LITERAL baseUrl wins over an ambient BASE_URL', () => {
+    // wrong: the ambient value wins, and `local` — a file that names the demo
+    // app in plain text — resolves to whatever BASE_URL happens to hold. A run
+    // asked for against the demo app then runs against a customer system.
+    writeEnv('local', 'http://127.0.0.1:4173');
+    process.env.BASE_URL = 'https://a-customer-system.example.com';
+
+    expect(loadEnvironment('local').baseUrl).toBe('http://127.0.0.1:4173');
+  });
+
+  test('a PLACEHOLDER baseUrl still takes the ambient BASE_URL', () => {
+    // wrong: suppressing the override everywhere would break CI parameter
+    // injection, which is the reason the override exists — `app` and `staging`
+    // are written as `${BASE_URL}` precisely so a pipeline can point them
+    // somewhere. This is the discriminating half: the SAME ambient value, and
+    // the two files must disagree about it.
+    writeEnv('staging', '${BASE_URL}');
+    process.env.BASE_URL = 'https://injected-by-ci.example.com';
+
+    expect(loadEnvironment('staging').baseUrl).toBe('https://injected-by-ci.example.com');
+  });
+
+  test('a DEFAULTED placeholder takes the ambient value too', () => {
+    // wrong: treating `${BASE_URL:-fallback}` as pinned would make `qa` ignore
+    // an injected URL and quietly run against its fallback — the same class of
+    // surprise in the opposite direction.
+    writeEnv('qa', '${BASE_URL:-http://127.0.0.1:4173}');
+    process.env.BASE_URL = 'https://injected-by-ci.example.com';
+
+    expect(loadEnvironment('qa').baseUrl).toBe('https://injected-by-ci.example.com');
+  });
+
+  test('with no ambient BASE_URL a defaulted placeholder falls back', () => {
+    // wrong: a fallback that never fires means a developer with no BASE_URL set
+    // gets a config error instead of the local default the file promises.
+    writeEnv('qa', '${BASE_URL:-http://127.0.0.1:4173}');
+    delete process.env.BASE_URL;
+
+    expect(loadEnvironment('qa').baseUrl).toBe('http://127.0.0.1:4173');
   });
 });
