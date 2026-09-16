@@ -10,7 +10,7 @@ of the five decisions below shape code that would otherwise have to be unpicked.
 
 ---
 
-## 0. What `/api/command` does today
+## 0. What `/api/command` did before this was built
 
 **Partial, not a stub** — and the distinction matters, because "stub" would
 license replacing it and "partial" means building from it.
@@ -263,3 +263,84 @@ needed** — which is also the honest limit of what a green run here proves.
 The endpoint is documented with `@ApiOperation` and typed response DTOs so
 `/api/docs` shows the request shape, the three nothing-answers and the run id —
 `pnpm api:dev` and open `http://localhost:3001/api/docs`.
+
+---
+
+## 7. Built — and what building it found (2026-09-16)
+
+The five decisions above were settled before any code. They survived contact
+with the implementation unchanged; what did not survive was a set of assumptions
+about the ground they stood on.
+
+### 7.1 It works end to end
+
+```
+POST /api/command {"command":"test employee registration","environment":"local"}
+  -> 0.12s: {"door":"existing","run":{"id":"run_4695…","status":"queued"},
+             "target":{"environment":"local","baseUrl":"http://127.0.0.1:4173","isDemoApp":true}}
+GET  /api/runs/run_4695…
+  -> {"status":"passed","summary":{"total":3,"passed":3,"passRate":100}}
+```
+
+Three demo tests matched, run, and reported, against the bundled demo app, with
+the target stated in the answer and on the run record. The request returned in
+**0.12 seconds** — requirement 3 holds because nothing waits for the suite.
+
+### 7.2 Four things the implementation found
+
+**(a) Every environment key resolved to the customer system.** Fixed first and
+separately (`9b29623`): an ambient `BASE_URL` was overriding `local.json`, whose
+baseUrl is a literal. Requirement 5 was unreachable until it was fixed — not
+"the run does not state its target" but "no request could reach the demo app at
+all".
+
+**(b) The inventory was listed under the WRONG environment.** `playwright.config.ts`
+chooses which tests exist from `TEST_ENV` — `local` ignores `tests/app/**`,
+anything else ignores `tests/demo/**`. The `--list` child inherited the API's own
+`TEST_ENV`, so a request for `local` was answered from the DMS suite. Had a
+command matched, **a test written for a customer system would have been run
+against the demo app.** The inventory is a function of the environment, so it is
+now listed and cached per environment.
+
+**(c) A failed inventory load was reported as an empty suite.** The repo's own
+logger writes `Resolved environment {...}` to STDOUT, so `--reporter=json` was
+preceded by a non-JSON line and `JSON.parse` failed at position 4 every time. The
+service caught it and returned `[]` — and every command then fell through to
+generation saying "nothing existing matched" while 471 tests sat unsearched.
+
+> **This is the NOT-CONFIGURED-versus-EMPTY distinction arriving a third time.**
+> It was already built for the workbook (`sheetRows: null` vs `0`) and for the
+> capture. The inventory had it too and nobody had asked. `searched.existingTests`
+> is now `number | null`, and a failed load says _"the inventory could not be
+> loaded, so existing tests were never searched — this is NOT the same as finding
+> nothing"_.
+
+**(d) The root typecheck does not cover `apps/api`.** `tsc -p tsconfig.json
+--noEmit` passed on a file that `nest build` rejected (`'inventory' is possibly
+'null'`). Recorded, not chased — the build caught it, and `pnpm verify` runs the
+build.
+
+### 7.3 Two doors report rather than run, and say so
+
+**Door B (sheet)** reports its matching rows and stops. Executing them needs the
+in-process runner of §3, which is not built. Reporting the match honestly beats
+pretending to run it.
+
+**Door A (generation) produces PROPOSALS, never a run** — and that is a decision,
+not a gap. Generated expectations come from the system under test, so every
+assertion is reviewed per-assertion before emission (`pnpm generate:review`). A
+Command Box that ran generated tests directly would bypass the approval the
+platform is built around. _Type an instruction, get a run_ holds for the two
+doors whose expectations a human already owns; for the third it is _type an
+instruction, get proposals to review_.
+
+### 7.4 Recorded, not fixed: the matcher is noisy on short tokens
+
+`"employee registration & whoami | calc.exe"` tokenises to include `exe`, which
+substring-matches `executes` and `explicitly` — dragging 25 unrelated tests into
+the grep. That is `rank()`'s existing behaviour, separately designed and tested,
+and it does not block the Command Box. Noted here so the next person meets it as
+a known property rather than a surprise.
+
+The safety property still held: the grep contained **none** of the command's own
+characters, because it is built only from escaped titles this repo owns.

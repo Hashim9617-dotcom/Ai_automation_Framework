@@ -832,3 +832,47 @@ Two questions, and only the pair is diagnostic:
 Yes to (1) alone is harmless — every git call site here is a yes. Yes to (1) with
 "no, it would fail" to (2) is a test measuring a friendlier world than the one
 that matters.
+
+### NOT CONFIGURED, EMPTY, and FAILED TO LOAD are three different answers
+
+Built deliberately for the workbook (`sheetRows: null` vs `0`) and the capture,
+then found missing on 2026-09-16 for the test inventory — the corpus nobody had
+thought to ask about.
+
+`playwright test --list --reporter=json` had its stdout corrupted by this repo's
+own logger, `JSON.parse` failed, the service caught it and returned `[]`, and
+every command fell through to generation reporting _"no existing test matched"_
+while 471 tests sat unsearched. A reader would have gone off to write a test that
+already existed.
+
+> **A failed search must never be reported as an empty result.** They differ in
+> what the reader should do next, which is the only thing a report is for.
+
+Three states, three values, three sentences:
+
+| state              | value                                                       | what it tells the reader           |
+| ------------------ | ----------------------------------------------------------- | ---------------------------------- |
+| not configured     | `null` + "no workbook is configured"                        | set one up                         |
+| configured, empty  | `0` + "0 row(s)"                                            | the corpus is real and has nothing |
+| **could not load** | `null` + "never searched — NOT the same as finding nothing" | fix the loader                     |
+
+**The tell:** a `catch` that returns an empty collection. It converts a failure
+into a confident negative answer, and the confidence is indistinguishable from a
+real one.
+
+### A corpus is a function of the environment, not of the process
+
+The Command Box listed its test inventory by spawning `playwright test --list`,
+which inherited the API's own `TEST_ENV`. But `playwright.config.ts` chooses
+which tests EXIST from `TEST_ENV` — `local` ignores `tests/app/**`, anything else
+ignores `tests/demo/**`. So a request for `local` was answered from the customer
+system's suite, and a match would have run a test written for a customer system
+against the demo app.
+
+> **When a child process decides something from an environment variable, the
+> parent must pass the value the CALLER asked for — not the one it happens to be
+> running under.** And cache the result per environment, because the answer
+> differs per environment by construction.
+
+Same family as the `NODE_PATH` finding: the environment a process is given is
+part of what it computes, not a neutral backdrop.

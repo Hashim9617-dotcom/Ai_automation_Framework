@@ -13,6 +13,9 @@ export * from './generation/prompt';
 export * from './generation/proposal';
 export * from './generation/review';
 export * from './generation/emit';
+
+export * from './command/plan';
+export * from './command/target';
 export * from './generation/grounding';
 export * from './a11y/addressability';
 
