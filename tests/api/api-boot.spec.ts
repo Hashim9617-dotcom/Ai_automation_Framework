@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { findRepoRoot } from '@aitp/shared';
+import { freePort } from '../support/free-port';
 import { execFileSyncClean, spawnClean } from '../support/spawn-clean';
 
 /**
@@ -87,7 +88,7 @@ test.describe('the API boots @api', () => {
     // wrong: with no boot test, a missing module, a broken module graph or bad
     // DI wiring is caught by nobody — 435 unit tests were green while the API
     // could not start at all.
-    const port = 3100 + Math.floor(Math.random() * 800);
+    const port = await freePort();
     let child: ChildProcess | undefined;
 
     try {

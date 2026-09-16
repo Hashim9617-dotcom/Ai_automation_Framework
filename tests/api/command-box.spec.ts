@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { findRepoRoot } from '@aitp/shared';
+import { freePort } from '../support/free-port';
 import { execFileSyncClean, spawnClean } from '../support/spawn-clean';
 
 /**
@@ -42,16 +43,24 @@ test.describe('the AI Command Box @api', () => {
         shell: process.platform === 'win32',
       });
     }
-    port = 3600 + Math.floor(Math.random() * 300);
+    port = await freePort();
     api = spawnClean(process.execPath, [ENTRY], {
       cwd: API_DIR,
       env: { API_PORT: String(port) },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    // Kept, not discarded: "the API exited with 1" alone is a failure that
+    // cannot be diagnosed, and this one was flaky in the gate on 2026-09-16.
+    let output = '';
+    api.stdout?.on('data', (chunk) => (output += String(chunk)));
+    api.stderr?.on('data', (chunk) => (output += String(chunk)));
 
     const deadline = Date.now() + 40_000;
     while (Date.now() < deadline) {
-      if (api.exitCode !== null) throw new Error(`the API exited with ${api.exitCode}`);
+      if (api.exitCode !== null) {
+        throw new Error(`the API exited with ${api.exitCode} (port ${port}):
+${output.slice(-2000)}`);
+      }
       try {
         await fetch(`http://127.0.0.1:${port}/api/health`);
         return;
