@@ -1,6 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { assertTallyBalances, type AuthoredRunResult, type RowResult } from './execute';
+import {
+  assertTallyBalances,
+  tallyBuckets,
+  type AuthoredRunResult,
+  type RowResult,
+  type RowStatus,
+} from './execute';
 import { renderTriage, type TriageResult } from './triage';
 
 /**
@@ -65,6 +71,19 @@ export interface WrittenReport {
   markdown: string;
 }
 
+/**
+ * What the report's table calls each status. Total over `RowStatus`: a new
+ * status with no label does not compile, so it cannot be left out of the table.
+ */
+const STATUS_LABEL = {
+  passed: 'Passed',
+  failed: 'Failed',
+  refused: 'Refused',
+  held: 'Held',
+  unreadable: 'Unreadable',
+  'stale-capture': 'Stale capture',
+} as const satisfies Record<RowStatus, string>;
+
 const heading = (result: RowResult): string =>
   `**${result.rowId}** — ${result.title || '(untitled)'}  \n  _sheet row ${result.sheetRow}_`;
 
@@ -108,22 +127,19 @@ export function renderAuthoredReport(
   const of = (status: RowResult['status']): RowResult[] =>
     results.filter((r) => r.status === status);
 
+  // Both the table and the sum are derived from the ONE bucket list, so a status
+  // cannot be counted in the tally and missing from what the reader sees.
+  const buckets = tallyBuckets();
   const lines: string[] = [
     `# Authored test run — ${sheetName}`,
     '',
     '| | Count |',
     '| --- | --- |',
     `| Rows read | **${tally.rowsRead}** |`,
-    `| Passed | ${tally.passed} |`,
-    `| Failed | ${tally.failed} |`,
-    `| Refused | ${tally.refused} |`,
-    `| Held | ${tally.held} |`,
-    `| Unreadable | ${tally.unreadable} |`,
-    `| Stale capture | ${tally.staleCapture} |`,
+    ...buckets.map(([status, bucket]) => `| ${STATUS_LABEL[status]} | ${tally[bucket]} |`),
     '',
     `Every row read appears below exactly once: ` +
-      `${tally.passed} + ${tally.failed} + ${tally.refused} + ${tally.held} + ` +
-      `${tally.unreadable} + ${tally.staleCapture} = ${tally.rowsRead}.`,
+      `${buckets.map(([, bucket]) => tally[bucket]).join(' + ')} = ${tally.rowsRead}.`,
     '',
     '> A refused row is not a pass. A held row is not a pass. An unreadable row',
     '> is not nothing.',

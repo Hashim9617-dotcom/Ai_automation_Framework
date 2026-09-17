@@ -8,8 +8,10 @@ import {
   executeAuthoredRows,
   renderAuthoredReport,
   assertProvenanceLanded,
+  tallyBuckets,
   verifyReportOnDisk,
   writeAuthoredReport,
+  type Owner,
   type ResolvedAuthoredRow,
   type RowStatus,
   type StepExecutor,
@@ -136,11 +138,17 @@ test.describe('the arithmetic balances (E2) @unit', () => {
       [{ sheetRow: 15, why: 'stray-cells', reason: 'stray cells' }],
     );
 
-  test('E2: rows read equals the five buckets summed', async () => {
+  test('E2: rows read equals every bucket summed', async () => {
     // wrong: a bucket that stopped being counted leaves the sum at 3 while rowsRead stays 4.
+    // The buckets come from TALLY_BUCKET, never a list written here. The list
+    // this replaced summed FIVE buckets and had silently dropped stale-capture;
+    // it passed only because this fixture has no stale row. A status with no
+    // bucket now fails to COMPILE (execute.ts), before any test runs.
     const { tally } = await mixed();
+    const buckets = tallyBuckets();
+    expect(buckets.length).toBe(Object.keys(OWNER_OF).length);
     expect(tally.rowsRead).toBe(4);
-    expect(tally.passed + tally.failed + tally.refused + tally.held + tally.unreadable).toBe(4);
+    expect(buckets.reduce((sum, [, bucket]) => sum + tally[bucket], 0)).toBe(4);
     // Discriminating: the buckets are genuinely spread, so this is not passing
     // because everything landed in one of them.
     expect(tally.passed).toBe(1);
@@ -177,8 +185,13 @@ test.describe('the arithmetic balances (E2) @unit', () => {
   test('E2: the report states the sum, so a reader can check it', async () => {
     // wrong: a report that printed only totals gives a reader no way to notice the buckets do not add up.
     const outcome = await mixed();
+    // Every bucket, from TALLY_BUCKET — a hand-written expectation here would
+    // miss a new bucket in exactly the way the report itself used to.
+    const sum = tallyBuckets()
+      .map(([, bucket]) => outcome.tally[bucket])
+      .join(' + ');
     expect(renderAuthoredReport(outcome, 'Final Test cases')).toContain(
-      `${outcome.tally.passed} + ${outcome.tally.failed} + ${outcome.tally.refused} + ${outcome.tally.held} + ${outcome.tally.unreadable} + ${outcome.tally.staleCapture} = ${outcome.tally.rowsRead}`,
+      `${sum} = ${outcome.tally.rowsRead}`,
     );
   });
 });
@@ -216,11 +229,17 @@ test.describe('two failure kinds, two owners, never merged (E3) @unit', () => {
 
   test('E3: the status-to-owner mapping is total and unambiguous', () => {
     // wrong: a mapping with a hole leaves some status undefined, and a row reaches the report with no owner at all.
-    // Not "we remember to set the right owner": a Record over the status union
-    // makes every status have exactly one owner, and adding a status without
-    // one does not compile.
-    const statuses: RowStatus[] = ['passed', 'failed', 'refused', 'held', 'unreadable'];
-    for (const status of statuses) expect(OWNER_OF[status]).toBeDefined();
+    // Totality is a COMPILE property, not a runtime one. Two holds on it:
+    //   - execute.ts types OWNER_OF as Record<RowStatus, Owner>, so a status
+    //     with no owner does not compile there;
+    //   - the assignment below does not compile if OWNER_OF is ever widened
+    //     (say, to Partial), which would quietly remove the first hold.
+    // The list this replaced was written by hand and had left out stale-capture.
+    const total: Record<RowStatus, Owner> = OWNER_OF;
+    const statuses = Object.keys(total) as RowStatus[];
+    // Two independently TOTAL maps must agree on what the statuses are.
+    expect(new Set(statuses)).toEqual(new Set(tallyBuckets().map(([status]) => status)));
+    for (const status of statuses) expect(total[status]).toBeDefined();
     expect(OWNER_OF.failed).not.toBe(OWNER_OF.refused);
   });
 
@@ -558,14 +577,11 @@ test.describe('resolved, but not on the live page (E7) @unit', () => {
       targetMissing,
     );
     expect(outcome.tally.staleCapture).toBe(2);
-    expect(
-      outcome.tally.passed +
-        outcome.tally.failed +
-        outcome.tally.refused +
-        outcome.tally.held +
-        outcome.tally.unreadable +
-        outcome.tally.staleCapture,
-    ).toBe(outcome.tally.rowsRead);
+    // Summed over TALLY_BUCKET, so this stays a claim about EVERY bucket as
+    // buckets are added, rather than about the six that existed when written.
+    expect(tallyBuckets().reduce((sum, [, bucket]) => sum + outcome.tally[bucket], 0)).toBe(
+      outcome.tally.rowsRead,
+    );
   });
 
   test('E7: it gets its own report section naming the fix', async () => {

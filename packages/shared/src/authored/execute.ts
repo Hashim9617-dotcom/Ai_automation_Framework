@@ -76,15 +76,35 @@ export interface RowResult {
   healingProposal?: string;
 }
 
-export interface RunTally {
-  rowsRead: number;
-  passed: number;
-  failed: number;
-  refused: number;
-  held: number;
-  unreadable: number;
-  staleCapture: number;
-}
+/**
+ * Each status's bucket in the tally — the ONE list of buckets.
+ *
+ * Everything that counts, sums, prints or checks the buckets iterates this, and
+ * `RunTally` is derived from it below. The compiler then holds both directions:
+ *
+ * - a status with no bucket does not compile (`satisfies Record<RowStatus, …>`);
+ * - a bucket for a status that does not exist does not compile (excess property);
+ * - a tally field with no status cannot exist, because the fields ARE these values.
+ *
+ * It replaced hand-written lists. Two of them — E2's sum and E3's status list —
+ * had already silently left out `stale-capture`, and both still passed.
+ */
+export const TALLY_BUCKET = {
+  passed: 'passed',
+  failed: 'failed',
+  refused: 'refused',
+  held: 'held',
+  unreadable: 'unreadable',
+  'stale-capture': 'staleCapture',
+} as const satisfies Record<RowStatus, string>;
+
+export type TallyBucket = (typeof TALLY_BUCKET)[RowStatus];
+
+export type RunTally = { rowsRead: number } & Record<TallyBucket, number>;
+
+/** `TALLY_BUCKET` as typed pairs, in its declared order. */
+export const tallyBuckets = (): Array<[RowStatus, TallyBucket]> =>
+  Object.entries(TALLY_BUCKET) as Array<[RowStatus, TallyBucket]>;
 
 export interface AuthoredRunResult {
   results: RowResult[];
@@ -306,14 +326,18 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
     });
   }
 
+  // `rowsRead` comes from the INPUTS, never from `results.length`, and each
+  // bucket counts its own status — so a row that landed nowhere shows up as an
+  // imbalance instead of being absorbed.
+  const counts = Object.fromEntries(
+    tallyBuckets().map(([status, bucket]) => [
+      bucket,
+      results.filter((r) => r.status === status).length,
+    ]),
+  ) as Record<TallyBucket, number>;
   const tally: RunTally = {
     rowsRead: options.resolved.length + options.unreadable.length,
-    passed: results.filter((r) => r.status === 'passed').length,
-    failed: results.filter((r) => r.status === 'failed').length,
-    refused: results.filter((r) => r.status === 'refused').length,
-    held: results.filter((r) => r.status === 'held').length,
-    unreadable: results.filter((r) => r.status === 'unreadable').length,
-    staleCapture: results.filter((r) => r.status === 'stale-capture').length,
+    ...counts,
   };
 
   assertTallyBalances(tally, results);
@@ -321,25 +345,22 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
 }
 
 /**
- * The invariant: rows read = passed + failed + refused + held + unreadable.
+ * The invariant: rows read = the sum of EVERY bucket in `TALLY_BUCKET`.
  *
  * Exported so a caller can re-check a tally it was handed, and thrown rather
  * than logged: a report whose numbers do not add up is worse than no report,
- * because it is quoted in a meeting and nobody re-derives it.
+ * because it is quoted in a meeting and nobody re-derives it. A handed tally
+ * missing a bucket sums to NaN, which cannot equal `rowsRead`, so it throws too.
  */
 export function assertTallyBalances(tally: RunTally, results: RowResult[]): void {
-  const counted =
-    tally.passed +
-    tally.failed +
-    tally.refused +
-    tally.held +
-    tally.unreadable +
-    tally.staleCapture;
+  const counted = tallyBuckets().reduce((sum, [, bucket]) => sum + tally[bucket], 0);
   if (counted !== tally.rowsRead) {
+    const breakdown = tallyBuckets()
+      .map(([status, bucket]) => `${status} ${tally[bucket]}`)
+      .join(', ');
     throw new Error(
       `the run does not balance: ${tally.rowsRead} row(s) read but ${counted} accounted for ` +
-        `(passed ${tally.passed}, failed ${tally.failed}, refused ${tally.refused}, ` +
-        `held ${tally.held}, unreadable ${tally.unreadable}, stale-capture ${tally.staleCapture}). ` +
+        `(${breakdown}). ` +
         'A refused row is not a pass, a held row is not a pass, and an unreadable row is not nothing.',
     );
   }
