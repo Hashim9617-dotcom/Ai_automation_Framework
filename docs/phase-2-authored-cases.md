@@ -993,6 +993,84 @@ pages, one signed in and one not, both rows resolved against the signed-in
 capture. That is what happens whenever a row's entry state and the live page
 have drifted apart.
 
+#### Correction (2026-09-17): DEMO_4 was not a divergence, and six outcomes did not fire in the final run
+
+The two paragraphs above are left exactly as written. Both of their central
+claims are wrong. The evidence is the demo reports in
+`artifacts/runs/demo_2026-09-09T*/authored-run.md`, read on 2026-09-17 — that
+directory is gitignored, so the table below is the durable copy.
+
+**A. DEMO_4 was a wrong entry state, not a stale capture.** The capture was of
+the signed-in page; the row ran against the signed-out page, where the demo app
+keeps "Log out" hidden. The capture was not out of date, and re-running
+`pnpm inspect` — the action §10.1 attaches to `stale-capture` — would not have
+changed the result. Calling it _"a genuine divergence rather than a simulated
+one"_ was wrong, and so was the closing sentence: when a row's entry state and
+the live page have drifted apart, reporting `stale-capture` is a
+misclassification, not the intended behaviour.
+
+**At the time, the code could not tell the two cases apart.**
+`resolveAuthoredRow` takes `entryState` as a parameter and carries Given clauses
+as context; nothing established the live page in that state, and nothing checked
+that it was there. A target missing because the capture is stale (case A) and a
+target missing because the page is in a different state (case B) both reached
+the executor as zero matches, both returned `target-not-on-page`, and both were
+reported `stale-capture`. No input could have produced a different answer for
+case B.
+
+**B. "All six outcomes fired" was true of one run out of five, not of the final
+run.**
+
+| run (2026-09-09) | rows read | passed | failed | refused | held | unreadable | stale-capture |
+| ---------------- | --------- | ------ | ------ | ------- | ---- | ---------- | ------------- |
+| 06-26-41         | 7         | 0      | 0      | 4       | 1    | 2          | 0             |
+| 06-29-30         | 7         | 0      | 0      | 0       | 1    | 2          | 4             |
+| 06-33-03         | 7         | 0      | 0      | 0       | 1    | 2          | 4             |
+| 06-33-35         | 7         | 1      | 1      | 1       | 1    | 2          | 1             |
+| 07-05-00         | 7         | 2      | 1      | 0       | 1    | 2          | 1             |
+
+A sixth directory from the same morning, `06-27-17`, contains no report.
+
+- **Only `06-33-35` fired all six.** Its refusal did come from the browser:
+  DEMO_3, `button "Log out" selected=true`, returned `no-observable-check` with a
+  screenshot.
+- **The final run, `07-05-00`, recorded `refused` 0 — and it did not run the
+  same sheet.** DEMO_3 had become a different row (_"a standalone LABEL is a real
+  target"_), which passed, and DEMO_2's title had changed. The last sheet had no
+  row designed to be refused.
+- **Neither the runner nor any version of the sheet was committed**, so none of
+  these runs can be reproduced.
+
+There is also an over-claim in the argument itself, independent of the count.
+`held`, `unreadable`, and a refusal decided by the resolver never reach the
+`StepExecutor` — `executeAuthoredRows` settles all three before calling it. So
+those three firing says nothing about a real browser. "All six fired" was never
+evidence that the executor works against a real DOM for six outcomes; at most it
+covered the ones that call it — passed, failed, stale-capture, and a refusal from
+`no-observable-check`.
+
+**What rests on these claims, and must be re-derived:**
+
+1. **§11.4's PROVES bullet** — _"the Playwright executor works against a real
+   browser"_ and _"the stub is falsified"_. In the final run, the outcomes that
+   went through the browser were passed and failed. Its one `stale-capture` was
+   case B. A browser-side refusal was observed only in `06-33-35`, against a
+   different sheet. For a genuine `stale-capture`, the stub has not been
+   falsified at all.
+2. **§10.1's premise** that a resolved target missing from the live page _"means
+   the capture is stale"_. That holds only once the entry state has been
+   verified. Until then there is no live evidence for it, and the one live
+   instance was the opposite case.
+3. **§10 "What is NOT claimed"** was read as discharged by §11.4. It is only
+   partly discharged.
+4. **The message of commit `1620975`** repeats both claims. A commit message
+   cannot be amended; this correction supersedes it.
+
+Checked, and **not** dependent on either claim: §11.0 (the DMS measurements),
+§11.1 (the dropped `targets`, covered by C5), §11.2 and §12 (the StaticText
+collision, measured on captures, covered by C6), and §11.3 together with
+`phase-2-command-box.md`'s reference to §11 (the provenance rule).
+
 ### 11.5 The captures on disk are sound — and a correction
 
 A scratch capture script returned a **1-node tree** for a page that really had
