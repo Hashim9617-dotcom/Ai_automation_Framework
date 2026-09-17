@@ -113,6 +113,10 @@ exactly that. So each mutation declares what should catch it:
 | **caught by the type system** | declared per mutation, for one whose whole point is that it CANNOT BE EXPRESSED.                                        |
 | **void**                      | it did not compile and was not declared structural. Not a pass — the mutation needs rewriting before it means anything. |
 
+> **A compile control declares, in advance, the file and symbol it must fail on.
+> A type error anywhere else is VOID, not caught** (`docs/phase-2-generation.md`
+> §Q).
+
 **Measured here, because the failure mode is not the obvious guess:** Playwright
 transpiles without typechecking, so a _type_ error in a mutation is invisible
 and 203 tests still pass; a _syntax_ error aborts Babel before any test runs,
