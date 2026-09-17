@@ -2827,3 +2827,48 @@ The guard's own first version was wrong in an instructive way — its
 `execSync('git ls-files "*.ts"')` puts the arguments in the same string. It
 reported all six git sites as violations. Found because the count was
 implausible, not because the pattern was read carefully.
+
+---
+
+## Q. A control that fails in the wrong place (2026-09-17)
+
+Door B's report sections were made compile-total: a status with no section
+should not compile. The control added a dummy status carrying everything
+EXCEPT a section — an owner, a tally bucket, a label — and ran `tsc` against
+the code as it stood BEFORE the change. The point was to see the gap.
+
+It did not compile. One error:
+
+    tests/unit/authored-run.spec.ts(400,9): error TS2322
+
+That is E5's hand-built `RunTally` literal, which had no field for the dummy's
+new bucket. It has nothing to do with sections.
+
+Read as "the control failed, so the guard works", the conclusion would have been
+that sections were already protected — **exactly backwards.** Whoever adds a real
+status fixes that literal too, so the control was changed to do the same. Then:
+**compiled, 0 errors.** A status with no section compiled, and its rows would have
+been counted in the table and never listed. After the change the same control
+gave 2 errors, both on `SECTION_OF`.
+
+> **A control failing is not enough. It has to fail IN THE RIGHT PLACE.**
+>
+> A control that fails for the wrong reason praises the code as it is and covers
+> the gap. It hides better than a false CAUGHT, because the alarm does go off —
+> and you are satisfied.
+
+This is not the silent failure the controls in CLAUDE.md are built for — a
+harness that never detects, or detects everything. Here the control DID detect
+something, loudly, and the only thing wrong was what. The verdict looked
+earned.
+
+**How to apply it:** a control states where it must fail, and the result is
+checked against that. The mutation harness already works this way — "caught by a
+test" means a NAMED test failed, and the name is reported. Compile controls need
+the same: the expected file and symbol. A type error somewhere else is not a
+catch — it is a void result that needs the control rewritten, just like a
+mutation that did not compile.
+
+It was caught only because the harness printed every error's location, and the
+one location did not match the property being tested. A harness that printed
+"compiled: NO" and nothing else would have hidden it.
