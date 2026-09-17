@@ -84,6 +84,73 @@ const STATUS_LABEL = {
   'stale-capture': 'Stale capture',
 } as const satisfies Record<RowStatus, string>;
 
+type SectionKey = 'app-team' | 'qa' | 'capture' | 'held' | 'passed';
+
+/**
+ * The report section each status is listed in — exactly one per status.
+ *
+ * Total over `RowStatus`, so a new status does not compile until it is given a
+ * section. Before this, a status with an owner, a bucket and a label but no
+ * section DID compile: its rows were counted in the table and then never
+ * listed. Only `verifyReportOnDisk` could notice, and only when a file was
+ * written — never for an in-memory render.
+ *
+ * Within a section, rows appear in THIS map's declaration order, which is why
+ * "For the QA" lists refused rows before unreadable ones.
+ */
+const SECTION_OF = {
+  passed: 'passed',
+  failed: 'app-team',
+  refused: 'qa',
+  held: 'held',
+  unreadable: 'qa',
+  'stale-capture': 'capture',
+} as const satisfies Record<RowStatus, SectionKey>;
+
+/**
+ * The detailed sections, in the order they are printed. `passed` is not here on
+ * purpose: it is printed after the triage, in its own shorter form.
+ */
+const DETAILED_SECTIONS = [
+  {
+    key: 'app-team',
+    title: 'For the app team',
+    blurb:
+      'The application did not do what these rows say it should. Each names a row a QA wrote and what happened instead.',
+  },
+  {
+    key: 'qa',
+    title: 'For the QA',
+    blurb:
+      'These rows could not be understood or resolved. Nothing ran for them — they are not failures of the application.',
+  },
+  {
+    key: 'capture',
+    title: 'The capture is out of date',
+    blurb:
+      'These rows resolved cleanly against the capture, but their target is not on the live page. Neither an app bug nor a bad row — re-run `pnpm inspect` and try again.',
+  },
+  {
+    key: 'held',
+    title: 'Held — not run',
+    blurb:
+      'These rows would create, modify or delete data. `ALLOW_WRITES` is not set, so nothing was run. This is a deliberate outcome, not an omission.',
+  },
+] as const satisfies ReadonlyArray<{
+  key: Exclude<SectionKey, 'passed'>;
+  title: string;
+  blurb: string;
+}>;
+
+/**
+ * Every section a status can be mapped to is printed somewhere. Without this a
+ * NEW section key could be mapped to and never printed — the same silent drop,
+ * one level up. Resolves to `never`, and so fails to compile, when a key is
+ * neither in `DETAILED_SECTIONS` nor `passed`.
+ */
+type UnprintedSection = Exclude<SectionKey, (typeof DETAILED_SECTIONS)[number]['key'] | 'passed'>;
+const _everySectionIsPrinted: [UnprintedSection] extends [never] ? true : never = true;
+
 const heading = (result: RowResult): string =>
   `**${result.rowId}** — ${result.title || '(untitled)'}  \n  _sheet row ${result.sheetRow}_`;
 
@@ -126,6 +193,10 @@ export function renderAuthoredReport(
 
   const of = (status: RowResult['status']): RowResult[] =>
     results.filter((r) => r.status === status);
+  const rowsIn = (key: SectionKey): RowResult[] =>
+    (Object.keys(SECTION_OF) as RowStatus[])
+      .filter((status) => SECTION_OF[status] === key)
+      .flatMap((status) => of(status));
 
   // Both the table and the sum are derived from the ONE bucket list, so a status
   // cannot be counted in the tally and missing from what the reader sees.
@@ -161,33 +232,14 @@ export function renderAuthoredReport(
   }
 
   lines.push(
-    ...section(
-      'For the app team',
-      'The application did not do what these rows say it should. Each names a row a QA wrote and what happened instead.',
-      of('failed'),
-    ),
-    ...section(
-      'For the QA',
-      'These rows could not be understood or resolved. Nothing ran for them — they are not failures of the application.',
-      [...of('refused'), ...of('unreadable')],
-    ),
-    ...section(
-      'The capture is out of date',
-      'These rows resolved cleanly against the capture, but their target is not on the live page. Neither an app bug nor a bad row — re-run `pnpm inspect` and try again.',
-      of('stale-capture'),
-    ),
-    ...section(
-      'Held — not run',
-      'These rows would create, modify or delete data. `ALLOW_WRITES` is not set, so nothing was run. This is a deliberate outcome, not an omission.',
-      of('held'),
-    ),
+    ...DETAILED_SECTIONS.flatMap(({ key, title, blurb }) => section(title, blurb, rowsIn(key))),
   );
 
   // The triage sits with the results, not in an appendix: a reader who needs
   // to know what the run covered needs to know what it could never cover.
   if (triage) lines.push(renderTriage(triage), '');
 
-  const passed = of('passed');
+  const passed = rowsIn('passed');
   if (passed.length > 0) {
     lines.push(`## Passed (${passed.length})`, '');
     for (const row of passed) lines.push(`- ${row.rowId} — ${row.title}`);
