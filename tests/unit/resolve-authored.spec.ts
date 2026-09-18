@@ -494,7 +494,7 @@ test.describe('a Given clause is the entry state (C7) @unit', () => {
     );
 
     expect(resolved.refusals).toEqual([]);
-    expect(resolved.preconditions).toEqual(['user on policy agent']);
+    expect(resolved.givenClauses).toEqual(['user on policy agent']);
     // Discriminating: the SAME text in a When column is still refused, so this
     // is the column doing the work and not the text being quietly tolerated.
     const asWhen = resolveAuthoredRow(

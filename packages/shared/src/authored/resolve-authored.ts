@@ -137,14 +137,19 @@ export interface ResolvedAuthoredRow extends ResolvedRow {
    */
   targets: Array<{ stepIndex: number; role: string; name: string }>;
   /**
-   * The Given clauses, verbatim.
+   * The Given clauses, verbatim — named for the column they come from.
+   *
+   * NOT the sheet's "Preconditions" column, which is read into
+   * `AuthoredRow.preconditions` and is a different thing; one identifier for
+   * both hid which one a reader was looking at. Door A's `TestCase` schema has
+   * a third `preconditions`, unrelated to either.
    *
    * Carried as CONTEXT, never resolved as elements. The column already says
    * these declare where the row starts, and the pipeline models that as
-   * . 455 of 470 of them could not be resolved as elements, which
+   * `entryState`. 455 of 470 of them could not be resolved as elements, which
    * was a category error rather than a parser gap (§13.3).
    */
-  preconditions: string[];
+  givenClauses: string[];
 }
 
 export function resolveAuthoredRow(
@@ -160,7 +165,7 @@ export function resolveAuthoredRow(
     title: authored.scenarioName || authored.objective || authored.rowId,
     clauseKinds: authored.clauses.map((clause) => clause.kind),
     targets: [] as ResolvedAuthoredRow['targets'],
-    preconditions: [] as string[],
+    givenClauses: [] as string[],
     writeRisk: assessWriteRisk({
       title: authored.scenarioName,
       entryState,
@@ -198,7 +203,7 @@ export function resolveAuthoredRow(
   const targets: ResolvedAuthoredRow['targets'] = [];
   const refusals: StepRefusal[] = [];
   /** Given clauses: what the QA said the row starts from. Context, never a step. */
-  const preconditions: string[] = [];
+  const givenClauses: string[] = [];
 
   for (const [stepIndex, clause] of authored.clauses.entries()) {
     // A GIVEN CLAUSE IS THE ENTRY STATE, NOT AN ACTION.
@@ -214,7 +219,7 @@ export function resolveAuthoredRow(
     // the QA's report with 455 refusals about clauses that were never our
     // business to resolve.
     if (clause.source === 'given') {
-      preconditions.push(clause.text);
+      givenClauses.push(clause.text);
       continue;
     }
 
@@ -340,7 +345,7 @@ export function resolveAuthoredRow(
       owner: 'app-team',
       steps,
       targets,
-      preconditions,
+      givenClauses,
       grades,
       refusals: [],
       summary: `${authored.rowId}: the app disagrees with this row — ${contradicted.reason}`,
@@ -355,7 +360,7 @@ export function resolveAuthoredRow(
       owner: 'capture',
       steps,
       targets,
-      preconditions,
+      givenClauses,
       grades,
       refusals: [],
       summary: `${authored.rowId}: the capture cannot answer this row — ${assumed.why}`,
@@ -367,7 +372,7 @@ export function resolveAuthoredRow(
     outcome: 'ok',
     owner: 'none',
     steps,
-    preconditions,
+    givenClauses,
     // `targets` was omitted here while both other resolving returns carried it,
     // so `base`'s empty array won and a CLEANLY RESOLVED row reached the
     // executor with no target for any step. The executor is contracted to
