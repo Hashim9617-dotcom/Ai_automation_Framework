@@ -47,8 +47,8 @@ automation output, or rough notes — and wants a report they can send.
 # QA Test Report — [Product under test] — [Date or date range]
 
 ## Summary
-[Suite] · [env label] → [target, or "target not recorded"]: [P]/[N] passed ([X]%), then EVERY other outcome the report declares, each under the name that report gives it (e.g. [F] failed, [K] flaky, [S] skipped) — [date of run, "latest of n"]
-(one line per suite and target, from its most recent run — never a rate pooled
+[Suite] · [env label] → [target, or "target not recorded"]: [N] total — [P] passed, then EVERY other outcome the report declares, each under the name that report gives it (e.g. [F] failed, [K] flaky, [S] skipped) — [date of run, "latest of n"]
+(one line per suite and target, from its most recent run — never counts pooled
 across suites, and not one line per run: earlier runs that differ are covered
 under Failures or Notes)
 Did not run: [what, why, count or "count unknown"] — or "nothing known to be missing"
@@ -70,8 +70,12 @@ Release status: [Go / No-go / At risk / Not assessable] — one-line reason nami
 
 ## Rules (hold constant)
 
-- **A pass rate names its denominator: one suite, one target, a test count.**
-  Never pool suites into one rate. The test platform's own unit tests are not
+- **Counts, not a percentage — one suite, one target, a test count.** A run
+  whose outcomes include ones that never ran has no single number that can stand
+  for it: held rows were deliberately not run and unreadable ones were never
+  read, so putting them in a denominator reports them as if they could have
+  passed. `skipped` does the same thing in a smaller way. Give the total and
+  each outcome's count and let the reader see the shape. Never pool suites. The test platform's own unit tests are not
   evidence about the application under test, whatever environment the run is
   labelled with.
   _Seen 2026-09-17: pooling a week's runs put one high pass rate in the Summary.
@@ -80,9 +84,9 @@ Release status: [Go / No-go / At risk / Not assessable] — one-line reason nami
   the lesson — the figures are deliberately not repeated here, because a number
   copied into an instruction file is read as measured long after it stops being
   true._
-- **Never recompute a rate with environment or flaky failures removed.** List
-  them separately and leave the rate as measured. Moving a failure out of the
-  denominator only ever makes the number better.
+- **Never restate the counts with environment or flaky failures removed.** List
+  them separately and leave the counts as measured. Moving a failure out of the
+  count only ever makes the run look better.
 - **Environment / flaky needs evidence from the input**, cited inline:
   connection refused, an unreachable target, a retry that passed. Without
   evidence the failure is "Undetermined" and stays under Failures.
@@ -113,5 +117,6 @@ Release status: [Go / No-go / At risk / Not assessable] — one-line reason nami
 - **Use only the input given.** Anything drawn from elsewhere (git history,
   tickets, memory) is labelled with where it came from.
 - Keep it to one page. When it overflows, cut Notes first, then per-test detail
-  on passing suites. Never cut the Summary's rate, Did-not-run or Release lines.
+  on passing suites. Never cut the Summary's counts, Did-not-run or Release
+  lines.
   Neutral tone, no filler.
