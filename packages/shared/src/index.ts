@@ -24,6 +24,7 @@ export * from './authored/final-test-cases';
 export * from './authored/sheet';
 export * from './authored/resolver';
 export * from './authored/resolve-authored';
+export * from './authored/module-map';
 export * from './authored/execute';
 export * from './authored/report';
 export * from './authored/triage';

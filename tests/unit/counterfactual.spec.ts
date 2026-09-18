@@ -45,6 +45,9 @@ const COVERED = [
   // Added 2026-09-16 with the suite (SEC-2), each counterfactual written with the
   // test and then checked by a mutation run: 5 caught, 1 declared survivor.
   'tests/unit/reporter-target.spec.ts',
+  // Added 2026-09-18 with the suite (4a), then mutation-checked: 7 mutations,
+  // each caught by the test that declares it, plus the three controls.
+  'tests/unit/module-map.spec.ts',
 ];
 
 /**

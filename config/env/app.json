@@ -1,6 +1,7 @@
 {
   "name": "app",
-  "//": "Point the platform at ANY application by editing .env only — never this file.",
+  "//": "Point the platform at ANY application by editing .env — URLs and credentials never live here. The one exception is \"application\": it names the config/apps/<application>/ directory this run uses, so it is pinned here rather than read from .env. An ambient variable choosing which module map (and which entry-state proofs) apply is SEC-2's shape: the thing that decides where a run goes must not come from the source that can redirect it.",
+  "application": "dms",
   "baseUrl": "${BASE_URL}",
   "apiBaseUrl": "${API_BASE_URL:-${BASE_URL}}",
   "timeouts": {

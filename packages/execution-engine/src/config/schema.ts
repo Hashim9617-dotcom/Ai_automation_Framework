@@ -7,6 +7,23 @@ import { z } from 'zod';
  */
 export const environmentSchema = z.object({
   name: z.string(),
+  /**
+   * WHICH APPLICATION this environment points at — not which environment it is.
+   *
+   * `qa` and `app` can be two environments of one application, and they share
+   * its per-application config (`config/apps/<application>/`), so that config is
+   * keyed on this rather than on `name`. Two copies would drift.
+   *
+   * Required, and a slug rather than free text. Optional would mean a silent
+   * fallback, and a fallback here picks a module map on a guess.
+   */
+  application: z
+    .string()
+    .regex(
+      /^[a-z0-9][a-z0-9-]*$/,
+      'application must be a lower-case slug such as "dms" or "demo" — it names the directory ' +
+        'under config/apps/, so an unresolved ${PLACEHOLDER} or a display name will not do',
+    ),
   baseUrl: z.string().url(),
   apiBaseUrl: z.string().url().optional(),
   timeouts: z

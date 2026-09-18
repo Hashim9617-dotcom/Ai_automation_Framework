@@ -75,7 +75,13 @@ test.describe('loadEnvironment and an ambient BASE_URL @unit', () => {
   const writeEnv = (name: string, baseUrl: string) => {
     const dir = path.join(tempDir, 'config', 'env');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(path.join(dir, `${name}.json`), JSON.stringify({ name, baseUrl }), 'utf8');
+    // `application` is required by the schema — it names the per-application
+    // config directory, so an environment file without one cannot be resolved.
+    writeFileSync(
+      path.join(dir, `${name}.json`),
+      JSON.stringify({ name, application: 'fixture', baseUrl }),
+      'utf8',
+    );
   };
 
   test.beforeEach(() => {

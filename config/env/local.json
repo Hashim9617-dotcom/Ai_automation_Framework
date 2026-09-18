@@ -1,5 +1,6 @@
 {
   "name": "local",
+  "application": "demo",
   "baseUrl": "http://127.0.0.1:4173",
   "apiBaseUrl": "http://127.0.0.1:4173",
   "timeouts": {

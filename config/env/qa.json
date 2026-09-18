@@ -1,5 +1,6 @@
 {
   "name": "qa",
+  "application": "dms",
   "baseUrl": "${BASE_URL:-http://127.0.0.1:4173}",
   "apiBaseUrl": "${API_BASE_URL:-http://127.0.0.1:4173}",
   "timeouts": {

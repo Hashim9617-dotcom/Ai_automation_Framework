@@ -1,5 +1,6 @@
 {
   "name": "staging",
+  "application": "dms",
   "baseUrl": "${BASE_URL}",
   "apiBaseUrl": "${API_BASE_URL}",
   "timeouts": {
