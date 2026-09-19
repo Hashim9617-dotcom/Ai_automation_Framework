@@ -858,6 +858,7 @@ still FAIL.** "The authenticated view is now reachable" is equally satisfied by 
 removed check — an app that shows it to everyone. Both directions were measured
 here (a fresh context still lands on the login view), and only both together
 tell a fix from a deletion. Full working in `docs/phase-2-generation.md` §R.
+
 #### The audit question to ask at every spawn site
 
 Two questions, and only the pair is diagnostic:
