@@ -30,12 +30,6 @@ export interface PlaywrightExecutorOptions {
   tracePath?: string;
   /** Per-step timeout. Short: a missing element should not cost 30s per row. */
   timeoutMs?: number;
-  /**
-   * Asked for a suggestion when a target is absent. Its answer is RECORDED and
-   * never acted on — the parameter exists so a proposal can be surfaced to a
-   * human, not so the executor can retry with it.
-   */
-  proposeHealing?: (target: { role: string; name: string }) => Promise<string | undefined>;
 }
 
 /** The slice of Playwright's `Page` this needs. Narrow, so a stub can stand in. */
@@ -108,12 +102,13 @@ export function createPlaywrightStepExecutor(
 
     if (count === 0) {
       // NOT a failure. The capture said this element was here.
-      const proposal = await options.proposeHealing?.(target).catch(() => undefined);
+      //
+      // Nothing is asked for a suggestion here, and there is no hook to ask
+      // through. Healing cannot substitute because this path cannot reach a
+      // healer at all — see the executor's header.
       return {
         kind: 'target-not-on-page',
         observed: `no ${target.role} named "${target.name}" on the live page`,
-        // Recorded, never acted on. The kind above is already decided.
-        ...(proposal ? { healingProposal: proposal } : {}),
         evidence: await evidenceFor(rowId, 'missing-target'),
       };
     }

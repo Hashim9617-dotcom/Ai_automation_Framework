@@ -169,12 +169,6 @@ function section(title: string, blurb: string, rows: RowResult[]): string[] {
     lines.push(`- ${heading(row)}`);
     lines.push(`  ${row.detail}`);
     if (row.preflight) lines.push(`  _${row.preflight}_`);
-    if (row.healingProposal) {
-      // Recorded as a SUGGESTION and labelled as one. Healing may propose; it
-      // may never substitute (§10.2), so this only ever appears beside a
-      // non-passing status — it never moved the verdict that put it here.
-      lines.push(`  _suggestion (not applied): ${row.healingProposal}_`);
-    }
     if (row.evidence) {
       // PATHS ONLY. A trace holds a live session token and document titles
       // from the instance, so it is referenced and never inlined (§10.4).

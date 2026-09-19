@@ -74,13 +74,6 @@ const targetMissing: StepExecutor = async () => ({
   observed: 'no such element on the live page',
   evidence: { screenshot: 'artifacts/runs/run_x/shot.png' },
 });
-/** Healing has a suggestion. It must never move the verdict. */
-const missingWithProposal: StepExecutor = async () => ({
-  kind: 'target-not-on-page',
-  observed: 'no such element on the live page',
-  healingProposal: 'a button named "Approve Request" resolves to exactly one node',
-  evidence: { screenshot: 'artifacts/runs/run_x/shot.png' },
-});
 /** Claims success while observing nothing — the vacuous pass. */
 const passesObservingNothing: StepExecutor = async () => ({ kind: 'passed', observed: '' });
 
@@ -668,30 +661,20 @@ test.describe('resolved, but not on the live page (E7) @unit', () => {
   });
 });
 
-test.describe('healing may propose, never substitute (E8) @unit', () => {
-  test('E8: a proposal does not change the verdict', async () => {
-    // wrong: with substitution allowed this reports `passed`, and a QA reads that
-    // their case passed when the element they wrote about was never there.
-    const outcome = await run([resolved({ rowId: 'SI_1 / TC_1' })], [], missingWithProposal);
-    expect(outcome.results[0]!.status).toBe('stale-capture');
-    expect(outcome.results[0]!.healingProposal).toContain('Approve Request');
-  });
-
-  test('E8: the same row without a proposal reaches the same verdict', async () => {
-    // wrong: if the proposal moved the verdict these two would differ — identical
-    // statuses are what prove it was never consulted.
-    const withProposal = await run([resolved()], [], missingWithProposal);
-    const without = await run([resolved()], [], targetMissing);
-    expect(withProposal.results[0]!.status).toBe(without.results[0]!.status);
-  });
-
-  test('E8: the report labels it a suggestion, not a result', async () => {
-    // wrong: printed as a plain line, a reader takes the healed name for what was
-    // actually clicked.
-    const outcome = await run([resolved()], [], missingWithProposal);
-    expect(renderAuthoredReport(outcome, 'x')).toContain('suggestion (not applied)');
-  });
-});
+/**
+ * E8 is GONE, and what replaced it is not a test in this file.
+ *
+ * It asserted that a healing proposal recorded on a row never moved that row's
+ * verdict. There is no such field any more: `StepOutcome.healingProposal` and
+ * `RowResult.healingProposal` were removed, and the executor has no hook to ask
+ * a healer through.
+ *
+ * The guarantee is now structural rather than asserted. The execute path cannot
+ * reach an LLM at all — pinned by the source scan in
+ * `tests/unit/execute-path-no-llm.spec.ts` — so any proposal about a Door B row
+ * can only come from a pass that runs AFTER the verdicts are written, which
+ * cannot change one. A field can lie about that; an architecture cannot.
+ */
 
 test.describe('a Then clause needs positive evidence (E9) @unit', () => {
   const thenRow = resolved({

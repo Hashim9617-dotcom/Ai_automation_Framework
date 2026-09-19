@@ -868,6 +868,56 @@ step outcome alone, and `healingProposal` is a separate field the status
 computation cannot read. A proposal on a `stale-capture` row leaves it
 `stale-capture`.
 
+#### 10.2a The field is gone, and the guarantee moved (2026-09-19)
+
+The paragraph above is left as written; the arrangement it describes no longer
+exists. `proposeHealing`, `StepOutcome.healingProposal` and
+`RowResult.healingProposal` were all removed.
+
+**The callback never had a caller.** Nothing in production ever passed one, so
+the three tests that drove it were coverage of a parameter no run supplied —
+the same species as an unwired validator, and the reason the module map's own
+notice is written down.
+
+> **The guarantee is now a consequence of where the LLM is not.** The execute
+> path cannot reach one — pinned by a source scan over the five files between
+> "rows resolved" and "verdicts written", with a control that plants a gateway
+> import and confirms the scan names the file. So any proposal about a door B
+> row can only come from a pass that runs AFTER the verdicts are written, and a
+> pass that runs afterwards cannot change one.
+
+A field can be read by the next person who touches the file. An architecture
+cannot.
+
+#### 10.2b There is no healing bridge for door B, and there was not one before
+
+Measured 2026-09-19, because removing a field must not quietly remove a
+capability — and here the capability was already absent:
+
+- `pnpm heal` reads `artifacts/reports/run.json` and, for each result, requires
+  `context.healingGate` (eligibility verdicts) and `context.healingContext` (an
+  accessibility snapshot).
+- Both are produced only by the UI fixture's teardown in
+  `packages/execution-engine/src/fixtures/index.ts`, for page-object tests, and
+  lifted into `run.json` by the reporter.
+- A door B run produces neither. `executeAuthoredRows` returns an
+  `AuthoredRunResult`, not a `Run`; `writeAuthoredReport` writes
+  `authored-run.md`, not `run.json`; nothing converts one into the other; and
+  the authored executor runs no eligibility check and takes no AX snapshot.
+
+So no door B row has ever been able to carry a healing proposal, with or
+without the callback. What a bridge would need, named so it is a piece of work
+rather than a vague intention:
+
+1. gate verdicts per failing row, from `checkHealingEligibility`;
+2. an accessibility snapshot taken at the failure, which needs the live page;
+3. somewhere `pnpm heal` can read both — either authored rows rendered into the
+   `Run` shape, or a second reader that understands `authored-run.md`'s record.
+
+**Not scheduled.** It is browser-side work and belongs after the entry verifier
+(4d) at the earliest. Recorded here rather than in an inert field, so the trace
+is in the design and not in code nothing fills.
+
 ### 10.3 A `Then` clause needs POSITIVE evidence
 
 _"Then: the user should be logged in and the dashboard appears"_ is satisfied by

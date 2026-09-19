@@ -116,11 +116,6 @@ interface RowResultFields {
   observed?: string[];
   /** Present on every row that RAN and did not pass. Paths, never contents. */
   evidence?: RowEvidence;
-  /**
-   * Healing's suggestion, recorded for a human. **Never consulted by any status
-   * decision** — that separation is what stops a proposal becoming a verdict.
-   */
-  healingProposal?: string;
 }
 
 /**
@@ -219,15 +214,6 @@ export interface StepOutcome {
    * satisfied by knowing nothing (§10.3).
    */
   observed: string;
-  /**
-   * Healing's suggestion when a target is missing. **Recorded, never acted on.**
-   *
-   * Kept out of every status decision below: a sheet row saying "click the
-   * Approve button" that quietly passes against "Approve Request" tells a QA
-   * their case passed when the thing they wrote about was never clicked, and a
-   * wrong pass is worse than a failure because a failure gets investigated.
-   */
-  healingProposal?: string;
   evidence?: Partial<RowEvidence>;
 }
 
@@ -361,9 +347,8 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       continue;
     }
 
-    // The status comes from the outcome KIND alone. `healingProposal` is
-    // deliberately not read here: a proposal is a suggestion for a human and
-    // must never move a verdict (§10.2).
+    // The status comes from the outcome KIND alone — there is nothing else on a
+    // StepOutcome that a verdict could read (§10.2).
     // Narrower than RowStatus on purpose: a STEP outcome can never be
     // `given-not-reached`, which is decided before any step runs. The type says
     // so, so this path cannot start producing one by accident.
@@ -391,9 +376,6 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       // Every row that RAN and did not pass carries its evidence, and the
       // failing clause is always present even when the executor supplied none.
       evidence: { ...stopped.outcome.evidence, failingClause: clause },
-      ...(stopped.outcome.healingProposal
-        ? { healingProposal: stopped.outcome.healingProposal }
-        : {}),
       ...(preflight ? { preflight } : {}),
     });
   }

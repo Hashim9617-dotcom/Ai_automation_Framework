@@ -120,40 +120,20 @@ test.describe('the executor maps live-page outcomes (X1) @unit', () => {
   });
 });
 
-test.describe('healing proposes, never substitutes (X2) @unit', () => {
-  test('X2: a proposal is recorded and the verdict is unchanged', async () => {
-    // wrong: acting on the proposal returns `passed`, and the QA is told their
-    // row succeeded against an element they never wrote about.
-    const outcome = await make(stubPage({ count: 0 }), {
-      proposeHealing: async () => 'a button named "Approve Request" resolves uniquely',
-    })({ rowId: 'r', step: clickStep, target });
-
-    expect(outcome.kind).toBe('target-not-on-page');
-    expect(outcome.healingProposal).toContain('Approve Request');
-  });
-
-  test('X2: the verdict is identical with and without a proposal', async () => {
-    // wrong: if the proposal influenced the outcome these two would differ —
-    // identical kinds are what prove it was never consulted.
-    const withHealer = await make(stubPage({ count: 0 }), {
-      proposeHealing: async () => 'something',
-    })({ rowId: 'r', step: clickStep, target });
-    const without = await make(stubPage({ count: 0 }))({ rowId: 'r', step: clickStep, target });
-    expect(withHealer.kind).toBe(without.kind);
-  });
-
-  test('X2: a healer that throws cannot break the run', async () => {
-    // wrong: an unhandled rejection from a suggestion turns a clean
-    // stale-capture result into an exception that loses the whole row.
-    const outcome = await make(stubPage({ count: 0 }), {
-      proposeHealing: async () => {
-        throw new Error('healer exploded');
-      },
-    })({ rowId: 'r', step: clickStep, target });
-    expect(outcome.kind).toBe('target-not-on-page');
-    expect(outcome.healingProposal).toBeUndefined();
-  });
-});
+/**
+ * X2 is GONE, and it is worth saying what it did and did not cover.
+ *
+ * Its three tests drove the executor's `proposeHealing` callback with a stub
+ * healer: a proposal was recorded, the verdict was unchanged with and without
+ * one, and a throwing healer could not break the row. All true — of a callback
+ * NOTHING IN PRODUCTION EVER SUPPLIED. It read as coverage of "healing may
+ * propose, never substitute" and covered a parameter no run passed.
+ *
+ * What remains in this file is X1's half, which is the load-bearing one: a
+ * missing element is `target-not-on-page` and never `failed`, decided from the
+ * page alone. With the callback gone there is no healer to consult, so
+ * substitution is not a rule the executor follows — it is a thing it cannot do.
+ */
 
 test.describe('an assertion returns what it observed (X3) @unit', () => {
   test('X3: a matching property passes, carrying the value it read', async () => {

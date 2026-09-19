@@ -48,6 +48,9 @@ const COVERED = [
   // Added 2026-09-18 with the suite (4a), then mutation-checked: 7 mutations,
   // each caught by the test that declares it, plus the three controls.
   'tests/unit/module-map.spec.ts',
+  // Added 2026-09-19 with 4c: the scan that replaced E8, controlled by a planted
+  // gateway import in the execute path.
+  'tests/unit/execute-path-no-llm.spec.ts',
 ];
 
 /**
