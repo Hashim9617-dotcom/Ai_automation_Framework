@@ -26,6 +26,13 @@
       the data is invented, because the real captures carry customer workspace
       names and document titles and are deliberately never committed.
 
+      DELIBERATELY NOT FORMATTED — see .prettierignore. This file's content is a
+      test's input: the accessibility tree captured from it is what
+      scripts/eval-generation-fixture.ts asserts on, down to the exact computed
+      name "Expand WS-ALPHA More options". Whitespace between inline elements
+      can change that string. If you take it out of .prettierignore, re-run
+      `pnpm eval:generation` and check the computed names, not just the score.
+
       This page exists so the fixture's input comes out of the real capture
       functions rather than out of hand-authored JSON. When the capture gains
       a new property, the fixture sees it here automatically — which is what

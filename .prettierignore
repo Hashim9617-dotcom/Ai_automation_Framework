@@ -2,3 +2,18 @@ node_modules
 dist
 artifacts
 pnpm-lock.yaml
+
+# A fixture whose CONTENT is a test's input stays out of the formatter's scope.
+#
+# four-mistakes.html is served to a real browser and its accessibility tree IS
+# the input to scripts/eval-generation-fixture.ts, which asserts on an exact
+# computed name — "Expand WS-ALPHA More options", concatenated from the
+# treeitem's nested controls. Whitespace between inline elements is capable of
+# changing that string, so a formatter has no business in this file.
+#
+# Measured 2026-09-19: today prettier only expands the CSS inside <style>, and
+# the eval's output is byte-identical either way. That safety is INCIDENTAL, not
+# structural — it holds because prettier confines itself to <style>, and a
+# future version that reflowed the body would change a computed name with
+# nothing to warn anyone.
+tests/fixtures/generation/four-mistakes.html
