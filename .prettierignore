@@ -1,6 +1,15 @@
 node_modules
 dist
-artifacts
+
+# ANCHORED, unlike the two above, because "artifacts" names two different
+# things: the generated output directory at the repo root, and a source
+# directory inside a package. A bare entry matches a path segment at ANY depth,
+# so it was silently excluding packages/execution-engine/src/artifacts/ as well.
+#
+# "node_modules" and "dist" stay bare on purpose — those DO occur at every depth
+# (packages/*/dist), and anchoring them would be the opposite mistake.
+/artifacts/
+
 pnpm-lock.yaml
 
 # A fixture whose CONTENT is a test's input stays out of the formatter's scope.

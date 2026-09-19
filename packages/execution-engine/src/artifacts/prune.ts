@@ -56,9 +56,7 @@ export function pruneDirectories(root: string, policy: PrunePolicy): PruneResult
       ? Number.NEGATIVE_INFINITY
       : Date.now() - policy.maxAgeDays * 24 * 60 * 60 * 1000;
 
-  const doomed = entries.filter(
-    (entry, index) => index >= policy.keep || entry.mtimeMs < cutoffMs,
-  );
+  const doomed = entries.filter((entry, index) => index >= policy.keep || entry.mtimeMs < cutoffMs);
 
   const pruned: string[] = [];
   for (const entry of doomed) {
