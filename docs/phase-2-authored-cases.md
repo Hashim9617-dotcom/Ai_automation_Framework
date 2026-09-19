@@ -809,6 +809,44 @@ The arithmetic invariant extends to six buckets:
 
 > **rows read = passed + failed + refused + held + unreadable + stale-capture.**
 
+### 10.1a A SEVENTH outcome: the run never reached the starting point (2026-09-19)
+
+`stale-capture` above is stated as "the target is not on the live page, so the
+capture is stale". §11.4's correction showed that inference is only sound once
+the page is known to be on the right screen: DEMO_4 was reported `stale-capture`
+about a capture that was perfectly current, because the run was on the
+signed-out page and nothing could say so.
+
+> **`given-not-reached` — the run could not put the page in the state the row
+> starts from, so the row never ran.** Owner `environment`: not the app team's,
+> not the QA's, and not whoever captures.
+
+It carries a **reason**, and the reason is bound to the status by a
+discriminated union rather than an optional field — a `passed` row cannot carry
+one and a `given-not-reached` row cannot omit one:
+
+| reason         | what failed                                       |
+| -------------- | ------------------------------------------------- |
+| `auth`         | signing in, with credentials from the environment |
+| `navigation`   | reaching the module's route                       |
+| `mapping`      | the sheet's module has no entry in the module map |
+| `state-assert` | the route opened and `provenBy` was not on it     |
+
+The invariant is now seven buckets:
+
+> **rows read = passed + failed + refused + held + unreadable + stale-capture +
+> given-not-reached.**
+
+**NOTHING EMITS IT YET**, and that is recorded in `execute.ts` beside the type.
+The status is decided BEFORE any step runs, by the entry verifier that does not
+exist until 4d; `executeAuthoredRows` reaches its statuses from step outcomes
+and so cannot produce this one. The accounting, the report section and the tests
+hold the shape it will arrive in, and the note is deleted when 4d lands.
+
+Consequently `stale-capture` becomes legal only once the entry state has been
+verified — a run that never arrived cannot make a claim about the capture. That
+rule is 4e; this section adds the outcome it needs.
+
 ### 10.2 Healing may PROPOSE. It may never SUBSTITUTE.
 
 The self-healing engine will want to help when a target is missing. It must not.

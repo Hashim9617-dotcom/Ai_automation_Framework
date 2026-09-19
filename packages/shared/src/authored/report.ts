@@ -82,9 +82,10 @@ const STATUS_LABEL = {
   held: 'Held',
   unreadable: 'Unreadable',
   'stale-capture': 'Stale capture',
+  'given-not-reached': 'Given not reached',
 } as const satisfies Record<RowStatus, string>;
 
-type SectionKey = 'app-team' | 'qa' | 'capture' | 'held' | 'passed';
+type SectionKey = 'app-team' | 'qa' | 'capture' | 'environment' | 'held' | 'passed';
 
 /**
  * The report section each status is listed in — exactly one per status.
@@ -105,6 +106,7 @@ const SECTION_OF = {
   held: 'held',
   unreadable: 'qa',
   'stale-capture': 'capture',
+  'given-not-reached': 'environment',
 } as const satisfies Record<RowStatus, SectionKey>;
 
 /**
@@ -129,6 +131,12 @@ const DETAILED_SECTIONS = [
     title: 'The capture is out of date',
     blurb:
       'These rows resolved cleanly against the capture, but their target is not on the live page. Neither an app bug nor a bad row — re-run `pnpm inspect` and try again.',
+  },
+  {
+    key: 'environment',
+    title: 'The run never reached the starting point',
+    blurb:
+      'These rows were never run: the run could not put the page in the state the row starts from. Each says which step stopped it — signing in, reaching the route, a module with no entry in the map, or the element that proves the screen. Not an app bug, not a bad row, and not a stale capture.',
   },
   {
     key: 'held',

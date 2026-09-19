@@ -11,8 +11,10 @@ import {
   tallyBuckets,
   verifyReportOnDisk,
   writeAuthoredReport,
+  type EntryFailure,
   type Owner,
   type ResolvedAuthoredRow,
+  type RowResult,
   type RowStatus,
   type StepExecutor,
   type UnreadableSheetRow,
@@ -155,6 +157,76 @@ test.describe('the arithmetic balances (E2) @unit', () => {
     expect(tally.refused).toBe(1);
     expect(tally.held).toBe(1);
     expect(tally.unreadable).toBe(1);
+  });
+
+  /**
+   * A row nothing can produce yet.
+   *
+   * `given-not-reached` is decided BEFORE any step runs, by 4d's entry
+   * verifier, so `executeAuthoredRows` cannot reach it from a step outcome.
+   * The accounting takes results as input, so a fixture can hand it one — which
+   * is how the seventh bucket is testable with no executor and no browser.
+   */
+  const notReached = (reason: EntryFailure = 'auth'): RowResult => ({
+    rowId: 'SI_9 / TC_1',
+    scenarioId: 'SI_9',
+    testCaseId: 'TC_1',
+    sheetRow: 12,
+    title: 'a row whose screen was never reached',
+    status: 'given-not-reached',
+    owner: OWNER_OF['given-not-reached'],
+    detail: `the run never reached the starting point (${reason})`,
+    reason,
+  });
+
+  test('E2: the seventh bucket is counted, and the sum still balances', () => {
+    // wrong: given-not-reached is left out of the denominator, so a run of four
+    // rows reports three and the row nobody could run vanishes from the total —
+    // the shrinking denominator, arriving through the newest status.
+    const results: RowResult[] = [notReached()];
+    const tally = {
+      rowsRead: 1,
+      passed: 0,
+      failed: 0,
+      refused: 0,
+      held: 0,
+      unreadable: 0,
+      staleCapture: 0,
+      givenNotReached: 1,
+    };
+
+    expect(() => assertTallyBalances(tally, results)).not.toThrow();
+    // Discriminating: the same tally with the bucket zeroed must NOT balance,
+    // so this is not passing because every bucket happens to be zero.
+    expect(() => assertTallyBalances({ ...tally, givenNotReached: 0 }, results)).toThrow(
+      /does not balance/,
+    );
+  });
+
+  test('E2: the report states the seventh bucket by name', () => {
+    // wrong: the row is counted but never shown, so a reader adding up the
+    // table's own numbers gets a different total from the one printed above it.
+    const markdown = renderAuthoredReport(
+      {
+        results: [notReached()],
+        tally: {
+          rowsRead: 1,
+          passed: 0,
+          failed: 0,
+          refused: 0,
+          held: 0,
+          unreadable: 0,
+          staleCapture: 0,
+          givenNotReached: 1,
+        },
+      },
+      'Cases',
+    );
+
+    expect(markdown).toContain('| Given not reached | 1 |');
+    expect(markdown).toContain('The run never reached the starting point');
+    // It goes to whoever runs it — not the app team, not the QA.
+    expect(markdown.indexOf('## For the app team')).toBe(-1);
   });
 
   test('E2: a shrinking denominator is REFUSED, not reported', async () => {
@@ -405,6 +477,7 @@ test.describe('the sheet is never written to (E5) @unit', () => {
           held: 0,
           unreadable: 0,
           staleCapture: 0,
+          givenNotReached: 0,
         },
       },
       { outputDir: dir, sheetName: 'Final Test cases', provenance: PROVENANCE },

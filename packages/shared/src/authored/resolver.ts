@@ -59,7 +59,21 @@ export interface StepRefusal {
  * different fixes — so the same `GroundingReason` codes are reused rather than
  * a second vocabulary invented.
  */
-export type Owner = 'none' | 'app-team' | 'qa' | 'capture';
+/**
+ * Who can act on a row's outcome.
+ *
+ * `environment` is the run's own setup — auth, a route, a module mapping, the
+ * entry-state assertion. Nobody else can fix those, and sending them to the app
+ * team or the QA is the category error §3 exists to prevent.
+ *
+ * NOT enforced anywhere, and that is worth knowing rather than assuming: no map
+ * is keyed by `Owner`, so adding a member forces nothing to compile. Measured
+ * 2026-09-19 — adding one produced zero type errors. Settling that is its own
+ * work, scheduled before `apps/web` exists, because the dashboard prototype
+ * groups outcomes BY OWNER and would be the first thing to read a map nothing
+ * verifies.
+ */
+export type Owner = 'none' | 'app-team' | 'qa' | 'capture' | 'environment';
 
 export type RowOutcome = 'ok' | 'app-disagrees' | 'row-unclear' | 'capture-thin';
 

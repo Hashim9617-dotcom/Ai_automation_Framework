@@ -26,7 +26,53 @@ export type RowStatus =
    * to prevent, arriving where the pre-flight grades could not see it, since
    * grounding said the element was there and in the capture it WAS.
    */
-  | 'stale-capture';
+  | 'stale-capture'
+  /**
+   * The run could not put the page in the state the row starts from, so the
+   * row never ran. Not the app's fault, not the row's, and not the capture's.
+   *
+   * Its own status because the alternative is the DEMO_4 mistake: with no way
+   * to say "we never got there", a target missing from the WRONG SCREEN was
+   * reported `stale-capture` — "re-run `pnpm inspect`" — about a capture that
+   * was perfectly current (§11.4's correction).
+   */
+  | 'given-not-reached';
+
+/**
+ * NOT YET EMITTED (2026-09-19)
+ *
+ * **Nothing produces `given-not-reached`, and nothing produces a `reason`.**
+ * `executeAuthoredRows` decides a status from step outcomes, and a step only
+ * runs once the entry state is already established — so this status is decided
+ * BEFORE it, by a verifier that does not exist yet.
+ *
+ * | what          | who will emit it                                     |
+ * | ------------- | ---------------------------------------------------- |
+ * | the status    | 4d's entry verifier, before any step runs            |
+ * | the reason    | the verification stage that stopped: auth, the route, |
+ * |               | the module map, or the `provenBy` assertion           |
+ *
+ * Written down rather than left implicit, in the `NOT_YET_COVERED` style: a
+ * status the accounting can carry but nothing can produce reads like coverage.
+ * **This entry is deleted when 4d lands** — and the tally, the report section
+ * and the tests below already hold the shape it will arrive in.
+ */
+
+/**
+ * WHICH verification step failed, for a `given-not-reached` row.
+ *
+ * Comes from the step that failed, never from a guess: 4d establishes the entry
+ * state in these stages and reports the one that stopped it.
+ */
+export type EntryFailure =
+  /** Signing in did not succeed. Credentials come from the environment. */
+  | 'auth'
+  /** The run could not get to the module's route. */
+  | 'navigation'
+  /** The sheet's module has no entry in the module map. */
+  | 'mapping'
+  /** The route opened, and the map's `provenBy` element was not on it. */
+  | 'state-assert';
 
 /**
  * The status -> owner mapping, fixed and TOTAL.
@@ -48,16 +94,17 @@ export const OWNER_OF: Record<RowStatus, Owner> = {
   unreadable: 'qa',
   // Re-run `pnpm inspect`. Not the app team's problem and not the QA's.
   'stale-capture': 'capture',
+  // Auth, a route, a mapping or the state assertion — the run's own setup.
+  'given-not-reached': 'environment',
 };
 
-export interface RowResult {
+interface RowResultFields {
   /** Always the composite. Never the Test Case ID alone — see §9.1. */
   rowId: string;
   scenarioId: string;
   testCaseId: string;
   sheetRow: number;
   title: string;
-  status: RowStatus;
   owner: Owner;
   detail: string;
   /** What the capture predicted before the run. Context, never a verdict. */
@@ -75,6 +122,27 @@ export interface RowResult {
    */
   healingProposal?: string;
 }
+
+/**
+ * A row's result, with `reason` BOUND to the status that has one.
+ *
+ * A discriminated union rather than one more optional field, because an
+ * optional `reason` can be wrong in both directions: a `passed` row could carry
+ * "auth", and a `given-not-reached` row could carry nothing. Here the compiler
+ * requires it on exactly one status and forbids it on every other, so neither
+ * shape can be written at all.
+ */
+export type RowResult =
+  | (RowResultFields & {
+      status: Exclude<RowStatus, 'given-not-reached'>;
+      /** Only `given-not-reached` has one. `never` makes that a compile error. */
+      reason?: never;
+    })
+  | (RowResultFields & {
+      status: 'given-not-reached';
+      /** Required: an entry failure nobody can act on is the DEMO_4 report. */
+      reason: EntryFailure;
+    });
 
 /**
  * Each status's bucket in the tally — the ONE list of buckets.
@@ -96,6 +164,7 @@ export const TALLY_BUCKET = {
   held: 'held',
   unreadable: 'unreadable',
   'stale-capture': 'staleCapture',
+  'given-not-reached': 'givenNotReached',
 } as const satisfies Record<RowStatus, string>;
 
 export type TallyBucket = (typeof TALLY_BUCKET)[RowStatus];
@@ -295,7 +364,10 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
     // The status comes from the outcome KIND alone. `healingProposal` is
     // deliberately not read here: a proposal is a suggestion for a human and
     // must never move a verdict (§10.2).
-    const status: RowStatus =
+    // Narrower than RowStatus on purpose: a STEP outcome can never be
+    // `given-not-reached`, which is decided before any step runs. The type says
+    // so, so this path cannot start producing one by accident.
+    const status: Exclude<RowStatus, 'given-not-reached'> =
       stopped.outcome.kind === 'target-not-on-page'
         ? 'stale-capture'
         : stopped.outcome.kind === 'no-observable-check'
