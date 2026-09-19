@@ -204,6 +204,101 @@ test.describe('packages/ and apps/ carry no DOMAIN vocabulary @unit', () => {
     expect(hits).toEqual([]);
   });
 
+  /**
+   * The application slugs, DERIVED — never a list kept here.
+   *
+   * Two sources, unioned, because each is blind where the other sees:
+   * a directory under `config/apps/` exists before any environment points at
+   * it, and an environment declares an `application` before that directory is
+   * created. Adding a source can only widen the set.
+   *
+   * This is the third list-shaped guard in one session (E3's statuses, E2's
+   * buckets, and `APP_SPECIFIC` above). It is the worst of the three, because
+   * the platform's largest architectural claim rests on it: `APP_SPECIFIC`
+   * holds "DmsSynergy" and "dmsuiv3" but not "DMS", so `'SOC DMS'` sat in
+   * `packages/` unseen.
+   */
+  const applicationSlugs = (): string[] => {
+    const fromDirs = readdirSync(path.join(ROOT, 'config', 'apps'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    const envDir = path.join(ROOT, 'config', 'env');
+    const fromEnv = readdirSync(envDir)
+      .filter((file) => file.endsWith('.json'))
+      .map(
+        (file) =>
+          (JSON.parse(readFileSync(path.join(envDir, file), 'utf8')) as { application?: string })
+            .application,
+      )
+      .filter((slug): slug is string => typeof slug === 'string' && slug.length > 0);
+    return [...new Set([...fromDirs, ...fromEnv])].sort();
+  };
+
+  /**
+   * The one place a slug is allowed to remain in `packages/`, named exactly.
+   *
+   * An honest written-down exception beats both a red gate and a guard nobody
+   * runs — but it is ONE entry, and it carries what it would take to delete it.
+   * A second entry is a sign the rule is being negotiated rather than met.
+   */
+  const KNOWN_VIOLATIONS = [
+    {
+      file: 'packages/shared/src/authored/final-test-cases.ts',
+      slug: 'dms',
+      context: "the column list carries 'SOC DMS', a header from one customer's workbook",
+      since: '2026-09-18',
+      why:
+        'the expected column names are a property of a SHEET, not of the platform: the ' +
+        "position mapping was measured from ONE workbook and every QA team's sheet differs",
+      fix: 'move the column list to per-sheet config, the same move the module map made, then delete this entry',
+    },
+  ];
+
+  test('an application slug does not appear in the CODE of packages/ or apps/', () => {
+    // wrong: a slug reaches shared code and the claim "pointing at a second
+    // application is a config change" is false while the suite stays green —
+    // which is what happened to 'SOC DMS' under the keyword list above.
+    //
+    // LIMIT, stated because a guard's silence is read as coverage: this scans
+    // CODE. Comments are stripped, so a slug in prose is deliberately invisible
+    // to it. And it can only see slugs that config already declares.
+    const slugs = applicationSlugs();
+    // Asserts its own effect twice: the set is real, and the matcher matches.
+    expect(slugs.length).toBeGreaterThan(0);
+    const matches = (code: string, slug: string): boolean =>
+      new RegExp(`\\b${slug}\\b`, 'i').test(code);
+    expect(matches(stripComments("const sheet = 'SOC DMS'; // dms\n"), 'dms')).toBe(true);
+    expect(matches(stripComments('// only in a comment: dms\n'), 'dms')).toBe(false);
+
+    const excused = new Set(KNOWN_VIOLATIONS.map((entry) => `${entry.file}: ${entry.slug}`));
+    const hits: string[] = [];
+    for (const file of files) {
+      const code = stripComments(readFileSync(file, 'utf8'));
+      const relative = path.relative(ROOT, file).split(path.sep).join('/');
+      for (const slug of slugs) {
+        if (matches(code, slug) && !excused.has(`${relative}: ${slug}`)) {
+          hits.push(`${relative}: ${slug}`);
+        }
+      }
+    }
+    expect(hits).toEqual([]);
+  });
+
+  test('every named exception is still real, and still needed', () => {
+    // wrong: an exception outlives the violation it excuses, and the list
+    // becomes a place where new ones can hide behind an old name — the
+    // allow-list failure this repo already fixed once for invisible characters.
+    for (const entry of KNOWN_VIOLATIONS) {
+      const code = stripComments(readFileSync(path.join(ROOT, entry.file), 'utf8'));
+      expect(
+        new RegExp(`\\b${entry.slug}\\b`, 'i').test(code),
+        `${entry.file} no longer contains "${entry.slug}" in code — delete this exception`,
+      ).toBe(true);
+      expect(entry.why.length).toBeGreaterThan(20);
+      expect(entry.fix.length).toBeGreaterThan(20);
+    }
+  });
+
   test('the vocabulary it names is still absent where it was removed from', () => {
     // Discriminating: the symbol this rule was written for really did live
     // here, so a scan that found nothing anywhere would not prove much.

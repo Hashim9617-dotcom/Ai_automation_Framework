@@ -17,13 +17,13 @@ export const environmentSchema = z.object({
    * Required, and a slug rather than free text. Optional would mean a silent
    * fallback, and a fallback here picks a module map on a guess.
    */
-  application: z
-    .string()
-    .regex(
-      /^[a-z0-9][a-z0-9-]*$/,
-      'application must be a lower-case slug such as "dms" or "demo" — it names the directory ' +
-        'under config/apps/, so an unresolved ${PLACEHOLDER} or a display name will not do',
-    ),
+  application: z.string().regex(
+    /^[a-z0-9][a-z0-9-]*$/,
+    // The examples are fictional on purpose: a message in packages/ naming a
+    // real application would be the knowledge this layer must not carry.
+    'application must be a lower-case slug such as "acme" or "northwind" — it names the ' +
+      'directory under config/apps/, so an unresolved ${PLACEHOLDER} or a display name will not do',
+  ),
   baseUrl: z.string().url(),
   apiBaseUrl: z.string().url().optional(),
   timeouts: z
