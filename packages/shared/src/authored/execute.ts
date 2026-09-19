@@ -39,26 +39,6 @@ export type RowStatus =
   | 'given-not-reached';
 
 /**
- * NOT YET EMITTED (2026-09-19)
- *
- * **Nothing produces `given-not-reached`, and nothing produces a `reason`.**
- * `executeAuthoredRows` decides a status from step outcomes, and a step only
- * runs once the entry state is already established — so this status is decided
- * BEFORE it, by a verifier that does not exist yet.
- *
- * | what          | who will emit it                                     |
- * | ------------- | ---------------------------------------------------- |
- * | the status    | 4d's entry verifier, before any step runs            |
- * | the reason    | the verification stage that stopped: auth, the route, |
- * |               | the module map, or the `provenBy` assertion           |
- *
- * Written down rather than left implicit, in the `NOT_YET_COVERED` style: a
- * status the accounting can carry but nothing can produce reads like coverage.
- * **This entry is deleted when 4d lands** — and the tally, the report section
- * and the tests below already hold the shape it will arrive in.
- */
-
-/**
  * WHICH verification step failed, for a `given-not-reached` row.
  *
  * Comes from the step that failed, never from a guess: 4d establishes the entry
@@ -69,10 +49,24 @@ export type EntryFailure =
   | 'auth'
   /** The run could not get to the module's route. */
   | 'navigation'
-  /** The sheet's module has no entry in the module map. */
-  | 'mapping'
   /** The route opened, and the map's `provenBy` element was not on it. */
   | 'state-assert';
+
+/**
+ * `mapping` was a fourth value here and was REMOVED before anything emitted it.
+ *
+ * Every mapping fault is settled at LOAD: an unmapped module refuses the run by
+ * name (`assertEveryModuleMapped`) and a `provenBy` the capture does not hold
+ * fails there too (`assertProvenByInCapture`). Rows are then grouped BY MODULE
+ * before execution, so the run does no per-row map lookup that could miss.
+ *
+ * Four cases were checked for one that could still fire at run time — a missing
+ * or malformed map file (the whole run refuses), a blank Module cell (unmapped
+ * at load), a capture that changed (that is `state-assert`), and running a
+ * subset of rows (validated over the same subset). None of them reaches here.
+ * A value that cannot occur is the shape this session has now removed five
+ * times; it is not being added a sixth.
+ */
 
 /**
  * The status -> owner mapping, fixed and TOTAL.
@@ -94,7 +88,7 @@ export const OWNER_OF: Record<RowStatus, Owner> = {
   unreadable: 'qa',
   // Re-run `pnpm inspect`. Not the app team's problem and not the QA's.
   'stale-capture': 'capture',
-  // Auth, a route, a mapping or the state assertion — the run's own setup.
+  // Auth, the route, or the element that proves the screen — the run's setup.
   'given-not-reached': 'environment',
 };
 
@@ -137,6 +131,14 @@ export type RowResult =
       status: 'given-not-reached';
       /** Required: an entry failure nobody can act on is the DEMO_4 report. */
       reason: EntryFailure;
+      /**
+       * The module whose entry state could not be established.
+       *
+       * Bound to this status for the same reason `reason` is, and load-bearing
+       * for the report: one failed entry stops EVERY row of its module, and a
+       * reader needs to see one problem rather than forty-seven.
+       */
+      module: string;
     });
 
 /**
@@ -225,10 +227,33 @@ export type StepExecutor = (input: {
   target?: { role: string; name: string };
 }) => Promise<StepOutcome>;
 
+/** Verified, or the stage that stopped it. Never a bare boolean. */
+export type EntryVerification =
+  { verified: true } | { verified: false; reason: EntryFailure; detail: string };
+
+/**
+ * Establishing and VERIFYING the state a module's rows start from.
+ *
+ * Required, with no default. A default that answered `{ verified: true }` would
+ * be a criterion satisfied by knowing nothing — and worse than none, because
+ * every row would then run against whatever screen happened to be open, which
+ * is how DEMO_4 was reported `stale-capture` about a current capture.
+ *
+ * `verify` is called ONCE PER MODULE, not per row: the entry state is a
+ * property of the screen, and doing it per row would sign in forty-seven times
+ * and report forty-seven problems where there is one.
+ */
+export interface EntryControl {
+  /** Which module a row belongs to. The map is keyed on it, validated at load. */
+  moduleOf: (row: ResolvedAuthoredRow) => string;
+  verify: (module: string) => Promise<EntryVerification>;
+}
+
 export interface ExecuteOptions {
   resolved: ResolvedAuthoredRow[];
   unreadable: UnreadableSheetRow[];
   execute: StepExecutor;
+  entry: EntryControl;
   /**
    * Read from the ENVIRONMENT by the caller, never from the sheet.
    *
@@ -266,6 +291,17 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
     });
   }
 
+  // Verified once per module, and remembered. A module whose entry state could
+  // not be established stops every row it owns — reported as ONE problem below.
+  const entryByModule = new Map<string, EntryVerification>();
+  const entryFor = async (module: string): Promise<EntryVerification> => {
+    const seen = entryByModule.get(module);
+    if (seen) return seen;
+    const verdict = await options.entry.verify(module);
+    entryByModule.set(module, verdict);
+    return verdict;
+  };
+
   for (const row of options.resolved) {
     const common = {
       rowId: row.rowId,
@@ -295,6 +331,27 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
         status: 'refused',
         owner: OWNER_OF.refused,
         detail: row.refusals.map((refusal) => refusal.reason).join('; ') || row.summary,
+      });
+      continue;
+    }
+
+    // THE ENTRY STATE IS VERIFIED BEFORE ANY STEP RUNS.
+    //
+    // After `held` and `refused`, because those need no screen at all — a held
+    // row is a policy decision and an unclear row cannot run wherever it is.
+    // Before the steps, because a step executed on the wrong screen produces a
+    // verdict about the wrong screen: a missing target there is not a stale
+    // capture, and reporting it as one is exactly §11.4's correction.
+    const module = options.entry.moduleOf(row);
+    const entry = await entryFor(module);
+    if (!entry.verified) {
+      results.push({
+        ...common,
+        status: 'given-not-reached',
+        owner: OWNER_OF['given-not-reached'],
+        reason: entry.reason,
+        module,
+        detail: entry.detail,
       });
       continue;
     }

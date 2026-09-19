@@ -33,13 +33,12 @@ import { findCandidates } from './resolver';
  * - It must match EXACTLY ONE node, in exactly one state. Two matches is not a
  *   proof, and a proof found in two states cannot say which one you are on.
  *
- * ## NOT YET WIRED (2026-09-18)
+ * ## Wired 2026-09-19
  *
- * **`assertProvenByInCapture` has no production caller.** Nothing loads a map,
- * establishes a state or verifies one yet; that is 4d. This is recorded here on
- * purpose, because an unwired validator is the same species as the executor's
- * `proposeHealing` callback: covered by tests, called by nothing, and read as
- * protection it does not provide. When 4d lands, this notice goes with it.
+ * `assertProvenByInCapture` is called by `createEntryVerifier`
+ * (`packages/execution-engine/src/authored/entry-verifier.ts`) when the verifier
+ * is built — before a browser is touched, so an entry that could never be proven
+ * refuses at the start of a run rather than failing row by row inside one.
  */
 
 export interface ProvenBy {

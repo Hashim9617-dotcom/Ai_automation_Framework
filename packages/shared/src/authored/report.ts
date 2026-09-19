@@ -182,6 +182,39 @@ function section(title: string, blurb: string, rows: RowResult[]): string[] {
   return lines;
 }
 
+/**
+ * The entry-failure section, grouped BY MODULE rather than by row.
+ *
+ * One entry state stops every row of its module, so listing rows the way the
+ * other sections do would report one problem forty-seven times and bury the
+ * one sentence a reader can act on. The module, the stage that failed and the
+ * count come first; the row ids follow, because they are still the rows that
+ * did not run.
+ */
+function entrySection(rows: RowResult[]): string[] {
+  if (rows.length === 0) return [];
+  const byModule = new Map<string, RowResult[]>();
+  for (const row of rows) {
+    const module = row.status === 'given-not-reached' ? row.module : '(unknown module)';
+    byModule.set(module, [...(byModule.get(module) ?? []), row]);
+  }
+
+  const lines = [
+    `## The run never reached the starting point (${rows.length})`,
+    '',
+    'These rows were never run: the run could not put the page in the state the row starts from. Each group names the module and the step that stopped it — signing in, reaching the route, or the element that proves the screen. Not an app bug, not a bad row, and not a stale capture.',
+    '',
+  ];
+  for (const [module, group] of byModule) {
+    const first = group[0]!;
+    const reason = first.status === 'given-not-reached' ? first.reason : 'unknown';
+    lines.push(`- **${module}** — ${reason}: ${first.detail}`);
+    lines.push(`  ${group.length} row(s) never ran: ${group.map((row) => row.rowId).join(', ')}`);
+    lines.push('');
+  }
+  return lines;
+}
+
 export function renderAuthoredReport(
   run: AuthoredRunResult,
   sheetName: string,
@@ -234,7 +267,10 @@ export function renderAuthoredReport(
   }
 
   lines.push(
-    ...DETAILED_SECTIONS.flatMap(({ key, title, blurb }) => section(title, blurb, rowsIn(key))),
+    ...DETAILED_SECTIONS.flatMap(({ key, title, blurb }) =>
+      // `environment` groups by module; every other section lists rows.
+      key === 'environment' ? entrySection(rowsIn(key)) : section(title, blurb, rowsIn(key)),
+    ),
   );
 
   // The triage sits with the results, not in an appendix: a reader who needs

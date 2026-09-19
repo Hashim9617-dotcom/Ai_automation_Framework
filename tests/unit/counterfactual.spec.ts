@@ -51,6 +51,10 @@ const COVERED = [
   // Added 2026-09-19 with 4c: the scan that replaced E8, controlled by a planted
   // gateway import in the execute path.
   'tests/unit/execute-path-no-llm.spec.ts',
+  // Added 2026-09-19 with 4d. The entry verifier's two suites and the
+  // three-way credentials check, each counterfactual written with its test.
+  'tests/unit/entry-verifier.spec.ts',
+  'tests/unit/authored-credentials.spec.ts',
 ];
 
 /**

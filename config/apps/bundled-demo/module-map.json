@@ -1,10 +1,10 @@
 {
   "Login": {
-    "route": "/",
+    "route": "/login",
     "provenBy": { "role": "heading", "name": "Sign in" }
   },
   "Employee registration": {
-    "route": "/",
+    "route": "/employees",
     "provenBy": { "role": "heading", "name": "Register employee" }
   }
 }

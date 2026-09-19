@@ -12,6 +12,7 @@ import {
   verifyReportOnDisk,
   writeAuthoredReport,
   type EntryFailure,
+  type EntryControl,
   type Owner,
   type ResolvedAuthoredRow,
   type RowResult,
@@ -77,12 +78,25 @@ const targetMissing: StepExecutor = async () => ({
 /** Claims success while observing nothing — the vacuous pass. */
 const passesObservingNothing: StepExecutor = async () => ({ kind: 'passed', observed: '' });
 
+/**
+ * Every row belongs to one module, and its entry state is verified.
+ *
+ * There is no default: `entry` is required, so each caller states what it is
+ * assuming. These fixtures say "one module, and it was reached" — the tests
+ * below that care hand in something else.
+ */
+const entryVerified: EntryControl = {
+  moduleOf: () => 'Login',
+  verify: async () => ({ verified: true }),
+};
+
 const run = (
   rows: ResolvedAuthoredRow[],
   unreadable: UnreadableSheetRow[] = [],
   execute: StepExecutor = alwaysOk,
   allowWrites = false,
-) => executeAuthoredRows({ resolved: rows, unreadable, execute, allowWrites });
+  entry: EntryControl = entryVerified,
+) => executeAuthoredRows({ resolved: rows, unreadable, execute, allowWrites, entry });
 
 test.describe('the row identity survives to the report (E1) @unit', () => {
   test('E1: every report line names the composite, never the Test Case ID alone', async () => {
@@ -170,6 +184,7 @@ test.describe('the arithmetic balances (E2) @unit', () => {
     owner: OWNER_OF['given-not-reached'],
     detail: `the run never reached the starting point (${reason})`,
     reason,
+    module: 'Login',
   });
 
   test('E2: the seventh bucket is counted, and the sum still balances', () => {

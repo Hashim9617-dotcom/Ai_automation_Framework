@@ -20,9 +20,9 @@ import {
  *   MM2  falsifier 1 — a module in the sheet with no entry is refused, by name
  *   MM3  falsifier 2 — a provenBy the capture does not hold fails at load
  *
- * `assertProvenByInCapture` has NO production caller yet; that is 4d. The
- * module-map source records the same thing, so an unwired validator cannot
- * quietly read as protection.
+ * `assertProvenByInCapture` is called by `createEntryVerifier` as of 4d, when
+ * the verifier is built — so a `provenBy` the capture does not hold refuses
+ * before a browser is opened, not row by row inside a run.
  */
 
 const node = (role: string, name: string): AccessibilityNode => ({ role, name, enabled: true });
