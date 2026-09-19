@@ -227,6 +227,77 @@ export type StepExecutor = (input: {
   target?: { role: string; name: string };
 }) => Promise<StepOutcome>;
 
+/**
+ * PROOF THAT THE ENTRY GATE WAS PASSED, carried in the type system.
+ *
+ * The rule is that `stale-capture` is only a legal verdict once the module's
+ * entry state has been verified: a missing target on a screen the run never
+ * reached is not a stale capture, and saying so sends whoever owns the capture
+ * to re-run `pnpm inspect` over something that is perfectly current (§11.4).
+ *
+ * Until now that rule was CONTROL FLOW — the mapping sat below the gate inside
+ * one function, correct only as long as nobody extracted the step loop, added
+ * an early path or reordered the gate. None of which would fail to compile.
+ * Now `statusForStepOutcome` cannot be called without one of these, and the
+ * only expression that produces one is the gate itself.
+ *
+ * The brand is a module-private `unique symbol` and `passedEntryGate` is NOT
+ * exported, so no code outside this file can mint one — not even by casting to
+ * a type it cannot name. That is also why the token is invisible to callers:
+ * every `EntryControl` stub in the suites still returns a plain
+ * `{ verified: true }`, so this guarantee costs the tests nothing. A guarantee
+ * bought by weakening tests is not one.
+ *
+ * ## What it does NOT prove, which matters as much
+ *
+ * It proves THIS CODE PATH PASSED THE GATE. It does not prove that the row
+ * being classified belongs to the module that was verified — **entry and rows
+ * are joined by the per-module GROUPING, not by this token.**
+ *
+ * The token deliberately carries no `module` field. Adding one and asserting
+ * it against the row's module was considered and measured: a row's module has
+ * exactly ONE source here, `entry.moduleOf(row)`, so the assertion would read
+ * `moduleOf(row) === moduleOf(row)` and could never fail. Carrying the field
+ * without checking it would be worse — it would make an unchecked join LOOK
+ * checked.
+ *
+ * Nor is the plumbing worth pre-building: carrying `module` from the sheet onto
+ * `ResolvedAuthoredRow` would create a second path today, but the plainest
+ * production `moduleOf` is `(row) => row.module`, and on the day that is
+ * written the two paths silently become one again with no test failing. So the
+ * decision belongs at THAT moment — when the first real `moduleOf` is
+ * implemented, which is the point at which anyone can tell whether the two
+ * sources are genuinely two.
+ */
+declare const passedEntryGate: unique symbol;
+
+interface VerifiedEntry {
+  readonly [passedEntryGate]: true;
+}
+
+/**
+ * The status a stopped step produces — reachable only past the entry gate.
+ *
+ * Narrower than `RowStatus` on purpose: a STEP outcome can never be
+ * `given-not-reached`, which is decided before any step runs.
+ */
+function statusForStepOutcome(
+  kind: StepOutcomeKind,
+  /**
+   * Deliberately never read. It is a proof OBLIGATION, not data: its only job
+   * is to make this function uncallable from anywhere the gate has not been
+   * passed. Reading it would give it a second job and invite someone to make it
+   * optional.
+   */
+  _gatePassed: VerifiedEntry,
+): Exclude<RowStatus, 'given-not-reached'> {
+  // The status comes from the outcome KIND alone — there is nothing else on a
+  // StepOutcome that a verdict could read (§10.2).
+  if (kind === 'target-not-on-page') return 'stale-capture';
+  if (kind === 'no-observable-check') return 'refused';
+  return 'failed';
+}
+
 /** Verified, or the stage that stopped it. Never a bare boolean. */
 export type EntryVerification =
   { verified: true } | { verified: false; reason: EntryFailure; detail: string };
@@ -356,6 +427,9 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       continue;
     }
 
+    // The gate has been passed, so — and ONLY here — the proof is minted.
+    const gatePassed = {} as VerifiedEntry;
+
     // Grounding is PRE-FLIGHT, not the verdict (§9.3). A row the capture
     // disagrees with, or cannot answer, is still executed: the capture says
     // what could be checked in advance, the running application decides.
@@ -404,17 +478,9 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       continue;
     }
 
-    // The status comes from the outcome KIND alone — there is nothing else on a
-    // StepOutcome that a verdict could read (§10.2).
-    // Narrower than RowStatus on purpose: a STEP outcome can never be
-    // `given-not-reached`, which is decided before any step runs. The type says
-    // so, so this path cannot start producing one by accident.
-    const status: Exclude<RowStatus, 'given-not-reached'> =
-      stopped.outcome.kind === 'target-not-on-page'
-        ? 'stale-capture'
-        : stopped.outcome.kind === 'no-observable-check'
-          ? 'refused'
-          : 'failed';
+    // `stale-capture` is not reachable without the gate's proof: the argument
+    // is required and nothing outside this file can produce one.
+    const status = statusForStepOutcome(stopped.outcome.kind, gatePassed);
 
     const clause =
       stopped.step.kind === 'action'
