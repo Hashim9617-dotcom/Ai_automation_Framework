@@ -5,21 +5,97 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Acme HR — Demo</title>
     <style>
-      body { font: 15px/1.5 system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #18181b; }
-      header { background: #1f2937; color: #fff; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
-      main { max-width: 880px; margin: 32px auto; padding: 0 20px; }
-      .card { background: #fff; border: 1px solid #e4e4e7; border-radius: 10px; padding: 24px; margin-bottom: 20px; }
-      label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
-      input, select { width: 100%; padding: 8px 10px; border: 1px solid #d4d4d8; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
-      button { margin-top: 16px; padding: 9px 18px; border: 0; border-radius: 6px; background: #2563eb; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
-      button.secondary { background: #6b7280; }
-      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-      th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e4e4e7; font-size: 14px; }
-      .alert { padding: 10px 14px; border-radius: 6px; margin-top: 14px; font-size: 14px; }
-      .alert.error { background: #fee2e2; color: #991b1b; }
-      .alert.success { background: #dcfce7; color: #14532d; }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
-      .hidden { display: none; }
+      body {
+        font:
+          15px/1.5 system-ui,
+          sans-serif;
+        margin: 0;
+        background: #f6f7f9;
+        color: #18181b;
+      }
+      header {
+        background: #1f2937;
+        color: #fff;
+        padding: 14px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      main {
+        max-width: 880px;
+        margin: 32px auto;
+        padding: 0 20px;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e4e4e7;
+        border-radius: 10px;
+        padding: 24px;
+        margin-bottom: 20px;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        margin: 12px 0 4px;
+      }
+      input,
+      select {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid #d4d4d8;
+        border-radius: 6px;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+      button {
+        margin-top: 16px;
+        padding: 9px 18px;
+        border: 0;
+        border-radius: 6px;
+        background: #2563eb;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #6b7280;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 1px solid #e4e4e7;
+        font-size: 14px;
+      }
+      .alert {
+        padding: 10px 14px;
+        border-radius: 6px;
+        margin-top: 14px;
+        font-size: 14px;
+      }
+      .alert.error {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      .alert.success {
+        background: #dcfce7;
+        color: #14532d;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 16px;
+      }
+      .hidden {
+        display: none;
+      }
     </style>
   </head>
   <body>
@@ -36,9 +112,21 @@
       <section id="login-view" class="card">
         <h1>Sign in</h1>
         <label for="username">Username</label>
-        <input id="username" data-testid="login-username" name="username" placeholder="Enter username" autocomplete="off" />
+        <input
+          id="username"
+          data-testid="login-username"
+          name="username"
+          placeholder="Enter username"
+          autocomplete="off"
+        />
         <label for="password">Password</label>
-        <input id="password" data-testid="login-password" name="password" type="password" placeholder="Enter password" />
+        <input
+          id="password"
+          data-testid="login-password"
+          name="password"
+          type="password"
+          placeholder="Enter password"
+        />
         <button id="login-submit" data-testid="login-submit">Login</button>
         <div id="login-error" class="alert error hidden" data-testid="login-error"></div>
       </section>
@@ -50,7 +138,12 @@
           <div class="grid">
             <div>
               <label for="firstName">First name</label>
-              <input id="firstName" data-testid="employee-first-name" name="firstName" placeholder="First name" />
+              <input
+                id="firstName"
+                data-testid="employee-first-name"
+                name="firstName"
+                placeholder="First name"
+              />
             </div>
             <div>
               <label for="lastName">Last name</label>
@@ -59,11 +152,22 @@
             </div>
             <div>
               <label for="employeeId">Employee ID</label>
-              <input id="employeeId" data-testid="employee-id" name="employeeId" placeholder="EMP00000" />
+              <input
+                id="employeeId"
+                data-testid="employee-id"
+                name="employeeId"
+                placeholder="EMP00000"
+              />
             </div>
             <div>
               <label for="email">Work email</label>
-              <input id="email" data-testid="employee-email" name="email" type="email" placeholder="name@acme.com" />
+              <input
+                id="email"
+                data-testid="employee-email"
+                name="email"
+                type="email"
+                placeholder="name@acme.com"
+              />
             </div>
             <div>
               <label for="department">Department</label>
@@ -79,14 +183,21 @@
               <input id="hireDate" data-testid="employee-hire-date" name="hireDate" type="date" />
             </div>
           </div>
-          <button id="employee-save" data-testid="employee-save" type="submit">Save employee</button>
+          <button id="employee-save" data-testid="employee-save" type="submit">
+            Save employee
+          </button>
         </form>
         <div id="form-message" class="alert hidden" data-testid="form-message"></div>
 
         <h2 style="margin-top: 28px">Employee directory</h2>
         <table data-testid="employee-table">
           <thead>
-            <tr><th>Employee ID</th><th>Name</th><th>Department</th><th>Email</th></tr>
+            <tr>
+              <th>Employee ID</th>
+              <th>Name</th>
+              <th>Department</th>
+              <th>Email</th>
+            </tr>
           </thead>
           <tbody id="employee-rows"></tbody>
         </table>
@@ -98,6 +209,29 @@
       const VALID = { username: 'hr.admin', password: 'Passw0rd!' };
       const employees = [];
       const $ = (id) => document.getElementById(id);
+
+      const SESSION_KEY = 'demo.session';
+
+      function setSession(user) {
+        sessionStorage.setItem(SESSION_KEY, user);
+        $('current-user').textContent = user;
+      }
+
+      function clearSession() {
+        sessionStorage.removeItem(SESSION_KEY);
+        $('current-user').textContent = '';
+      }
+
+      /** The session decides which view a load shows — the path never did. */
+      function restoreSession() {
+        const user = sessionStorage.getItem(SESSION_KEY);
+        if (user) {
+          $('current-user').textContent = user;
+          show('employees');
+        } else {
+          show('login');
+        }
+      }
 
       function show(view) {
         $('login-view').classList.toggle('hidden', view !== 'login');
@@ -111,7 +245,7 @@
         const pass = $('password').value;
         if (user === VALID.username && pass === VALID.password) {
           $('login-error').classList.add('hidden');
-          $('current-user').textContent = user;
+          setSession(user);
           show('employees');
         } else {
           $('login-error').textContent = 'Invalid credentials. Please try again.';
@@ -122,7 +256,7 @@
       $('logout').addEventListener('click', () => {
         $('username').value = '';
         $('password').value = '';
-        $('current-user').textContent = '';
+        clearSession();
         show('login');
       });
 
@@ -138,7 +272,9 @@
         };
         const message = $('form-message');
 
-        const missing = ['firstName', 'lastName', 'employeeId', 'department'].filter((k) => !record[k]);
+        const missing = ['firstName', 'lastName', 'employeeId', 'department'].filter(
+          (k) => !record[k],
+        );
         if (missing.length) {
           message.textContent = 'Please complete all required fields.';
           message.className = 'alert error';
@@ -167,9 +303,26 @@
         $('empty-state').classList.toggle('hidden', employees.length > 0);
       }
 
-      // No session persistence in the demo: every load starts unauthenticated,
-      // which is also what makes each test independent.
-      show('login');
+      // The session survives a reload, because a real one does.
+      //
+      // This used to start every load unauthenticated, and said so — the reason
+      // given was that it kept each test independent. Measured on 2026-09-19, it
+      // was solving a problem the runner already solves: Playwright gives every
+      // test a fresh BrowserContext, and a probe that wrote both sessionStorage
+      // and localStorage in one test read back `null` in the next, in the SAME
+      // worker under `mode: 'serial'`. Independence comes from there; it never
+      // needed anything from this file.
+      //
+      // The cost was session semantics, and it was not cosmetic. With no session
+      // no route reached the employees screen — the only way there was to stay in
+      // the same document — so the entry verifier could never prove an
+      // authenticated screen, and a positive control written against this app
+      // would have passed with the sign-in DELETED. That is a fixture that cannot
+      // discriminate, and the fix for one is to change the input.
+      //
+      // sessionStorage, not localStorage: it is per-tab, so it dies with the
+      // context even if a runner ever stopped clearing storage between tests.
+      restoreSession();
       render();
     </script>
   </body>
