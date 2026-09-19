@@ -1,6 +1,7 @@
 {
   "name": "local",
-  "application": "demo",
+  "//": "The slug is \"bundled-demo\", not \"demo\", and that is measured rather than stylistic: a slug becomes a word the app-agnostic guard forbids in packages/ and apps/, and \"demo\" occurs there legitimately — isDemoApp and demoAppOrigin are facts about OUR bundled server (loopback, our port), not knowledge of any application. Measured 2026-09-19 across 82 files: \"demo\" 3 hits, \"bundled-demo\" 0. Check a candidate slug the same way before adding one.",
+  "application": "bundled-demo",
   "baseUrl": "http://127.0.0.1:4173",
   "apiBaseUrl": "http://127.0.0.1:4173",
   "timeouts": {

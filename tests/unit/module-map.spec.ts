@@ -73,7 +73,7 @@ test.describe('the module map loads, or says what to fix (MM1) @unit', () => {
     // wrong: the file committed for QAs to copy is itself invalid, and the first
     // person to follow the example gets an error about their own edit.
     const map = loadModuleMap(
-      path.join(findRepoRoot(), 'config', 'apps', 'demo', 'module-map.json'),
+      path.join(findRepoRoot(), 'config', 'apps', 'bundled-demo', 'module-map.json'),
     );
 
     expect(Object.keys(map).length).toBeGreaterThan(0);
