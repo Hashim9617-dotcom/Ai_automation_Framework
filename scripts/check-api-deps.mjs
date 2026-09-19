@@ -63,7 +63,9 @@ function compiledModules(dir, found = []) {
 const modules = compiledModules(DIST);
 // ASSERT OWN EFFECT: a scan that read nothing must not report a clean tree.
 if (modules.length < 50) {
-  console.error(`REFUSING: only ${modules.length} compiled module(s) found — the scan is not looking at a real build.`);
+  console.error(
+    `REFUSING: only ${modules.length} compiled module(s) found — the scan is not looking at a real build.`,
+  );
   process.exit(2);
 }
 
