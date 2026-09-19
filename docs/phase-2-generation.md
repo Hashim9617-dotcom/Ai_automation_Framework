@@ -2898,3 +2898,56 @@ mutation that did not compile.
 It was caught only because the harness printed every error's location, and the
 one location did not match the property being tested. A harness that printed
 "compiled: NO" and nothing else would have hidden it.
+
+---
+
+## R. A stub removes the ORDER from the test, and the order was the feature (2026-09-19)
+
+The entry verifier's unit suite was **7/7 green**. Its stub page had a `goto`
+that did nothing, so the first real browser run contradicted it immediately:
+after a successful sign-in, `page.goto('/employees')` came back
+`registerEmployee=0 signIn=1` with the URL rewritten to `/login`. The demo app
+kept no session, `goto` erased the login, and no route reached the employees
+screen at all.
+
+Every individual thing the stub checked was right. Auth was called before
+navigation; a failure at each stage produced that stage's reason; the sign-in
+happened once. What the stub could not contain was the one property that IS the
+feature:
+
+> **A stub tests the LOGIC. The ORDER — auth, then navigate, then prove — is only
+> testable on a real page, because a stub's `goto` cannot destroy what the
+> sign-in established.**
+
+Worse than a missed case, because of what it did to the control. The positive
+control exists to show the verifier is not vacuous — a verifier that refused
+everything would pass both failure cases. Against an app with no session, that
+control **would have passed with the sign-in deleted.** The test whose entire job
+is to prove the thing is not vacuous was itself vacuous, and nothing in the suite
+could say so.
+
+This is the second row of the family table in `CLAUDE.md` — "the stub executor /
+the executor works / a real page" — arriving as a measured instance rather than a
+worry. The mock gateway and the inherited environment were the other two.
+
+### Two things the finding depended on, neither of them the finding
+
+**The probe asserted its own premise.** Before measuring what `goto` did, it
+asserted the sign-in had actually happened. Measuring a navigation after a login
+that silently failed answers a different question, and answers it confidently.
+
+**The fix was measured in BOTH directions.** The obvious check is "after a
+sign-in, a navigation keeps the session" — it went from `0/1` to `1/0`. The
+second is what makes it a session at all:
+
+| measured                              | before                        | after                         |
+| ------------------------------------- | ----------------------------- | ----------------------------- |
+| after sign-in, `goto('/employees')`   | `registerEmployee=0 signIn=1` | `registerEmployee=1 signIn=0` |
+| a FRESH context, `goto('/employees')` | `registerEmployee=0 signIn=1` | `registerEmployee=0 signIn=1` |
+
+Without the second row, "the authenticated view is now reachable" is equally
+satisfied by a REMOVED CHECK — an app that shows the employees screen to
+everyone. Both rows pass only for a real session, which is why both were run.
+
+> **When a change makes something start succeeding, measure the case that must
+> still FAIL.** One direction alone cannot tell a fix from a deletion.

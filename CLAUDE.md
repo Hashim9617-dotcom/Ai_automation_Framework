@@ -834,6 +834,30 @@ convenient: git consults neither variable, so its verdict cannot differ between
 the two environments. A guard that flags what cannot break gets an allow-list,
 and an allow-list eventually swallows a real case.
 
+### A stub removes the ORDER from the test, and sometimes the order is the feature
+
+**The middle row of that table stopped being hypothetical on 2026-09-19.** The
+entry verifier's unit suite was 7/7 green behind a stub page whose `goto` did
+nothing. The first real browser run contradicted it: the app kept no session, so
+`goto` erased the sign-in and no route reached the authenticated screen.
+
+Each thing the stub checked was correct — auth before navigation, a reason per
+stage, one sign-in per run. What a stub cannot hold is the SEQUENCE, because a
+stub's `goto` cannot destroy what the sign-in established.
+
+> **A stub tests the LOGIC. An ORDER — do this, then that, and the second must
+> not undo the first — is only testable against the real thing.**
+
+And the damage lands on the control, which is what makes it expensive: the
+positive control exists to show the verifier is not vacuous, and against an app
+with no session **it would have passed with the sign-in deleted.** The test whose
+whole job is to prove the thing is not vacuous was itself vacuous.
+
+**When a change makes something start succeeding, measure the case that must
+still FAIL.** "The authenticated view is now reachable" is equally satisfied by a
+removed check — an app that shows it to everyone. Both directions were measured
+here (a fresh context still lands on the login view), and only both together
+tell a fix from a deletion. Full working in `docs/phase-2-generation.md` §R.
 #### The audit question to ask at every spawn site
 
 Two questions, and only the pair is diagnostic:
