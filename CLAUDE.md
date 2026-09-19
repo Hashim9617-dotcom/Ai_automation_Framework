@@ -295,9 +295,18 @@ own effect is the same error in miniature.
   > BOM, the soft hyphen, the bidi overrides and the zero-width joiners without
   > anyone naming them.
 
-  Same lesson as the app-agnostic audit, where a keyword list was replaced by
+  Same lesson as the app-agnostic audit, where a keyword list was answered by
   deleting `tests/app/` and rebuilding: when a check depends on a list you
   wrote, find the structural version of the question.
+
+  **But that experiment answered a narrower question than it was read as
+  answering**, which is worth carrying: deleting a directory and rebuilding
+  looks at what code DEPENDS ON, never at what it CONTAINS. Two instances have
+  survived it — `dataFactory.employee()` and `'SOC DMS'` in
+  `final-test-cases.ts` — both for the same reason, that nothing references
+  them. The slug guard added on 2026-09-19 reads content, but only for declared
+  application slugs; domain vocabulary is still a hand-written list.
+  See `docs/phase-2-generation.md`, "Is the platform actually app-agnostic?".
 
 - **Captures and traces are gitignored and stay that way.** They contain live
   session tokens and real customer data. See `docs/WHERE-WE-ARE.md`.

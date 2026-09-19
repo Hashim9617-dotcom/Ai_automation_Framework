@@ -2205,7 +2205,33 @@ So the experiment can see a coupling, and saw none.
 
 **What it proves and what it does not.** It proves _build-time and test-time_
 independence: nothing in the agnostic layers imports the DMS suite, and nothing
-reads it from disk on any path exercised above. It does not exercise the
+reads it from disk on any path exercised above.
+
+> **It does NOT prove that `packages/` holds no application knowledge.** The
+> experiment deletes a directory and rebuilds, so it can only see what something
+> DEPENDS ON. **It looks at dependencies, not at content** — and a string nobody
+> references survives it precisely because nobody references it.
+
+Two known instances have survived it, both found by reading rather than by the
+experiment:
+
+- **`dataFactory.employee()`** (2026-09-07, observation 1 above): HR-domain data
+  in `packages/execution-engine`, with zero call sites. It passed the delete
+  experiment because nothing imported it — which is the same fact as "it is
+  dead", read from the other side.
+- **`'SOC DMS'` in `packages/shared/src/authored/final-test-cases.ts`**
+  (2026-09-19): a column header from one customer's workbook, in the
+  by-position column list. It is referenced only as data inside its own file, so
+  no deletion elsewhere can disturb it. Found by the slug guard below, not by
+  the experiment, and recorded as that guard's one named exception.
+
+**The slug guard closes half of this gap.** It reads code rather than
+dependencies, so content of that shape is now caught — but only for DECLARED
+APPLICATION SLUGS, taken from `config/apps/` and the `application` field of the
+environment files. `dataFactory.employee()` is not a slug; it is domain
+vocabulary, and no slug-derived guard can see it. Extending the same derivation
+to domain vocabulary is still open, and `DOMAIN_VOCABULARY` in
+`tests/unit/app-agnostic.spec.ts` remains a hand-written list until it is. It does not exercise the
 scripts that need a live application (`pnpm auth`, `pnpm inspect`, `pnpm heal`),
 so their runtime behaviour is covered only by the typecheck — which is
 sufficient here because a grep confirms none of them reads a `tests/app` path,
