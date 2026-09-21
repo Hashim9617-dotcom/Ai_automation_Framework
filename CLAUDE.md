@@ -117,6 +117,16 @@ exactly that. So each mutation declares what should catch it:
 > A type error anywhere else is VOID, not caught** (`docs/phase-2-generation.md`
 > §Q).
 
+> **A check must assert that it received INPUT — not that it succeeded, that it
+> had a subject.** A check that ran on nothing reports success, and that is a
+> different rule from asserting your own effect: the effect rule asks whether
+> what you did landed, this one asks whether there was anything to do it to
+> (§T).
+
+> **A claim that safety moved from A to B is tested by DELETING A.** Confirming
+> that B works is a fact about B; B working is compatible with A still carrying
+> the weight (§V).
+
 **Measured here, because the failure mode is not the obvious guess:** Playwright
 transpiles without typechecking, so a _type_ error in a mutation is invisible
 and 203 tests still pass; a _syntax_ error aborts Babel before any test runs,

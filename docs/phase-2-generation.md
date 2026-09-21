@@ -2951,3 +2951,145 @@ everyone. Both rows pass only for a real session, which is why both were run.
 
 > **When a change makes something start succeeding, measure the case that must
 > still FAIL.** One direction alone cannot tell a fix from a deletion.
+
+---
+
+## S. A guard can only refuse what its LOCATION can see (2026-09-21)
+
+The place a guard goes is decided by what is observable there. It is not decided
+by where the mistake feels like it belongs, and those two are routinely different
+places.
+
+SEC-3 picked the location for one refusal three times — `globalSetup`, a per-test
+fixture, `resolveEnvName()` itself — each time by argument, none of them by
+looking at what that vantage point can actually distinguish. Measured, three of
+the four candidates cannot see the thing being refused at all:
+
+| candidate location  | can it tell a fixture surface from a live one?                                                                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `globalSetup`       | **No.** It runs for every invocation, and the `FullConfig` it is handed listed all six projects under `--project=unit` and `--project=chromium` alike — selection arrives unfiltered. |
+| a per-test fixture  | Yes — but it runs AFTER global setup, which is after the act being prevented.                                                                                                         |
+| `resolveEnvName()`  | **No.** `ensureDotenv()` merges `.env` into `process.env` before the read, so by then the value is flat and its layer is gone.                                                        |
+| a **setup project** | Yes. Measured: a selected project's `dependencies` ran, and a NON-selected project's dependency did not.                                                                              |
+
+> **Before choosing where a guard lives, measure what that location can
+> distinguish.** A guard in a blind spot has only two behaviours available to it
+> — refuse everything or refuse nothing — and both look reasonable in review.
+
+The corollary is the useful half: when no existing location can see it, the fix
+is not a cleverer condition, it is a location that can. Here that meant creating
+one, because Playwright's dependency graph is the only place in a run that knows
+which surface was asked for.
+
+---
+
+## T. A check that ran on NOTHING reports success (2026-09-21)
+
+Three measured instances in one session, all from the same tool, none of them
+the same mistake twice:
+
+1. **`prettier --check`, over a path that matched no files.** A section was
+   copied to the scratchpad — outside the repository — and checked there. The
+   path matched nothing and the output was
+   `All matched files use Prettier code style!`, exit 0.
+2. **`prettier --check`, over an extracted FRAGMENT.** The added prose of a
+   section was cut out of this file into `.lfcheck-r.md` and checked on its own.
+   Clean — while the file it came from was not, because the blank line before the
+   next heading is not part of the fragment.
+3. **`prettier --check tests/fixtures/generation/four-mistakes.html`, while that
+   path is in `.prettierignore`.** The same sentence again, for a third reason,
+   and indistinguishable from the file being correctly formatted.
+
+### The fourth instance was withdrawn, and the withdrawal belongs here
+
+A fourth was recorded and then removed: _"`playwright test tests/demo` with no
+`TEST_ENV` collects 0 tests and exits 0"_. A guard was designed on it and a whole
+sub-step scheduled.
+
+It was false. The number came from
+
+```
+npx playwright test tests/demo --project=chromium --list 2>&1 | tail -3; echo "exit=$?"
+```
+
+where `$?` is **`tail`'s** status, not Playwright's. Measured without the pipe:
+`Error: No tests found.` and **exit 1**. There was no hole; the guard was
+withdrawn.
+
+Keeping it in the section would have been the easy choice and the wrong one. Its
+removal is the strongest entry here, because the way the wrong number was
+produced — reading an exit code through a pipe, so the measurement reports on a
+command nobody was asking about — **is this section's own shape, arriving in the
+METHOD rather than in a tool.**
+
+> **A check must assert that it received input.** Not that it succeeded — that it
+> had a subject.
+
+### How this differs from "assert your own effect", which it resembles
+
+The existing rule ("any script that edits or scans must assert its own effect
+before reporting success") is about the **output**: I did something, did it land?
+
+§T is about the **input**: was there anything to do it to?
+
+They are not the same rule and they fail on different days. A checker performs no
+edit, so it has no effect to assert and the older rule never fires for it — yet
+it is the most common thing to run over an empty set. And a scan whose file list
+came out empty can assert its effect perfectly (nothing needed changing, nothing
+changed) while being worth nothing.
+
+**The tell is different too.** The effect rule fires when you wrote something and
+the target did not move. §T fires when you asked a question, got "fine", and
+nobody was asked.
+
+---
+
+## U. A HALF-PINNED target is not pinned (2026-09-21)
+
+SEC-3a pinned the demo project's `baseURL` to the bundled app with a literal in
+the config, and that was checked and correct. Everything else a test reads from
+its environment — credentials, timeouts, the application slug — came from a
+SECOND resolution inside the worker fixture, which was still ambient.
+
+So with `.env` naming the customer system, the demo suite ran **against the
+fixture's URL carrying the live environment's configuration**, and twelve tests
+failed. That state is worse than either pure one: a run pointed at the demo app
+while holding a customer system's settings is not a thing anyone designed or
+would notice from the config.
+
+> **A pin that covers ONE input to a target is not a pin.** Enumerate every input
+> the target flows into, not the one the field is named after.
+
+The general form: when a value is "fixed", ask how many independent paths reach
+the thing it is fixing. If the answer is more than one, fixing the named path
+produces a mixture, and a mixture is harder to see than either extreme.
+
+---
+
+## V. When the claim is that safety moved from A to B, the control REMOVES A (2026-09-21)
+
+SEC-3a claimed the protection had moved out of a wrapper script and into the
+configuration. Five controls were run against that claim and all five were green
+while the system was half broken.
+
+The sixth was the only one that tested the claim: delete the wrapper's
+`TEST_ENV`, keep everything else, and look. **Twelve tests failed**, which is how
+§U above was found.
+
+The other five checked that B works. That is a fact about B. The claim was that
+**A is no longer load-bearing**, and the only observation that can falsify it is
+removing A.
+
+> **A claim of the form "X is now handled by B instead of A" is tested by
+> deleting A.** Confirming B is not evidence; B working is compatible with A
+> still carrying the weight.
+
+### Not the same failure as §T, and the difference is the point
+
+In §T the check never ran on the thing at all — it reported success over an empty
+set.
+
+Here **five checks ran on the real thing, observed it correctly, and still
+missed**, because every one of them was pointed at the new mechanism rather than
+at the old one's absence. A check can be perfectly sound and aimed at the wrong
+question.
