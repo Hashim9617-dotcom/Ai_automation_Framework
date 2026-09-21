@@ -453,6 +453,80 @@ cross-check against the real dashboard. Two spot-checks, not coverage.
 
 ---
 
+## Phase 2 status: step 4, authored sheet rows
+
+Design: [`docs/phase-2-authored-cases.md`](phase-2-authored-cases.md), which is
+the authority. This is the orientation summary, written 2026-09-21.
+
+**`executeAuthoredRows` is BUILT, VERIFIED, and NOT WIRED.**
+
+Every one of its five call sites is a test, all under `tests/`. `apps/api`'s
+command service declines to run authored rows in writing — _"Reporting the match
+honestly beats pretending to run it"_ — and does not call it. So the accounting,
+the entry verifier, the report writer and the guards around them are real and
+exercised against a real browser; nothing in production reaches them yet.
+
+That is the first sentence of this record rather than the last. What exists was
+verified the expensive way — mutation runs with declared verdicts, a real-browser
+suite that contradicted a green unit suite, controls that removed the old
+protection rather than confirming the new one. Wiring it is the next DECISION,
+not a missing piece of the same work.
+
+### What is open, verified against the tree on 2026-09-21
+
+Three of these were carried forward from working notes and did not survive the
+check as written. The correction is in the row, because a stale item quietly
+dropped is worse than one that was never listed.
+
+| #   | Open item                                                                                                                                                                 | State in the tree                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **No committed mutation harness**, although `CLAUDE.md` says to keep one.                                                                                                 | Confirmed: nothing in `scripts/`, and the only reference to `AITP_MUTATION_RUN` is `tests/unit/no-mutation-residue.spec.ts`. Every harness so far has been a throwaway.                                                                                                                                                                                                                                                              |
+| 2   | **Nothing is keyed by `Owner`.**                                                                                                                                          | **Corrected.** `OWNER_OF` IS read — twice, at `execute.ts:422` and `:493`, to populate `owner` on a result. What nothing does is DECIDE anything from it: the report routes on `SECTION_OF` (`report.ts:233`). Measured: adding a member to `Owner` (`resolver.ts:76`) compiles with **0 errors**. Settle this before `apps/web`, whose dashboard prototype groups by owner.                                                         |
+| 3   | **`'SOC DMS'` still has a named exception**; the real fix (per-sheet column config) is deferred.                                                                          | **Corrected location.** The string is at `final-test-cases.ts:62`; the named exception is in `tests/unit/app-agnostic.spec.ts`'s `KNOWN_VIOLATIONS`, which points at it.                                                                                                                                                                                                                                                             |
+| 4   | **`health.module.ts:13` reads `process.env.TEST_ENV ?? 'qa'`** — the exact expression `resolveEnvName()` was created to remove, back in a newer file, caught by no guard. | Confirmed verbatim. **The recurrence is the item**, not one more bypass: a rule enforced only by the function people are supposed to call is re-derivable by anyone who does not call it.                                                                                                                                                                                                                                            |
+| 5   | **`Jenkinsfile` offers `TEST_ENV` choices `['qa','staging']`** — `app` is not an option.                                                                                  | Confirmed at `infra/jenkins/Jenkinsfile:12`. CI has never touched the environment where all the live work happens.                                                                                                                                                                                                                                                                                                                   |
+| 6   | **Plaintext credentials committed in `config/env/local.json`.**                                                                                                           | Confirmed, and narrower than stated: `local.json` alone is plaintext; `app`, `qa` and `staging` use `${VAR}` placeholders. **The pattern is the problem, not these credentials** — the demo app's password is in its own HTML. "Auth always comes from `.env`" assumed two sources, the shell and `.env`; a committed config file is a third, and one file uses it today.                                                            |
+| 7   | Deferred: slug-collision check in `pnpm onboard`; per-application `artifacts/` layout; the `moduleOf` plumbing decision.                                                  | **Corrected:** `pnpm onboard` **does not exist** — the check is deferred to a command still to be written. `artifacts/` is flat today (`auth`, `inspect`, `reports`, `runs`, `smoke`, `test-results`). The `moduleOf` decision is deliberately timed: it belongs to whoever writes the first real implementation, because that is the first moment anyone can tell whether its two sources are genuinely two (`execute.ts:259-268`). |
+| 8   | Onboarding is not broken by removing the `'qa'` fallback.                                                                                                                 | Confirmed: `.env.example:6` ships `TEST_ENV=local`, so a fresh clone lands on the bundled fixture rather than on a refusal.                                                                                                                                                                                                                                                                                                          |
+
+### On the missing harness, specifically
+
+The reusable part is not a harness. It is the **core**: the three controls
+(known-CAUGHT, known-SURVIVING, known-VOID), the tree-restore verification that
+compares the working tree to the state it started in, and §Q's declared-location
+check for a compile catch. Mutations belong to the work they test and should
+stay disposable; those three pieces are what has repeatedly caught harness bugs
+rather than code bugs, and they are what gets rewritten from scratch each time.
+
+### Premises that fell BEFORE the work built on them
+
+Three times in step 4 a premise was refuted by the measurement taken before
+starting, not by a failure afterwards. Naming them is the point: the controls
+are working, and in all three the cost landed early instead of late.
+
+1. **Step 2b's "before" control.** It was meant to show that report sections
+   were unprotected. It failed — in the WRONG PLACE: on E5's hand-built
+   `RunTally` literal, nothing to do with sections. Read as "the control failed,
+   so the guard works" the conclusion would have been exactly backwards. This is
+   the origin of §Q.
+2. **4e-3, the demo collection guard.** The premise was "`playwright test
+tests/demo` without `TEST_ENV` collects 0 tests and exits 0". Measured
+   directly: `Error: No tests found.`, **exit 1**. The original number came from
+   reading `$?` through a pipe, where it reports `tail`'s status. There was no
+   hole; the guard was withdrawn after being designed and scheduled (§T).
+3. **SEC-3a's pre-condition.** Before building a guard in `globalSetup`, the
+   question "can it see which project was selected?" was measured: the
+   `FullConfig` it receives listed all six projects under `--project=unit` and
+   `--project=chromium` alike. It cannot. The whole design moved to a setup
+   project as a result (§S).
+
+   _(Naming note: `V1` was the LATER measurement in the same step — that a
+   selected project's dependencies run and a non-selected project's do not — and
+   it confirmed its assumption rather than refuting it. The premise that fell was
+   the pre-condition above.)_
+
+---
+
 ## The exact next command to run
 
 ```powershell
