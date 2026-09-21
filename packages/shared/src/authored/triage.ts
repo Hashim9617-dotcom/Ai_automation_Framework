@@ -63,6 +63,13 @@ export interface CeilingPair {
    */
   withAllModulesCaptured: number;
   /** The assumptions, carried beside the numbers rather than beneath them. */
+  /**
+   * SHEET MODULE KEYS, not screens — the count is over the sheet's Module
+   * column as written. Two keys can name one screen (`Document` and
+   * `File Explorer` share a capture) and casing makes `User Role` and
+   * `user role` two. Renamed in the rendered text rather than deduplicated:
+   * merging them changes the number, and that is a separate decision.
+   */
   modulesCaptured: number;
   modulesTotal: number;
   rowsBlockedByMissingCapture: number;
@@ -260,9 +267,9 @@ export function renderTriage(triage: TriageResult): string {
     '| Ceiling | Value | Measured with |',
     '| --- | ---: | --- |',
     `| **With today's captures** | **${(ceiling.withCurrentCaptures * 100).toFixed(1)}%** | ` +
-      `${ceiling.modulesCaptured} of ${ceiling.modulesTotal} modules captured |`,
+      `${ceiling.modulesCaptured} of ${ceiling.modulesTotal} sheet module keys captured |`,
     `| **Once every module is captured** | **${(ceiling.withAllModulesCaptured * 100).toFixed(1)}%** | ` +
-      `all ${ceiling.modulesTotal} modules, same clause rules |`,
+      `all ${ceiling.modulesTotal} sheet module keys, same clause rules |`,
     '',
     `${counts.automatable} of ${triage.rows.length} rows have nothing structural standing in the ` +
       `way today. ${ceiling.rowsBlockedByMissingCapture} more are blocked only because nobody has ` +

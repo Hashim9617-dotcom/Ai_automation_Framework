@@ -63,24 +63,74 @@ const MODULE_ROUTES: Record<string, string> = {
   // 'Audit Logs': '…',
 };
 
-/** Capture labels actually on disk. Derived, so it cannot go stale. */
-function capturedRoutes(root: string): Set<string> {
+/** Path segments, with the origin and any leading/trailing slashes gone. */
+function segmentsOf(value: string): string[] {
+  return value
+    .replace(/^\/+|\/+$/g, '')
+    .split('/')
+    .filter(Boolean);
+}
+
+/**
+ * Does a captured path sit AT or BENEATH the route a module names?
+ *
+ * Segment-wise, never `startsWith`. A string prefix pairs `/upload` with
+ * `upload-files` — silently, and in the flattering direction, because it
+ * manufactures a capture nobody took. Comparing segments makes `upload` and
+ * `upload-files` two different first segments, while `/admin/users/123` still
+ * sits beneath `admin/users` where it belongs.
+ */
+function pathMatchesRoute(capturedPath: string, route: string): boolean {
+  const want = segmentsOf(route);
+  const got = segmentsOf(capturedPath);
+  if (want.length === 0 || got.length < want.length) return false;
+  return want.every((segment, index) => got[index] === segment);
+}
+
+/**
+ * The PATHS actually captured, from the URL each capture recorded.
+ *
+ * Pairing used to compare the NAME a human typed at capture time — `page.label`
+ * or `slugify(label)`. That name is free text: `inspect-app.ts` proposes
+ * `<route>.<heading>` and slugifies it, so accepting the proposal on
+ * `/dashboard` produces `dashboard-dashboard`, which paired with nothing. Two
+ * of the nine sessions on disk were orphaned that way while their URLs said
+ * exactly which screen they were.
+ *
+ * Both capture formats carry the address, so both pair the same way here:
+ * `pages.json` entries have `url`, and `capture.json` states have `url`.
+ *
+ * A URL that cannot be parsed is COLLECTED, never dropped — a capture silently
+ * missing from this set understates the coverage, which understates a ceiling
+ * that gets quoted.
+ */
+function capturedPaths(root: string): { paths: Set<string>; unparseable: string[] } {
   const dir = path.join(root, 'artifacts', 'inspect');
-  const labels = new Set<string>();
-  if (!existsSync(dir)) return labels;
+  const paths = new Set<string>();
+  const unparseable: string[] = [];
+  if (!existsSync(dir)) return { paths, unparseable };
+
+  const add = (url: unknown, where: string): void => {
+    if (typeof url !== 'string') return void unparseable.push(`${where}: no url`);
+    try {
+      paths.add(new URL(url).pathname);
+    } catch {
+      unparseable.push(`${where}: ${url}`);
+    }
+  };
+
   for (const session of readdirSync(dir)) {
     const pages = path.join(dir, session, 'pages.json');
     if (existsSync(pages)) {
-      for (const page of JSON.parse(readFileSync(pages, 'utf8'))) labels.add(page.label);
+      for (const page of JSON.parse(readFileSync(pages, 'utf8'))) add(page.url, session);
     }
     const capture = path.join(dir, session, 'capture.json');
     if (existsSync(capture)) {
-      for (const state of JSON.parse(readFileSync(capture, 'utf8')).states ?? []) {
-        labels.add(state.id);
-      }
+      for (const state of JSON.parse(readFileSync(capture, 'utf8')).states ?? [])
+        add(state.url, session);
     }
   }
-  return labels;
+  return { paths, unparseable };
 }
 
 function main(): void {
@@ -90,23 +140,42 @@ function main(): void {
   const outDir = outIndex > 0 ? process.argv[outIndex + 1] : undefined;
 
   const root = findRepoRoot();
-  const routes = capturedRoutes(root);
-  if (routes.size === 0)
+  const { paths, unparseable } = capturedPaths(root);
+  if (paths.size === 0)
     throw new Error('no captures found under artifacts/inspect — refusing to report a ceiling');
+
+  const matchFor = (route: string): string | undefined =>
+    [...paths].sort().find((captured) => pathMatchesRoute(captured, route));
 
   const capturedModules = new Set(
     Object.entries(MODULE_ROUTES)
-      .filter(([, route]) => routes.has(route))
+      .filter(([, route]) => matchFor(route) !== undefined)
       .map(([module]) => module),
   );
 
-  console.log(`captures on disk: ${[...routes].sort().join(', ')}`);
-  console.log('\nmodule -> capture pairing used (check this by eye):');
-  for (const [module, route] of Object.entries(MODULE_ROUTES)) {
+  console.log(`paths captured: ${[...paths].sort().join(', ')}`);
+  if (unparseable.length > 0) {
     console.log(
-      `  ${module.padEnd(30)} -> ${route}${routes.has(route) ? '' : '   ** NOT ON DISK **'}`,
+      `  ** ${unparseable.length} capture(s) with no usable url: ${unparseable.join('; ')}`,
     );
   }
+
+  console.log('\nmodule -> capture pairing used (check this by eye):');
+  for (const [module, route] of Object.entries(MODULE_ROUTES)) {
+    const hit = matchFor(route);
+    console.log(`  ${module.padEnd(30)} -> ${route.padEnd(18)} ${hit ?? '** NOT ON DISK **'}`);
+  }
+
+  // Captured but unpaired: a screen someone walked that no module names. This
+  // is the actionable direction — the capture exists, the pairing does not.
+  const orphans = [...paths]
+    .filter((captured) => !Object.values(MODULE_ROUTES).some((r) => pathMatchesRoute(captured, r)))
+    .sort();
+  console.log(
+    orphans.length === 0
+      ? '\ncaptured but unpaired: none'
+      : `\ncaptured but unpaired (${orphans.length}): ${orphans.join(', ')}`,
+  );
 
   const sheet = readFinalTestCases(readSheetGrid(readFileSync(workbook), 'Final Test cases'));
   if (sheet.rows.length === 0) throw new Error('read 0 rows — refusing to report a ceiling');
@@ -117,7 +186,7 @@ function main(): void {
   console.log(`\nrows read: ${sheet.rows.length} (+${sheet.unreadable.length} unreadable)`);
   console.log(
     `ceiling with today's captures : ${(ceiling.withCurrentCaptures * 100).toFixed(1)}%  ` +
-      `(${ceiling.modulesCaptured} of ${ceiling.modulesTotal} modules)`,
+      `(${ceiling.modulesCaptured} of ${ceiling.modulesTotal} sheet module keys)`,
   );
   console.log(
     `ceiling once all are captured : ${(ceiling.withAllModulesCaptured * 100).toFixed(1)}%  ` +

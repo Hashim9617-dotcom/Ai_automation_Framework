@@ -255,7 +255,11 @@ test.describe('the ceiling carries its own assumptions (T6) @unit', () => {
     const markdown = renderTriage(triageSheet(rows, CAPTURED));
     expect(markdown).toContain("With today's captures");
     expect(markdown).toContain('Once every module is captured');
-    expect(markdown).toContain('1 of 2 modules captured');
+    // "sheet module keys", not "modules": the count is over the sheet's Module
+    // column as written, where two keys can name one screen and casing makes
+    // `User Role` and `user role` two. The COUNT is unchanged — only the noun
+    // that says what it counts.
+    expect(markdown).toContain('1 of 2 sheet module keys captured');
     expect(markdown).toContain('not the ceiling of this approach');
   });
 
