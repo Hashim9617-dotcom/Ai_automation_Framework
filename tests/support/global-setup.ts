@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
-import { loadEnvironment, pruneDirectories } from '@aitp/execution-engine';
+import { pruneDirectories } from '@aitp/execution-engine';
 import { rootLogger } from '@aitp/shared';
 
 const log = rootLogger.child('global-setup');
@@ -29,8 +29,19 @@ const MAX_ARCHIVE_AGE_DAYS = 14;
 
 /**
  * Runs once before the whole suite. Keep it cheap: anything per-test belongs in
- * a fixture. Authentication state seeding (storageState) also goes here once the
- * real application is wired in.
+ * a fixture.
+ *
+ * **It resolves NO environment, deliberately (SEC-3a).** Measured 2026-09-21:
+ * Playwright runs this for every invocation regardless of `--project`, and the
+ * config it is handed lists every project whichever one was selected — so it
+ * cannot tell a fixture surface from a live one. Anything that needs to know
+ * which was asked for belongs in `tests/support/live-setup.ts`, a setup project
+ * only live projects depend on. What is left here is genuinely universal:
+ * pruning and directory hygiene, which no environment changes.
+ *
+ * The archive cap in particular STAYS here rather than moving with the rest,
+ * because its own note says it has to hold on every run however the suite was
+ * invoked — and behind a live-only dependency it would not.
  *
  * Deliberately does NOT try to archive the previous run's artifacts here —
  * Playwright wipes its own `outputDir` (test-results) internally before this
@@ -42,7 +53,6 @@ const MAX_ARCHIVE_AGE_DAYS = 14;
  * survives everything.
  */
 export default async function globalSetup(): Promise<void> {
-  const env = loadEnvironment();
   const artifacts = path.join(process.cwd(), 'artifacts');
 
   if (process.env.CLEAN_ARTIFACTS !== 'false') {
@@ -66,11 +76,4 @@ export default async function globalSetup(): Promise<void> {
       runIds: pruned,
     });
   }
-
-  log.info('Suite starting', {
-    environment: env.name,
-    baseUrl: env.baseUrl,
-    selfHealing: env.features.selfHealing,
-    aiRootCause: env.features.aiRootCause,
-  });
 }

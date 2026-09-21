@@ -9,7 +9,17 @@ const log = rootLogger.child('environment');
 let cached: EnvironmentConfig | undefined;
 let dotenvLoaded = false;
 let resolvedEnvName: string | undefined;
-let printedResolution = false;
+/**
+ * Which environments this process has announced.
+ *
+ * Once per NAME, not once per process. SEC-3a made one process resolve two —
+ * the pinned fixture for the `demo` project and the ambient one for live
+ * projects — and a once-per-process flag printed whichever came first. That was
+ * `local`, on every live run: the run stated a target it was not using, which
+ * is SEC-2's failure with the sign reversed. Printing each distinct resolution
+ * is longer and true; printing one is shorter and sometimes a lie.
+ */
+const announced = new Set<string>();
 
 /**
  * Repo root, resolved by walking up for the workspace marker rather than by a
@@ -24,15 +34,40 @@ export function artifactsDir(...segments: string[]): string {
   return path.join(repoRoot(), 'artifacts', ...segments);
 }
 
+/**
+ * Where a `TEST_ENV` came from, kept only so a refusal can SAY so.
+ *
+ * `ensureDotenv()` merges `.env` into `process.env`, after which the value is
+ * flat and its origin is gone. Both layers are captured here before that
+ * happens: the shell's value (before the merge) and what `.env` itself parsed.
+ * Nothing decides anything from these — the refusal below turns on the NAME
+ * being absent, not on where a present one came from. They exist because
+ * "TEST_ENV is not set" is useless next to "TEST_ENV=app, from .env, and this
+ * surface needs a fixture".
+ */
+let shellTestEnv: string | undefined;
+let dotenvTestEnv: string | undefined;
+
+/** One sentence naming the value and its layer, for error messages only. */
+export function describeEnvNameSource(): string {
+  if (shellTestEnv) return `TEST_ENV=${shellTestEnv} (exported in the shell)`;
+  if (dotenvTestEnv) return `TEST_ENV=${dotenvTestEnv} (from .env)`;
+  return 'TEST_ENV is set in neither the shell nor .env';
+}
+
 function ensureDotenv(): void {
   if (dotenvLoaded) return;
   dotenvLoaded = true;
+
+  // Captured BEFORE the merge: afterwards `process.env.TEST_ENV` cannot say
+  // whether the shell or `.env` supplied it.
+  shellTestEnv = process.env.TEST_ENV;
 
   // Base .env is loaded unconditionally, first — TEST_ENV itself usually
   // lives here, so it must be readable before anything downstream (including
   // resolveEnvName, below) asks what environment this run targets.
   const baseFile = path.join(repoRoot(), '.env');
-  if (existsSync(baseFile)) loadDotenv({ path: baseFile });
+  if (existsSync(baseFile)) dotenvTestEnv = loadDotenv({ path: baseFile }).parsed?.TEST_ENV;
 
   // Only now do we know which env-specific override file (if any) to layer
   // on top. override:true so a value here beats what the base .env set for
@@ -72,17 +107,36 @@ export function resolveEnvName(): string {
 
   const name = process.env.TEST_ENV;
   if (!name) {
-    resolvedEnvName = 'qa';
-    log.warn(
-      'TEST_ENV is not set — checked .env and the shell, found neither. Assuming "qa". ' +
-        'Sessions will be read from and written to artifacts/auth/qa.json. Set TEST_ENV ' +
-        'in .env (or export it) if that is not the environment you meant to target.',
-      { assumedEnvironment: 'qa', assumedAuthFile: 'artifacts/auth/qa.json' },
+    // NO FALLBACK. It used to assume "qa" — a live environment, chosen by a
+    // default rather than by anyone, and then written into the path that stores
+    // live session cookies. A guess about which system to touch is the one
+    // guess this repo cannot afford, and an assumption that reads as a decision
+    // is worse than a refusal that reads as one.
+    throw new ConfigError(
+      'refusing to run: no environment was named. ' +
+        `${describeEnvNameSource()}. ` +
+        'Name one explicitly — TEST_ENV=local for the bundled demo app, or the key of a ' +
+        'file in config/env/ for a real system. There is no default: every default here ' +
+        'is a live system somebody did not choose.',
     );
-  } else {
-    resolvedEnvName = name;
   }
+  resolvedEnvName = name;
   return resolvedEnvName;
+}
+
+/**
+ * The ambient name, or `undefined` — for callers that must not demand one.
+ *
+ * `playwright.config.ts` is loaded for EVERY invocation, including one that
+ * only touches fixture projects. If it resolved the ambient environment
+ * strictly, naming no environment would refuse a demo run too, and the pinned
+ * fixture project would not be pinned to anything. So the config asks this, and
+ * the refusal lives where it can tell a live surface from a fixture one: the
+ * setup project a live project depends on.
+ */
+export function ambientEnvName(): string | undefined {
+  ensureDotenv();
+  return process.env.TEST_ENV || undefined;
 }
 
 /**
@@ -182,11 +236,11 @@ export function loadEnvironment(envName = resolveEnvName()): EnvironmentConfig {
 
   cached = { ...parsed.data, ...overrides };
 
-  // Once per process: exactly what a run resolved to, so a wrong environment
-  // or a stale/misnamed session is obvious from the first line of output
-  // instead of discovered forty-five failures later.
-  if (!printedResolution) {
-    printedResolution = true;
+  // Once per environment NAME: exactly what this process resolved, so a wrong
+  // environment or a stale/misnamed session is obvious from the first lines of
+  // output instead of discovered forty-five failures later.
+  if (!announced.has(cached.name)) {
+    announced.add(cached.name);
     log.info('Resolved environment', {
       environment: cached.name,
       baseUrl: cached.baseUrl,
@@ -201,5 +255,7 @@ export function resetEnvironmentCache(): void {
   cached = undefined;
   dotenvLoaded = false;
   resolvedEnvName = undefined;
-  printedResolution = false;
+  announced.clear();
+  shellTestEnv = undefined;
+  dotenvTestEnv = undefined;
 }

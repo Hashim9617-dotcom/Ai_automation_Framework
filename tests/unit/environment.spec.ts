@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { loadEnvironment, resolveEnvName, resetEnvironmentCache } from '@aitp/execution-engine';
+import {
+  ambientEnvName,
+  describeEnvNameSource,
+  loadEnvironment,
+  resolveEnvName,
+  resetEnvironmentCache,
+} from '@aitp/execution-engine';
 
 /**
  * Regression coverage for the bug that cost days to track down: TEST_ENV
@@ -45,10 +51,38 @@ test.describe('resolveEnvName', () => {
     expect(resolveEnvName()).toBe('staging');
   });
 
-  test('falls back to "qa" when TEST_ENV is set nowhere', () => {
+  test('REFUSES when TEST_ENV is set nowhere, naming both layers it looked in', () => {
+    // wrong: it returns "qa" — a live environment nobody chose, whose name then
+    // becomes the path live session cookies are written to. An assumption that
+    // reads as a decision. That is what this used to do (SEC-3a).
     writeFileSync(path.join(tempDir, '.env'), 'BASE_URL=https://example.test\n');
 
-    expect(resolveEnvName()).toBe('qa');
+    expect(() => resolveEnvName()).toThrow(
+      /no environment was named.*neither the shell nor \.env/s,
+    );
+  });
+
+  test('the refusal says WHERE a present value came from, shell or .env', () => {
+    // wrong: the message says only "TEST_ENV is not set", which is useless to
+    // someone whose .env does set it — they cannot tell the two layers apart,
+    // and `process.env` cannot tell them either once dotenv has merged.
+    writeFileSync(path.join(tempDir, '.env'), 'TEST_ENV=app\n');
+    resolveEnvName();
+    expect(describeEnvNameSource()).toBe('TEST_ENV=app (from .env)');
+
+    resetEnvironmentCache();
+    process.env.TEST_ENV = 'staging';
+    resolveEnvName();
+    expect(describeEnvNameSource()).toBe('TEST_ENV=staging (exported in the shell)');
+  });
+
+  test('ambientEnvName returns undefined rather than refusing', () => {
+    // wrong: it throws like resolveEnvName, and then loading the config at all
+    // requires an environment — so a fixture-only run cannot start and the
+    // pinned demo project is pinned to nothing.
+    writeFileSync(path.join(tempDir, '.env'), 'BASE_URL=https://example.test\n');
+
+    expect(ambientEnvName()).toBeUndefined();
   });
 });
 

@@ -1,14 +1,40 @@
 import { defineConfig, devices } from '@playwright/test';
-import { authStatePath, loadEnvironment } from './packages/execution-engine/src/config/environment';
+import type { AitpProjectOptions } from './packages/execution-engine/src/fixtures/core';
+import {
+  ambientEnvName,
+  authStatePath,
+  loadEnvironment,
+} from './packages/execution-engine/src/config/environment';
 import { describeTarget } from './packages/shared/src/command/target';
 
-const env = loadEnvironment();
 const isCI = Boolean(process.env.CI);
 
-// `local` runs the bundled demo app; every other environment runs the specs
-// written against the real application. Mixing them would point HR demo tests
-// at a customer's system.
-const isDemoEnvironment = env.name === 'local';
+/**
+ * SEC-3a: WHICH SURFACE decides the target, not the ambient environment.
+ *
+ * The `demo` project is PINNED to `local`. It cannot be redirected by
+ * `TEST_ENV`, because it never asks what `TEST_ENV` says — the name is a
+ * literal here. Before this, `tests/demo` ran under whatever the ambient
+ * environment happened to be, and with `.env` holding `TEST_ENV=app` that was
+ * the customer system.
+ */
+const demoEnv = loadEnvironment('local');
+
+/**
+ * The ambient environment, or `undefined` — deliberately NOT demanded here.
+ *
+ * This file is loaded for every invocation, including one that only touches
+ * fixture projects. Demanding a name here would refuse a demo run for lacking
+ * something a demo run does not use, and would leave the pinned project pinned
+ * to nothing. The refusal belongs where a live surface can be told from a
+ * fixture one, which is `tests/support/live-setup.ts` — a setup project only
+ * live projects depend on.
+ */
+const ambientName = ambientEnvName();
+const liveEnv = ambientName && ambientName !== 'local' ? loadEnvironment(ambientName) : undefined;
+
+/** Values the config needs before any project is chosen. Fixture-safe. */
+const base = liveEnv ?? demoEnv;
 
 // A session saved by `pnpm auth` (or, automatically, by the `setup` project
 // below) means tests start logged in — which is how the platform supports
@@ -22,32 +48,29 @@ const isDemoEnvironment = env.name === 'local';
 // yet at config-load time. Gating on existsSync here would have frozen
 // `storageState` at `undefined` for that whole run, permanently missing the
 // session `setup` was about to create.
-const savedSession = authStatePath(env.name);
-const storageState = isDemoEnvironment ? undefined : savedSession;
-const browserTestIgnore = [
-  '**/api/**',
-  '**/unit/**',
-  isDemoEnvironment ? '**/tests/app/**' : '**/tests/demo/**',
-];
+const savedSession = liveEnv ? authStatePath(liveEnv.name) : undefined;
+
+/** Live browser projects never collect the fixture suite, and never could. */
+const liveTestIgnore = ['**/api/**', '**/unit/**', '**/tests/demo/**'];
 
 /**
  * One config, every environment. Environment-specific values (URLs, timeouts,
  * retries, workers, feature flags) come from config/env/<TEST_ENV>.json so this
  * file never needs to change when a new environment is added.
  */
-export default defineConfig({
+export default defineConfig<AitpProjectOptions>({
   testDir: './tests',
   testMatch: '**/*.spec.ts',
   outputDir: './artifacts/test-results',
   fullyParallel: true,
   forbidOnly: isCI,
-  retries: isCI ? Math.max(env.retries, 1) : env.retries,
-  workers: isCI ? Math.min(env.workers, 4) : env.workers,
-  timeout: env.timeouts.test,
+  retries: isCI ? Math.max(base.retries, 1) : base.retries,
+  workers: isCI ? Math.min(base.workers, 4) : base.workers,
+  timeout: base.timeouts.test,
   globalSetup: './tests/support/global-setup.ts',
 
   expect: {
-    timeout: env.timeouts.expect,
+    timeout: base.timeouts.expect,
   },
 
   reporter: [
@@ -62,19 +85,18 @@ export default defineConfig({
         // the URL the browsers were actually pointed at, next to its label.
         // SEC-2: the label alone could not show `local` resolving to a
         // customer system.
-        target: describeTarget(env.name, env.baseUrl),
+        target: describeTarget(base.name, base.baseUrl),
       },
     ],
   ],
 
   use: {
-    baseURL: env.baseUrl,
-    actionTimeout: env.timeouts.action,
-    navigationTimeout: env.timeouts.navigation,
+    baseURL: base.baseUrl,
+    actionTimeout: base.timeouts.action,
+    navigationTimeout: base.timeouts.navigation,
     testIdAttribute: process.env.TEST_ID_ATTRIBUTE ?? 'data-testid',
-    ...(storageState ? { storageState } : {}),
-    trace: env.features.trace ? 'retain-on-failure' : 'off',
-    video: env.features.video ? 'retain-on-failure' : 'off',
+    trace: base.features.trace ? 'retain-on-failure' : 'off',
+    video: base.features.video ? 'retain-on-failure' : 'off',
     screenshot: 'only-on-failure',
     ignoreHTTPSErrors: true,
     locale: 'en-US',
@@ -82,48 +104,75 @@ export default defineConfig({
   },
 
   projects: [
-    // Logs in via LoginPage + APP_USERNAME/APP_PASSWORD and writes a fresh
-    // artifacts/auth/<env>.json before the browser projects run. Only needed
-    // against a real app — `local` runs the bundled demo, which has its own
-    // login-flow tests and no APP_USERNAME/PASSWORD to log in with. This is
-    // what lets the suite (~19 minutes) outlive DmsSynergy's 15-minute
-    // refresh_token TTL: every run starts from a guaranteed-fresh session
-    // instead of whatever `pnpm auth` last saved. `pnpm auth` is still there,
-    // unchanged, for SSO/MFA/OTP logins this can't script.
-    ...(isDemoEnvironment
-      ? []
-      : [
-          {
-            name: 'setup',
-            testMatch: /auth\.setup\.ts/,
-            // Never start from a stale/expired saved session — this project's
-            // whole job is to produce a fresh one.
-            use: { storageState: undefined },
-          },
-        ]),
+    /**
+     * THE FIXTURE PROJECT. Pinned to `local`, and depends on nothing.
+     *
+     * Its target is a literal in this file, so no ambient value can redirect
+     * it, and it does not depend on `live-setup` — so selecting it never runs
+     * the live sign-in. That absence is the point of SEC-3a, and it is checked
+     * by looking for the marker `live-setup` writes rather than by looking for
+     * nothing.
+     */
+    {
+      name: 'demo',
+      testMatch: '**/tests/demo/**/*.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        // The pin, carried all the way to the tests: this is what the `env`
+        // fixture resolves, not whatever TEST_ENV says.
+        environmentName: 'local',
+        baseURL: demoEnv.baseUrl,
+        actionTimeout: demoEnv.timeouts.action,
+        navigationTimeout: demoEnv.timeouts.navigation,
+        // The bundled app tests the login flow itself; a saved session would
+        // skip the thing under test.
+        storageState: undefined,
+      },
+    },
+
+    /**
+     * Every LIVE project depends on this, and only live projects do. It is
+     * where "no environment was named" becomes a refusal, because it is the
+     * first point in a run that knows a live surface was asked for.
+     */
+    {
+      name: 'live-setup',
+      testMatch: /live-setup.ts|auth.setup.ts/,
+      use: { storageState: undefined },
+    },
+
     {
       name: 'chromium',
-      testIgnore: browserTestIgnore,
-      dependencies: isDemoEnvironment ? [] : ['setup'],
-      use: { ...devices['Desktop Chrome'] },
+      testIgnore: liveTestIgnore,
+      dependencies: ['live-setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        ...(savedSession ? { storageState: savedSession } : {}),
+      },
     },
     {
       name: 'firefox',
-      testIgnore: browserTestIgnore,
-      dependencies: isDemoEnvironment ? [] : ['setup'],
-      use: { ...devices['Desktop Firefox'] },
+      testIgnore: liveTestIgnore,
+      dependencies: ['live-setup'],
+      use: {
+        ...devices['Desktop Firefox'],
+        ...(savedSession ? { storageState: savedSession } : {}),
+      },
     },
     {
       name: 'webkit',
-      testIgnore: browserTestIgnore,
-      dependencies: isDemoEnvironment ? [] : ['setup'],
-      use: { ...devices['Desktop Safari'] },
+      testIgnore: liveTestIgnore,
+      dependencies: ['live-setup'],
+      use: {
+        ...devices['Desktop Safari'],
+        ...(savedSession ? { storageState: savedSession } : {}),
+      },
     },
     {
       name: 'mobile-chrome',
-      testIgnore: browserTestIgnore,
-      dependencies: isDemoEnvironment ? [] : ['setup'],
-      use: { ...devices['Pixel 7'] },
+      testIgnore: liveTestIgnore,
+      dependencies: ['live-setup'],
+      use: { ...devices['Pixel 7'], ...(savedSession ? { storageState: savedSession } : {}) },
     },
     {
       // API-only project: no browser is launched, tests use the `api` fixture.
@@ -139,15 +188,12 @@ export default defineConfig({
     },
   ],
 
-  // Starts the bundled demo app so a fresh clone can run the suite immediately.
-  // Remove or point elsewhere once you target the real application.
-  webServer:
-    isDemoEnvironment && env.baseUrl.includes('127.0.0.1:4173')
-      ? {
-          command: 'node scripts/serve-demo.mjs',
-          url: 'http://127.0.0.1:4173/login',
-          reuseExistingServer: !isCI,
-          timeout: 30_000,
-        }
-      : undefined,
+  // Serves the bundled demo app for the pinned `demo` project. Started from the
+  // pinned URL, not from whatever the ambient environment resolved to.
+  webServer: {
+    command: 'node scripts/serve-demo.mjs',
+    url: `${demoEnv.baseUrl}/login`,
+    reuseExistingServer: !isCI,
+    timeout: 30_000,
+  },
 });

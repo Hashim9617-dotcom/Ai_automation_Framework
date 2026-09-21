@@ -16,11 +16,33 @@ export interface CoreFixtures {
   data: typeof dataFactory;
 }
 
-export const coreTest = base.extend<CoreFixtures, { workerEnv: EnvironmentConfig }>({
+/**
+ * Options a PROJECT sets, so a pinned target reaches the tests (SEC-3a).
+ *
+ * Pinning `baseURL` in the config was not enough: everything a test reads from
+ * `env` — credentials, timeouts, the application slug — came from a SECOND,
+ * ambient resolution inside this worker fixture. Measured: with the fixture
+ * still ambient, the demo suite ran with the demo's URL and the live
+ * environment's config, and all twelve tests failed. A half-pinned target is
+ * not pinned.
+ */
+export interface AitpProjectOptions {
+  /** The environment a project is pinned to. Unset means "ask the ambient one". */
+  environmentName: string | undefined;
+}
+
+export const coreTest = base.extend<
+  CoreFixtures,
+  { workerEnv: EnvironmentConfig } & AitpProjectOptions
+>({
+  environmentName: [undefined, { scope: 'worker', option: true }],
+
   workerEnv: [
-    // eslint-disable-next-line no-empty-pattern
-    async ({}, use) => {
-      await use(loadEnvironment());
+    async ({ environmentName }, use) => {
+      // A project that names its environment gets that one, whatever the
+      // ambient value says. A project that does not falls through to
+      // resolveEnvName(), which REFUSES rather than assuming a live system.
+      await use(environmentName ? loadEnvironment(environmentName) : loadEnvironment());
     },
     { scope: 'worker' },
   ],

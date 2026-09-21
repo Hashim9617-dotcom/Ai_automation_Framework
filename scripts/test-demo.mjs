@@ -56,7 +56,7 @@ try {
 
 const result = spawnSync(
   process.execPath,
-  [cli, 'test', 'tests/demo', '--project=chromium', ...process.argv.slice(2)],
+  [cli, 'test', '--project=demo', ...process.argv.slice(2)],
   { stdio: 'inherit', env },
 );
 
