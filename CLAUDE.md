@@ -791,6 +791,14 @@ at a time, later, further from the change that caused them.
 > here, resolve every bare specifier in every compiled file from that file's own
 > directory. That check is now `pnpm check:api-deps`, and it is in `pnpm verify`.
 
+**It was not, for a while.** Measured 2026-09-21: `verify` did not include it,
+while this paragraph said it did. The script was correct and ran for nobody. A
+doc asserting that a check is wired is not evidence that it is — the gate's own
+definition is, and the two drifted without anything noticing. It is in `verify`
+now (SEC-3c), and the reason it belongs there rather than anywhere else was
+measured too: it imports `fs`, `path`, `url` and `module`, spawns nothing and
+opens no socket, so it costs a local run nothing.
+
 The duplication remains a drift risk — the right fix is for the API to consume
 BUILT packages so pnpm resolves each package's dependencies from its own tree.
 That is a build migration, and the check above turns the drift from silent into

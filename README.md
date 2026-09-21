@@ -248,7 +248,7 @@ cannot quietly burn the budget.
 | Command                | What it does                                              |
 | ---------------------- | --------------------------------------------------------- |
 | `pnpm test`            | Full suite, all configured projects                       |
-| `pnpm test:smoke`      | `@smoke`-tagged tests only                                |
+| `pnpm test:smoke:live` | `@smoke` tests on the LIVE projects — needs credentials   |
 | `pnpm test:regression` | `@regression`-tagged tests only                           |
 | `pnpm test:api`        | API-layer project (no browser)                            |
 | `pnpm test:unit`       | Pure logic tests for platform code (no browser, no app)   |
