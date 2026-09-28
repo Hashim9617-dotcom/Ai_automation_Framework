@@ -239,6 +239,11 @@ export function renderAuthoredReport(
   const lines: string[] = [
     `# Authored test run — ${sheetName}`,
     '',
+    // The id a generated sheet row carries, so a reader holding one can find
+    // this report and the screenshots it references. Printed rather than left
+    // to the filename: a file gets renamed, copied and pasted into a chat.
+    `Run ID: \`${run.runId}\``,
+    '',
     '| | Count |',
     '| --- | --- |',
     `| Rows read | **${tally.rowsRead}** |`,

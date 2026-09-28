@@ -1,5 +1,6 @@
 import type { CaseStep } from '../generation/grounding';
 import type { UnreadableSheetRow } from './final-test-cases';
+import { newId } from '../utils/id';
 import { describeUnreadableRow, type ResolvedAuthoredRow } from './resolve-authored';
 import type { Owner } from './resolver';
 
@@ -173,6 +174,15 @@ export const tallyBuckets = (): Array<[RowStatus, TallyBucket]> =>
   Object.entries(TALLY_BUCKET) as Array<[RowStatus, TallyBucket]>;
 
 export interface AuthoredRunResult {
+  /**
+   * The one identifier that ties a sheet row back to the evidence.
+   *
+   * A generated sheet row, this run's report, and the screenshots under
+   * `artifacts/` are three files a QA has to line up by hand otherwise. Carried
+   * on the RESULT rather than passed around beside it, so a reader who has the
+   * result cannot be holding it without the id.
+   */
+  runId: string;
   results: RowResult[];
   tally: RunTally;
 }
@@ -325,6 +335,13 @@ export interface ExecuteOptions {
   unreadable: UnreadableSheetRow[];
   execute: StepExecutor;
   entry: EntryControl;
+  /**
+   * Injectable so a test can assert on an exact value.
+   *
+   * Defaults to `newId('run')`, the same generator the Playwright reporter uses,
+   * so an authored run's id reads like every other run's id in `artifacts/`.
+   */
+  runId?: string;
   /**
    * Read from the ENVIRONMENT by the caller, never from the sheet.
    *
@@ -518,7 +535,7 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
   };
 
   assertTallyBalances(tally, results);
-  return { results, tally };
+  return { runId: options.runId ?? newId('run'), results, tally };
 }
 
 /**

@@ -216,6 +216,7 @@ test.describe('the arithmetic balances (E2) @unit', () => {
     // table's own numbers gets a different total from the one printed above it.
     const markdown = renderAuthoredReport(
       {
+        runId: 'run_fixture',
         results: [notReached()],
         tally: {
           rowsRead: 1,
@@ -476,6 +477,7 @@ test.describe('the sheet is never written to (E5) @unit', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'aitp-report-'));
     const written = writeAuthoredReport(
       {
+        runId: 'run_fixture',
         results: [],
         tally: {
           rowsRead: 0,

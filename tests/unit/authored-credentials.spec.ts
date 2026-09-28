@@ -91,7 +91,16 @@ async function everythingTheRunProduces(grid: SheetGrid): Promise<string> {
     verify: async () => ({ verified: true }),
   };
 
-  const run = await executeAuthoredRows({ resolved, unreadable: read.unreadable, execute, entry });
+  // A FIXED runId. It defaults to a random one, and these tests compare two
+  // whole runs for equality — a random id makes them differ for a reason that
+  // has nothing to do with the Test Data cell under test.
+  const run = await executeAuthoredRows({
+    runId: 'run_credentials_fixture',
+    resolved,
+    unreadable: read.unreadable,
+    execute,
+    entry,
+  });
 
   return [
     JSON.stringify(read.rows),

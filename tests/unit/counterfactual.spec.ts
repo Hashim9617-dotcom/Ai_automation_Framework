@@ -54,6 +54,10 @@ const COVERED = [
   // Added 2026-09-19 with 4d. The entry verifier's two suites and the
   // three-way credentials check, each counterfactual written with its test.
   'tests/unit/entry-verifier.spec.ts',
+  // Added 2026-09-28 with the work itself: the upload refusal and the generated
+  // automation sheet, each counterfactual written beside its test.
+  'tests/unit/upload-not-supported.spec.ts',
+  'tests/unit/automation-sheet.spec.ts',
   'tests/unit/authored-credentials.spec.ts',
 ];
 
