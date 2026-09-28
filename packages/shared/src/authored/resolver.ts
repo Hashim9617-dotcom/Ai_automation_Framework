@@ -38,7 +38,12 @@ import type { AuthoredCase } from './sheet';
 
 /** Why a row could not be turned into runnable steps. Machine-readable. */
 export type RefusalReason =
-  'unparseable-step' | 'ambiguous-target' | 'target-not-found' | 'entry-state-not-captured';
+  | 'unparseable-step'
+  | 'ambiguous-target'
+  | 'target-not-found'
+  | 'entry-state-not-captured'
+  /** The clause is a valid action the platform cannot perform — see §upload. */
+  | 'action-not-supported';
 
 export interface StepRefusal {
   stepIndex: number;

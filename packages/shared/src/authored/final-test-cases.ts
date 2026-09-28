@@ -167,6 +167,37 @@ const SHOULD_ASSERTION = /\bshould\b/i;
  */
 const SUBJECT_PREFIX = /^(?:the\s+)?(?:user|users|system|admin|qa|tester|portal)\s+/i;
 
+/**
+ * Action verbs the platform CLASSIFIES but cannot PERFORM.
+ *
+ * `upload` is in `ACTION_VERBS` above, so such a clause becomes a normal
+ * action step — and an action step is `{ kind, description }` with nowhere to
+ * put a file. The executor then clicks whatever target resolved and returns
+ * `passed`, so a row saying "uploads a document" comes back green having
+ * clicked a button and uploaded nothing. A false pass is worse than a refusal.
+ *
+ * Deliberately NOT removed from `ACTION_VERBS`: the clause IS an action, the
+ * QA wrote it correctly, and reclassifying it as unparseable would blame the
+ * sentence for a gap in the platform.
+ *
+ * Kept here rather than in the resolver so the two verb lists sit together —
+ * a second list somewhere else drifts from this one, and a drifted list reads
+ * exactly like a correct one.
+ */
+const UNSUPPORTED_ACTION_VERBS = /^(uploads?|uploading|attaches?|browses?)\b/i;
+
+/**
+ * Can the platform actually carry out this action clause?
+ *
+ * Uses the SAME subject prefix as `classifyClause`, so "User uploads a file"
+ * is tested on its verb exactly as classification tests it. A separate prefix
+ * here would answer a different question about the same sentence.
+ */
+export function unsupportedActionVerb(text: string): string | undefined {
+  const stem = text.trim().replace(SUBJECT_PREFIX, '');
+  return UNSUPPORTED_ACTION_VERBS.exec(stem)?.[1]?.toLowerCase();
+}
+
 export function classifyClause(text: string): { kind: ClauseKind; why?: string } {
   const trimmed = text.trim();
   if (!trimmed) return { kind: 'unclassified', why: 'the clause is empty' };

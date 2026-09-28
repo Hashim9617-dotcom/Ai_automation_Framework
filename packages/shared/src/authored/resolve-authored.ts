@@ -1,7 +1,11 @@
 import type { BoundedCapture } from '../generation/bounding';
 import { checkGrounding, type AssertStep, type CaseStep } from '../generation/grounding';
 import { assessWriteRisk } from '../generation/proposal';
-import type { AuthoredRow, UnreadableSheetRow } from './final-test-cases';
+import {
+  unsupportedActionVerb,
+  type AuthoredRow,
+  type UnreadableSheetRow,
+} from './final-test-cases';
 import {
   CANDIDATE_ROLES,
   CLICKABLE_ROLES,
@@ -238,6 +242,32 @@ export function resolveAuthoredRow(
         }`,
       });
       continue;
+    }
+
+    // AN ACTION THE PLATFORM CANNOT PERFORM IS REFUSED HERE, and the position
+    // is the finding. Inside the action branch below it never fired: a clause
+    // like "User uploads the document" yields no target, so `extractTarget`
+    // refused it first as `unparseable-step` — technically a refusal, and the
+    // wrong reason. It blames the QA's sentence for a gap in the platform, and
+    // sends them to rewrite a sentence that is already correct.
+    //
+    // Here the clause is a classified action and nothing has reasoned about a
+    // target yet. Resolve time, so a row refused for this never reaches
+    // `executeAuthoredRows` as runnable and no browser action can begin.
+    if (clause.kind === 'action') {
+      const unsupported = unsupportedActionVerb(clause.text);
+      if (unsupported) {
+        refusals.push({
+          stepIndex,
+          sentence: clause.text,
+          why: 'action-not-supported',
+          candidates: [],
+          reason:
+            `${authored.rowId}: file upload is not supported yet — the step would click ` +
+            'without selecting a file',
+        });
+        continue;
+      }
     }
 
     const target = extractTarget(clause.text);
