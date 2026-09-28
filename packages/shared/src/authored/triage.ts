@@ -1,4 +1,4 @@
-import type { AuthoredRow } from './final-test-cases';
+import { unsupportedActionVerb, type AuthoredRow } from './final-test-cases';
 import { extractTarget } from './resolve-authored';
 
 /**
@@ -25,8 +25,33 @@ export type TriageReason =
   | 'outcome-not-element'
   /** Too vague for anything to verify. The ROW needs rewriting — QA work. */
   | 'too-vague-to-verify'
+  /**
+   * The clause names an action the platform cannot perform — file upload.
+   *
+   * Nobody's mistake but ours. The sentence is correct, the screen is captured,
+   * and the row would run the moment the capability exists. Kept apart from the
+   * other three for the reason this union exists: each names a different person
+   * who can act, and putting our gap in the QA's worklist wastes their time on a
+   * row we could not run even after they rewrote it.
+   */
+  | 'unsupported-action'
   /** Nothing stands in the way. */
   | 'automatable';
+
+/**
+ * Who can act on each reason. READ by the renderer below, not carried for show.
+ *
+ * `OWNER_OF` is the cautionary case: a map populated on every row that nothing
+ * ever consulted, so adding a member compiled clean and nobody noticed. This one
+ * is printed, so a wrong entry is visible in the report.
+ */
+export const TRIAGE_OWNER = {
+  'no-capture-for-module': 'capture',
+  'outcome-not-element': 'platform',
+  'too-vague-to-verify': 'qa',
+  'unsupported-action': 'platform',
+  automatable: 'none',
+} as const satisfies Record<TriageReason, string>;
 
 export interface TriagedRow {
   rowId: string;
@@ -171,6 +196,7 @@ export function triageSheet(
     'no-capture-for-module': 0,
     'outcome-not-element': 0,
     'too-vague-to-verify': 0,
+    'unsupported-action': 0,
     automatable: 0,
   };
   for (const row of triaged) counts[row.reason] += 1;
@@ -204,6 +230,26 @@ function classifyByClauses(clauses: AuthoredRow['clauses']): {
   reason: TriageReason;
   evidence: string;
 } {
+  // AN ACTION WE CANNOT PERFORM STOPS THE ROW BEFORE ANYTHING ELSE IS ASKED.
+  //
+  // Same predicate the resolver refuses on (`unsupportedActionVerb`), imported
+  // rather than restated: two verb lists drift, and a drifted list reads exactly
+  // like a correct one. The point of this branch is that triage and the run give
+  // the SAME answer — a ceiling that counts a row the run then refuses is the
+  // thing the comment below was written to prevent, and it had this hole in it.
+  //
+  // FIRST, ahead of the vague/outcome tests, and the precedence is deliberate:
+  // those two are somebody else's work, and telling a QA to rewrite a row we
+  // could not run even after they rewrote it spends their time on our gap. The
+  // cost of the choice, stated: a row that is BOTH unsupported and vague appears
+  // here now and in the QA's list later, once the capability lands.
+  const unsupported = clauses.find(
+    (clause) => clause.kind === 'action' && unsupportedActionVerb(clause.text) !== undefined,
+  );
+  if (unsupported) {
+    return { reason: 'unsupported-action', evidence: unsupported.text };
+  }
+
   // AUTOMATABLE NEEDS A VERIFIABLE ASSERTION, not just a clickable step.
   //
   // "any clause resolves" is too lenient and flatters the ceiling: a row
@@ -305,7 +351,12 @@ export function renderTriage(triage: TriageResult): string {
   const sample = (reason: TriageReason, heading: string, action: string): void => {
     const rows = triage.rows.filter((r) => r.reason === reason);
     if (rows.length === 0) return;
-    lines.push(`### ${heading} (${rows.length})`, '', action, '');
+    lines.push(
+      `### ${heading} (${rows.length})`,
+      '',
+      `_Owner: ${TRIAGE_OWNER[reason]}._ ${action}`,
+      '',
+    );
     for (const row of rows.slice(0, 15)) {
       lines.push(`- **${row.rowId}** _(sheet row ${row.sheetRow})_ — ${row.title}`);
       lines.push(`  > ${row.evidence.replace(/\s+/g, ' ').slice(0, 160)}`);
@@ -318,6 +369,11 @@ export function renderTriage(triage: TriageResult): string {
     'outcome-not-element',
     'Describes an outcome, not an element',
     'These name a page, a URL or a state rather than a control. They are automatable once page-level and state-level assertions exist — the work is ours, not the QA’s.',
+  );
+  sample(
+    'unsupported-action',
+    'An action the platform cannot perform yet',
+    'The sentence is correct and the screen is captured. These name a file upload, and an action step carries no file — so the run REFUSES them rather than clicking a button and reporting a pass. Nothing for the QA to change.',
   );
   sample(
     'too-vague-to-verify',

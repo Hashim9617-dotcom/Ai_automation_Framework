@@ -2,7 +2,10 @@ import { test, expect } from '@playwright/test';
 import {
   executeAuthoredRows,
   resolveAuthoredRow,
+  renderTriage,
+  triageSheet,
   unsupportedActionVerb,
+  TRIAGE_OWNER,
   type AuthoredRow,
   type BoundedCapture,
   type EntryControl,
@@ -224,5 +227,67 @@ test.describe('a file-upload clause is refused rather than clicked @unit', () =>
       .filter(([key]) => key !== 'rowsRead')
       .reduce((sum, [, value]) => sum + value, 0);
     expect(buckets, 'the buckets do not sum to rowsRead').toBe(run.tally.rowsRead);
+  });
+});
+
+/**
+ * TRIAGE AND THE RUN MUST AGREE — the claim this pair of commits exists for.
+ *
+ * `classifyByClauses`'s own comment says counting a row automatable "would
+ * promise a row the run then refuses". It had exactly that hole: an `attaches`
+ * row was `automatable` in the ceiling and `refused` in the run, so the report's
+ * headline number included work the platform declines to do. Measured before the
+ * fix: `automatable: 2` for two rows, one of which the run refuses.
+ *
+ * Both sides now ask the SAME predicate — `unsupportedActionVerb`, imported, not
+ * restated. Two verb lists drift, and a drifted list reads like a correct one.
+ */
+test.describe('triage and the run give the same answer @unit', () => {
+  const triageOf = (when: string, id: string) =>
+    triageSheet([rowWith(when, id)], new Set(['Bulk upload'])).rows[0]!;
+
+  const runOf = async (when: string, id: string) => {
+    const resolved = resolveAuthoredRow(rowWith(when, id), CAPTURE, 'upload');
+    const { clicks, execute } = clickRecorder();
+    const run = await executeAuthoredRows({ resolved: [resolved], unreadable: [], execute, entry });
+    return { status: run.results[0]!.status, clicks };
+  };
+
+  test('T1: an unsupported action is refused by BOTH, and owned by the platform', async () => {
+    // wrong: triage says automatable and the run says refused — the ceiling then
+    // counts work nobody will do, and it is the number that gets quoted.
+    const triaged = triageOf('User attaches "Attach"', 'AG_1');
+    const { status, clicks } = await runOf('User attaches "Attach"', 'AG_2');
+
+    expect(triaged.reason).toBe('unsupported-action');
+    expect(TRIAGE_OWNER[triaged.reason]).toBe('platform');
+    expect(status).toBe('refused');
+    expect(clicks).toEqual([]);
+  });
+
+  test('T2 (discriminating): a supported action is accepted by BOTH', async () => {
+    // wrong: agreement is achieved by refusing everything, which agrees
+    // perfectly and automates nothing — the refuses-everything failure. This is
+    // the case that must come out the OTHER way.
+    const triaged = triageOf('clicks on "Attach"', 'AG_3');
+    const { status, clicks } = await runOf('clicks on "Attach"', 'AG_4');
+
+    expect(triaged.reason).toBe('automatable');
+    expect(status).toBe('passed');
+    expect(clicks).toEqual(['button "Attach"']);
+  });
+
+  test('T3: the report names the owner, so the map is read rather than carried', () => {
+    // wrong: TRIAGE_OWNER is populated and consulted by nothing — the OWNER_OF
+    // mistake, where adding a member compiles clean and a wrong entry is
+    // invisible because no output ever shows it.
+    const triage = triageSheet(
+      [rowWith('User attaches "Attach"', 'AG_5'), rowWith('clicks on "Attach"', 'AG_6')],
+      new Set(['Bulk upload']),
+    );
+    const markdown = renderTriage(triage);
+
+    expect(markdown).toContain('An action the platform cannot perform yet (1)');
+    expect(markdown).toContain('_Owner: platform._');
   });
 });
