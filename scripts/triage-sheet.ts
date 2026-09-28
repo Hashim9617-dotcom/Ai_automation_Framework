@@ -51,16 +51,31 @@ const MODULE_ROUTES: Record<string, string> = {
   User: 'admin/users',
   'User Role': 'admin/user-roles',
   'user role': 'admin/user-roles',
-  'Bulk upload': 'upload-files',
+  // Was 'upload-files'. `/upload-files` is a DIFFERENT screen and is being
+  // removed from the application; the wizard the sheet means is at
+  // `/bulk-upload` (heading "Synergy DMS Bulk Upload Wizard"). Decided
+  // 2026-09-28 by the user — both paths are on disk, and nothing here could
+  // tell which one the sheet's "Bulk upload" names.
+  'Bulk upload': 'bulk-upload',
+  // Permissions is a TAB on the User Role screen, not a screen with its own
+  // URL, so it shares one capture with `User Role`. That is a real pairing,
+  // not a duplicate: the capture at `/admin/user-roles` reached a
+  // "Permissions saved" state, which is what these rows start from.
+  Permissions: 'admin/user-roles',
   // Not yet captured — uncomment as each screen is walked:
   // 'Document Template Categories': '…',
   // 'User Group': '…',
-  // Permissions: '…',
-  // Workflow: '…',
   // 'Policy agent': '…',
   // Notification: '…',
-  // Login: '…',
   // 'Audit Logs': '…',
+  //
+  // CAPTURED but deliberately NOT paired — skipped: dev update in progress
+  // (2026-09-28). Both have captures on disk, so they will show in the
+  // "captured but unpaired" line until a route is filled in here. Leaving the
+  // route blank is the honest state: a pairing written now would be against a
+  // screen that is changing.
+  // Workflow: '…',   // captures exist at /workflow/requests and below
+  // Login: '…',      // a capture exists at /login
 };
 
 /** Path segments, with the origin and any leading/trailing slashes gone. */
