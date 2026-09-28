@@ -15,6 +15,14 @@ test-results/
 blob-report/
 .llm-cache/
 
+# One-shot scripts: mutation harnesses, probes, measurement throwaways.
+#
+# They have a home so they stop landing at the repo root with a leading dot and
+# being cleaned up by hand — five accumulated that way in one session, and each
+# was removed by remembering to. Root-anchored for the same reason `/artifacts/`
+# is: an unanchored `scratch/` matches a directory of that name at any depth.
+/scratch/
+
 # Environment
 .env
 .env.local

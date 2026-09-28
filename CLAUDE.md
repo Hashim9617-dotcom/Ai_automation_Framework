@@ -34,6 +34,50 @@ expected 1')` is worth more than any amount of care taken while writing it.
 in the scratchpad is the one nobody reviews, run once, its output believed
 because there is no reason to doubt it. Both near-misses above were throwaways.
 
+### Never write source through a shell — and never type an invisible character's escape
+
+> **Source files — `.ts`, `.mjs`, `.json`, specs — are written with the Edit or
+> Write tool, never through a heredoc, `echo`, `sed -i` or `node -e`.** A shell
+> is a layer that rewrites text on the way past, silently, and what lands looks
+> like ordinary code.
+
+Three times in one session, each caught by something other than review:
+
+| what was written     | what landed                                                 | caught by                                                |
+| -------------------- | ----------------------------------------------------------- | -------------------------------------------------------- |
+| a `\b` word boundary | **U+0008**, a literal backspace — the regex matched nothing | the failing control, then `invisible-characters.spec.ts` |
+| a BOM escape         | an actual **BOM**, in a production file AND its spec        | `invisible-characters.spec.ts`, and lint                 |
+| `` `${run.runId}` `` | the substitution vanished, leaving `Run ID: `               | reading the written line back                            |
+
+None was a typo. The text being sent was correct every time and the file that
+arrived was wrong, which is what makes this a rule rather than something to be
+careful about: **the mistake is invisible at the moment it is made**, and the
+author has moved on by the time anything says so.
+
+#### The shell is not the only layer, which this section learned about itself
+
+The paragraph above was first written blaming the shell alone. Writing it put a
+**fourth** instance into this very file: the BOM row was typed as an escape, went
+through the **Edit tool with no shell anywhere**, and landed as a real BOM on
+line 49. `invisible-characters.spec.ts` failed on `CLAUDE.md` itself.
+
+So the narrower rule is the true one, and it is not about shells:
+
+> **Never put a raw escape for an invisible character into text you are writing.
+> Name it — `U+FEFF`, `U+0008` — and build it from char codes if code needs the
+> value.** Any writing path may resolve the escape, and every such character is
+> by definition impossible to see in the result.
+
+The shell rule still stands on its own three instances. This one sits above it,
+because it is the rule that would have prevented all four.
+
+### One-shot scripts live in `scratch/`
+
+Mutation harnesses, probes and measurement throwaways belong in `/scratch/`,
+which is gitignored. They accumulated at the repo root with leading dots instead
+— five in one session — and every one was removed by remembering to, which works
+until the once it does not.
+
 ---
 
 ## A test suite that passes first time has not yet been checked
