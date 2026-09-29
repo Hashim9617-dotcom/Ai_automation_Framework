@@ -3405,3 +3405,70 @@ The full cycle, which is the point:
 The status never moved in any of this: the row was `unreadable` at every step. Only
 the name it was reported under changed, which is what made the divergence small
 enough to be tempting.
+
+---
+
+## AG. Whatever you tell the QA to write, WRITE IT AND RUN IT FIRST (2026-09-29)
+
+A `checks the "Active" box` clause is ambiguous — it reads as _tick the box_ and
+resolves as _assert the box exists_ — so it was to be refused, with a message
+telling the QA the right way to say it:
+
+> write `verify 'Active' checkbox is checked` instead
+
+**That form was itself a false pass.** Measured before it was recommended:
+
+```
+verify the "Active" checkbox is checked      -> assert checkbox "Active" present=true
+verify the "Active" checkbox is not checked  -> assert checkbox "Active" present=true
+```
+
+`checked` was not in `PROPERTY_WORDS` or in `AssertStep['property']`, so both forms
+fell through to presence. A QA who followed the advice would have got a green row
+asserting the box EXISTS, and the row asserting the opposite would have been the
+identical assertion and gone green too.
+
+The remedy was a worse bug than the thing it remedied, in the specific way that
+matters: the ambiguous clause at least LOOKS wrong, while the recommended form
+looks correct, is what a careful author would write, and drops the negation
+silently.
+
+> **A remedy in a refusal message is a claim about behaviour, and it is measured
+> like any other. Write the form, run it, observe both outcomes — then put it in
+> the message.**
+
+This is §T pointed at advice rather than at a check. A refusal that names a form
+has asserted that the form works; if nobody ran it, that assertion was made by
+whoever wrote the sentence, from memory, about a code path they were not looking
+at.
+
+### Two mechanisms, so the advice cannot go stale either
+
+Measuring it once is not enough — the message and the implementation are separate
+strings and will drift. Both directions are now pinned:
+
+- `tests/unit/assert-state.spec.ts` extracts the recommended form OUT OF THE LIVE
+  MESSAGE with a regex and resolves it, asserting `checked=true` and, for the
+  negative form the same message offers, `checked=false`. Change the message to
+  recommend something else and the test fails on the extraction.
+- `tests/demo/assert-checked.spec.ts` runs that form against a real browser and
+  observes it PASS on a ticked box and FAIL on an unticked one — the half the unit
+  test cannot give, because the unit test only proves a string becomes a step.
+
+The second is what licenses recommending the form at all. The first is what keeps
+the message honest afterwards.
+
+### The general shape, because it is not only about messages
+
+Anything this platform tells a human to do is a behavioural claim it has not
+tested unless it tested it:
+
+| the output                                             | the claim hidden in it                                                   |
+| ------------------------------------------------------ | ------------------------------------------------------------------------ |
+| a refusal naming a form                                | that form resolves, and resolves correctly                               |
+| `no-capture-for-module` -> "run `pnpm inspect`"        | that `pnpm inspect` produces a capture this module can be proved against |
+| `unsupported-action` -> "nothing for the QA to change" | that no rewriting of the sentence makes it run                           |
+| a triage owner                                         | that the named person can actually act                                   |
+
+Each is a sentence a reader will act on, and each is falsifiable. The one that was
+false was the one nobody thought to run.

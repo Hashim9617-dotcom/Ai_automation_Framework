@@ -208,6 +208,11 @@ exactly that. So each mutation declares what should catch it:
 > **A pre-registered `EXPECTED` entry changes only by stop, report, approval and
 > a visible record — never because a run said something else** (§AF).
 
+> **Whatever you tell a human to write, WRITE IT AND RUN IT FIRST.** A remedy in
+> a refusal message is a claim about behaviour; the one that was wrong here was
+> the one nobody ran, and it looked more correct than the clause it replaced
+> (§AG).
+
 **Measured here, because the failure mode is not the obvious guess:** Playwright
 transpiles without typechecking, so a _type_ error in a mutation is invisible
 and 203 tests still pass; a _syntax_ error aborts Babel before any test runs,
