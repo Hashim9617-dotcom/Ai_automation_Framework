@@ -98,6 +98,22 @@ interface RowResultFields {
   rowId: string;
   scenarioId: string;
   testCaseId: string;
+  /**
+   * The module this row belongs to. On EVERY status, not just one.
+   *
+   * It used to sit on the `given-not-reached` variant alone, bound there the way
+   * `reason` is — which was right about that status and wrong about the field.
+   * `reason` genuinely cannot exist for a row that ran; a module can, and does.
+   * The consequence was measured rather than argued: the app team's CSV reads
+   * `'module' in row`, so its Module column was blank for every row it ever
+   * wrote, by construction, and no test could see it because both specs build a
+   * `RowResult` with `as`.
+   *
+   * Empty string only for an unreadable row whose sheet cell was empty — the
+   * reader fills it when the cell is there, and a blank cell is a fact about the
+   * sheet rather than something to invent.
+   */
+  module: string;
   sheetRow: number;
   title: string;
   owner: Owner;
@@ -132,14 +148,6 @@ export type RowResult =
       status: 'given-not-reached';
       /** Required: an entry failure nobody can act on is the DEMO_4 report. */
       reason: EntryFailure;
-      /**
-       * The module whose entry state could not be established.
-       *
-       * Bound to this status for the same reason `reason` is, and load-bearing
-       * for the report: one failed entry stops EVERY row of its module, and a
-       * reader needs to see one problem rather than forty-seven.
-       */
-      module: string;
     });
 
 /**
@@ -366,9 +374,24 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
   for (const row of options.unreadable) {
     const described = describeUnreadableRow(row);
     results.push({
-      rowId: `sheet row ${row.sheetRow}`,
-      scenarioId: '',
-      testCaseId: '',
+      // AN UNREADABLE ROW IS NAMED BY WHATEVER IDENTITY IT HAD (F-UR-ID).
+      //
+      // `sheet row 7` was the only name any of them ever got, including the
+      // `empty-required-clause` kind, which carries BOTH ids — the reader found
+      // them and then found no clauses. A QA searching their sheet for
+      // `UR_001 / TC_001` got nothing back, about a row the report was
+      // explicitly asking them to fix.
+      //
+      // The fallback stays for the rows that genuinely have no identity (real
+      // row 15 is one stray cell), because there a sheet position is the only
+      // true thing that can be said.
+      rowId:
+        row.scenarioId && row.testCaseId
+          ? `${row.scenarioId} / ${row.testCaseId}`
+          : `sheet row ${row.sheetRow}`,
+      scenarioId: row.scenarioId ?? '',
+      testCaseId: row.testCaseId ?? '',
+      module: row.module ?? '',
       sheetRow: row.sheetRow,
       title: 'unidentified row',
       status: 'unreadable',
@@ -395,6 +418,11 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       rowId: row.rowId,
       scenarioId: row.scenarioId,
       testCaseId: row.testCaseId,
+      // The ROW's module, from the sheet — deliberately not `entry.moduleOf(row)`
+      // below. That is the run's routing question and is answered per module;
+      // this is what the QA wrote on this line, and the two being the same today
+      // is a fact to be able to check, not one to assume by sharing a source.
+      module: row.module,
       sheetRow: row.sheetRow,
       title: row.title,
     };
@@ -438,7 +466,16 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
         status: 'given-not-reached',
         owner: OWNER_OF['given-not-reached'],
         reason: entry.reason,
-        module,
+        // `module` is NOT re-assigned from `moduleOf` here, and that is a
+        // decision rather than an omission. The field now means one thing on
+        // every status — the module the QA wrote on the row — and a field whose
+        // source changes with the status is the shared-identifier trap: a reader
+        // seeing it populated cannot tell which of the two they are looking at.
+        //
+        // In production the two are the same value: `run-sheet.ts` builds its
+        // `moduleOf` map FROM `row.module`. If a real `moduleOf` ever becomes a
+        // TRANSLATION rather than a lookup, the routing name becomes a second
+        // concept and gets a second field with its own name — not this one.
         detail: entry.detail,
       });
       continue;

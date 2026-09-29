@@ -60,9 +60,12 @@ export const DEFAULT_AUTOMATION_SHEET_COLUMNS: readonly AutomationSheetColumn[] 
   { heading: 'Reported By', cell: (_row, c) => `automation-${c.identity.runBy}` },
   { heading: 'Run ID', cell: (_row, c) => c.runId },
   { heading: 'Row ID', cell: (row) => row.rowId },
-  // `module` is bound to `given-not-reached` alone, so it is absent here by
-  // construction — an app-team row always ran. Left blank rather than faked.
-  { heading: 'Module', cell: (row) => ('module' in row ? String(row.module) : '') },
+  // Read directly. This cell used to be `'module' in row ? … : ''`, written
+  // against a type that bound `module` to `given-not-reached` alone — so for
+  // every row this sheet can ever contain, the test was false and the column was
+  // EMPTY, by construction, in the one output a QA pastes elsewhere. The guard
+  // read as care and was a blank column.
+  { heading: 'Module', cell: (row) => row.module },
   { heading: 'Scenario ID', cell: (row) => row.scenarioId },
   { heading: 'Test Case ID', cell: (row) => row.testCaseId },
   { heading: 'Status', cell: (row) => row.status },

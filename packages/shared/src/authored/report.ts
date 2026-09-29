@@ -195,8 +195,14 @@ function entrySection(rows: RowResult[]): string[] {
   if (rows.length === 0) return [];
   const byModule = new Map<string, RowResult[]>();
   for (const row of rows) {
-    const module = row.status === 'given-not-reached' ? row.module : '(unknown module)';
-    byModule.set(module, [...(byModule.get(module) ?? []), row]);
+    // `module` is on every status now, so the status test that used to guard
+    // this read is gone. The fallback is NOT: it moved to where it can actually
+    // fire — a blank Module cell in the sheet — instead of guarding a narrowing
+    // the type system already settles.
+    byModule.set(row.module || '(unknown module)', [
+      ...(byModule.get(row.module || '(unknown module)') ?? []),
+      row,
+    ]);
   }
 
   const lines = [

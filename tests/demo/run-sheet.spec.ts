@@ -68,10 +68,13 @@ const EXPECTED: Record<string, RowStatus> = {
   // "Save employee" carries a write word, and ALLOW_WRITES is not set.
   'WR_001 / TC_001': 'held',
   // Identity but no Given/When/And/Then content at all.
-  // Pre-registered as UR_001 / TC_001. Reader identifies unreadable rows by sheet
-  // position only (UnreadableSheetRow, final-test-cases.ts:110). Finding F-UR-ID.
-  // Status unchanged.
-  'sheet row 7': 'unreadable',
+  //
+  // This key is the ORIGINAL pre-registered value. The first run came back
+  // `sheet row 7` instead, and the key was edited to match it with the
+  // divergence recorded as F-UR-ID rather than quietly accepted. The reader now
+  // carries the identity it had already read, so the pre-registration stands as
+  // written. The status never changed — only the name it was reported under.
+  'UR_001 / TC_001': 'unreadable',
 };
 
 /** C3 — exact, and written before the run. `> 0` would pass on the wrong number. */

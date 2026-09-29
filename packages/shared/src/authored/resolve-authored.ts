@@ -129,6 +129,16 @@ function assertedProperty(text: string): { property: AssertStep['property']; exp
 export interface ResolvedAuthoredRow extends ResolvedRow {
   scenarioId: string;
   testCaseId: string;
+  /**
+   * The sheet's Module cell, carried verbatim.
+   *
+   * REQUIRED, and the requirement is the point: it is what the map is keyed on,
+   * what the report groups by and what the app team's CSV names, so a row that
+   * reached execution without one is a row nobody can route. It was previously
+   * read from the sheet, used to build the map lookup, and then dropped — see
+   * `RowResultFields.module`.
+   */
+  module: string;
   /** The kinds actually used, in order — taken from the columns, never derived. */
   clauseKinds: string[];
   /**
@@ -165,6 +175,10 @@ export function resolveAuthoredRow(
     rowId: authored.rowId,
     scenarioId: authored.scenarioId,
     testCaseId: authored.testCaseId,
+    // Carried, not re-derived. `entryState` is the module's ROUTE and cannot be
+    // read back into a module name, so this is the only place the sheet's own
+    // word for the screen survives resolution.
+    module: authored.module,
     sheetRow: authored.sheetRow,
     title: authored.scenarioName || authored.objective || authored.rowId,
     clauseKinds: authored.clauses.map((clause) => clause.kind),

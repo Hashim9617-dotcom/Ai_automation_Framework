@@ -37,6 +37,7 @@ const resolved = (over: Partial<ResolvedAuthoredRow> = {}): ResolvedAuthoredRow 
   rowId: 'SI_002 / TC_001',
   scenarioId: 'SI_002',
   testCaseId: 'TC_001',
+  module: 'Login',
   sheetRow: 3,
   title: 'valid login',
   outcome: 'ok',
@@ -121,6 +122,53 @@ test.describe('the row identity survives to the report (E1) @unit', () => {
     // Discriminating: the two rows share a Test Case ID, so a report keyed on
     // it alone would be indistinguishable between them.
     expect(outcome.results[0]!.testCaseId).toBe(outcome.results[1]!.testCaseId);
+  });
+
+  test('E1b: an unreadable row keeps whatever identity it had (F-UR-ID)', async () => {
+    // wrong: both rows come back as "sheet row N", so a QA searching their sheet
+    // for `UR_001 / TC_001` — the id they typed, on a row the report is asking
+    // them to fix — finds nothing, and the only way back is counting rows.
+    //
+    // Discriminating in the direction that matters: the two fixtures differ ONLY
+    // in whether the sheet had an identity, so a reader that always used the
+    // sheet position fails on the first and a reader that always invented a
+    // composite fails on the second.
+    const outcome = await run(
+      [],
+      [
+        // `empty-required-clause`: the reader found both ids and then found no
+        // Given/When/And/Then. This is the shape F-UR-ID was about.
+        {
+          sheetRow: 7,
+          why: 'empty-required-clause',
+          reason: 'row 7 (UR_001 / TC_001) has no clause content',
+          scenarioId: 'UR_001',
+          testCaseId: 'TC_001',
+          module: 'Employee registration',
+        },
+        // Real row 15: one stray cell. A sheet position is the only true thing
+        // that can be said about it, so that is what it gets.
+        { sheetRow: 15, why: 'stray-cells', reason: 'stray cells' },
+      ],
+    );
+
+    const ids = outcome.results.map((r) => r.rowId);
+    expect(ids).toEqual(['UR_001 / TC_001', 'sheet row 15']);
+
+    const identified = outcome.results[0]!;
+    expect(identified.scenarioId).toBe('UR_001');
+    expect(identified.testCaseId).toBe('TC_001');
+    expect(identified.module).toBe('Employee registration');
+
+    // The other half: an absent cell stays absent rather than arriving as a
+    // plausible-looking guess.
+    const anonymous = outcome.results[1]!;
+    expect(anonymous.scenarioId).toBe('');
+    expect(anonymous.module).toBe('');
+
+    // Both are still accounted for, and still unreadable — the id changed, the
+    // status did not.
+    expect(outcome.tally.unreadable).toBe(2);
   });
 });
 
@@ -557,8 +605,10 @@ test.describe('the writer asserts its own effect (E6) @unit', () => {
     });
     const onDisk = readFileSync(written.file, 'utf8');
     for (const row of outcome.results) {
-      const id = row.status === 'unreadable' ? `sheet row ${row.sheetRow}` : row.rowId;
-      expect(onDisk, `${id} is missing from the report`).toContain(id);
+      // `rowId` is the id for every status now, including `unreadable` — the
+      // special case here existed because that one row was named by its sheet
+      // position and nothing else.
+      expect(onDisk, `${row.rowId} is missing from the report`).toContain(row.rowId);
     }
     expect(written.rowsWritten).toBe(4);
   });

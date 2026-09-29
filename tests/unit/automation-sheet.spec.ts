@@ -26,10 +26,20 @@ import {
 
 const IDENTITY: RunIdentity = { runBy: 'Hashim Khan', runBySource: 'git' };
 
+/**
+ * `module` is filled here, and its absence is why the Module column was empty in
+ * every sheet this writer ever produced without a single test noticing.
+ *
+ * The cast is the mechanism: `as RowResult` means a missing property is not a
+ * compile error, so when `module` moved onto every variant the compiler flagged
+ * two other fixtures and stayed silent about this one. A spec that never
+ * mentions a field cannot fail on it — no test set it, and none read the column.
+ */
 const row = (over: Partial<RowResult> & Pick<RowResult, 'rowId' | 'status' | 'owner'>): RowResult =>
   ({
     scenarioId: over.rowId.split(' / ')[0],
     testCaseId: 'TC_1',
+    module: 'Employee registration',
     sheetRow: 3,
     title: 'a row',
     detail: 'd',
@@ -135,6 +145,29 @@ test.describe('the automation sheet carries app-team rows only @unit', () => {
     // everything would pass every check above and corrupt every real value.
     expect(csv).toContain('heading ""Done"" present=true');
     expect(csv).not.toContain(`'heading`);
+  });
+
+  test("C9: the Module cell is the row's own module, row by row", () => {
+    // wrong: the column is blank for every row — which is what it WAS, because
+    // the cell read `'module' in row` against a type that bound `module` to
+    // `given-not-reached` alone, a status this sheet can never contain. Two
+    // modules rather than one, so a writer that printed a constant, or the first
+    // row's module for every row, fails here too.
+    const run = runOf([
+      row({ rowId: 'A_1 / TC_1', status: 'failed', owner: 'app-team', module: 'File Explorer' }),
+      row({ rowId: 'A_2 / TC_1', status: 'failed', owner: 'app-team', module: 'Dashboard' }),
+    ]);
+
+    const written = writeAutomationSheet(run, { outputDir: dir, identity: IDENTITY });
+    const lines = readFileSync(written.file, 'utf8')
+      .replace(new RegExp('^' + String.fromCharCode(0xfeff)), '')
+      .trim()
+      .split('\r\n');
+
+    const moduleAt = lines[0]!.split(',').indexOf('Module');
+    expect(moduleAt, 'there is no Module column to check').toBeGreaterThanOrEqual(0);
+    expect(lines[1]!.split(',')[moduleAt]).toBe('File Explorer');
+    expect(lines[2]!.split(',')[moduleAt]).toBe('Dashboard');
   });
 
   test('C5: every data row carries an interpretation', () => {

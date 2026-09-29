@@ -129,6 +129,27 @@ export interface UnreadableSheetRow {
   reason: string;
   /** Set for `content-without-identity`: what would be lost. */
   orphanedContent?: string[];
+  /**
+   * Whatever identity the row DID carry. Optional, and the three are separate.
+   *
+   * A row is unreadable for three different reasons and they have three
+   * different amounts of identity:
+   *
+   * - `empty-required-clause` has BOTH ids — the reader got that far and then
+   *   found no clauses — so it can be named `"SI_004 / TC_001"` like any other
+   *   row, and was not: it was reported as `"sheet row 7"`, which is the whole
+   *   of finding F-UR-ID. A QA searching their sheet for the id they wrote
+   *   found nothing.
+   * - `content-without-identity` has AT MOST one, by definition.
+   * - `stray-cells` (real row 15) usually has none.
+   *
+   * So these are filled from the cells that were actually there and left absent
+   * otherwise. `module` is separate again: a row can name its module while
+   * carrying no identity at all, and that is still worth telling a reader.
+   */
+  scenarioId?: string;
+  testCaseId?: string;
+  module?: string;
 }
 
 export interface FinalSheetReadResult {
@@ -274,9 +295,20 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
         .filter(([, value]) => value !== '')
         .map(([label, value]) => `${label}: ${value}`);
 
+      // Whatever identity the row DID carry travels with it. Spread rather than
+      // assigned, so a cell that was empty stays ABSENT instead of arriving as
+      // `''` — an empty string would read as "the reader looked and the sheet
+      // said nothing", which is a different claim from "there was no cell".
+      const partialIdentity = {
+        ...(scenarioId ? { scenarioId } : {}),
+        ...(testCaseId ? { testCaseId } : {}),
+        ...(at(row, col.module) ? { module: at(row, col.module) } : {}),
+      };
+
       unreadable.push(
         orphaned.length > 0
           ? {
+              ...partialIdentity,
               sheetRow,
               why: 'content-without-identity',
               reason:
@@ -286,6 +318,7 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
               orphanedContent: orphaned,
             }
           : {
+              ...partialIdentity,
               sheetRow,
               why: 'stray-cells',
               reason:
@@ -319,9 +352,14 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
     push(at(row, col.then), 'then', 'assert');
 
     if (clauses.length === 0) {
+      // This one has BOTH ids — it got past the identity check and failed on
+      // content — so it is the unreadable row a QA can find in their own sheet.
       unreadable.push({
         sheetRow,
         why: 'empty-required-clause',
+        scenarioId,
+        testCaseId,
+        ...(at(row, col.module) ? { module: at(row, col.module) } : {}),
         reason: `row ${sheetRow} (${scenarioId} / ${testCaseId}) has no Given, When, And or Then content`,
       });
       continue;

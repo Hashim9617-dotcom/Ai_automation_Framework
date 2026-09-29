@@ -110,11 +110,12 @@ const signInOrThrow =
     }
   };
 
-const row = (rowId: string): ResolvedAuthoredRow =>
+const row = (rowId: string, module: string): ResolvedAuthoredRow =>
   ({
     rowId,
     scenarioId: rowId.split(' / ')[0]!,
     testCaseId: rowId.split(' / ')[1]!,
+    module,
     sheetRow: 3,
     title: rowId,
     outcome: 'ok',
@@ -227,7 +228,10 @@ test.describe('the entry verifier against the real demo app @demo', () => {
     };
 
     const outcome = await executeAuthoredRows({
-      resolved: [row('REACHED / TC_1'), row('UNREACHED / TC_1')],
+      resolved: [
+        row('REACHED / TC_1', 'Employee registration'),
+        row('UNREACHED / TC_1', 'Sign-in screen'),
+      ],
       unreadable: [],
       execute,
       entry,

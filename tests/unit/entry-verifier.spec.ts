@@ -141,6 +141,7 @@ test.describe('an unreached module stops every row it owns (V2) @unit', () => {
       rowId,
       scenarioId: rowId.split(' / ')[0]!,
       testCaseId: rowId.split(' / ')[1]!,
+      module: 'Employee registration',
       sheetRow: 3,
       title: rowId,
       outcome: 'ok',
