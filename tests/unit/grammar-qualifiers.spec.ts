@@ -175,9 +175,13 @@ const EXPECTED: Record<string, string> = {
   'when|clicks the "Jane Doe HR Active" row': 'refused: target-not-found',
   'when|clicks the "Employees" card': 'refused: target-not-found',
   'then|verify the "Jane" cell is visible': 'assert cell present=true',
-  // `toggle` as a NOUN is read as the verb `toggle`. Wrong reason, fixed
-  // separately (3a-7 #6) so this commit's table records today's answer.
-  'when|clicks the "Active" toggle': 'refused: action-not-supported',
+  // `toggle` as a NOUN was read as the verb `toggle`, so this was refused
+  // `action-not-supported` — the right verdict for the wrong reason, since there is
+  // no `switch` role word either. 3a-7 #6 strips role nouns after the verb
+  // position, and the clause now resolves: it IS a click, on a checkbox called
+  // Active. This row was pre-registered with the old answer and moved in the #6
+  // commit, deliberately and visibly, which is the only way an EXPECTED entry moves.
+  'when|clicks the "Active" toggle': 'action -> checkbox "Active"',
 
   // ---- quantifiers ----
   'then|verify all rows show "Active"': 'refused: qualifier-not-supported',
@@ -289,6 +293,46 @@ test.describe('a qualifier the QA wrote is never discarded @unit', () => {
       expect(resolved.outcome, text).toBe('row-unclear');
       expect(resolved.refusals[0]!.reason, text).toContain(word);
     }
+  });
+});
+
+test.describe('a refusal happens for the RIGHT reason (#6) @unit', () => {
+  test('a role word belonging to a SCOPE does not describe the target', () => {
+    // wrong: `extractRole` scans the whole clause, so `on the popup` names a DIALOG
+    // and the resolver looks for a dialog called "Save" — refused
+    // `target-not-found`, blaming the QA's name for a scope phrase we cannot
+    // express. `clicks "Save" in the dialog` is already refused by the scope rule;
+    // this phrasing is not in that list, which is why the adjacency fix is needed
+    // and why it would otherwise be untested.
+    expect(outcomeOf('clicks "Save" on the popup', 'when')).toBe('action -> button "Save"');
+
+    // Discriminating, and the half that keeps the fix honest: a role word that IS
+    // beside the name is still read, which is the whole point of reading one.
+    expect(outcomeOf('clicks the "Users" link', 'when')).toBe('action -> link "Users"');
+    expect(outcomeOf('verify the "Done" heading is visible', 'then')).toBe(
+      'assert heading present=true',
+    );
+    // And with NO quoted name there is no anchor, so the whole clause is scanned —
+    // the path `clicks on the Sign in button` depends on.
+    expect(outcomeOf('clicks on the Save button', 'when')).toBe('action -> button "Save"');
+  });
+
+  test('a role NOUN after the verb is not read as the verb', () => {
+    // wrong: `toggle` is matched anywhere in the clause, so `clicks the "Active"
+    // toggle` is refused as an unperformable `toggle` action — naming a verb the QA
+    // never used, and sending them to wait for a feature that is not the problem.
+    //
+    // Third instance of one rule: an element's own name is not a description of it
+    // (`extractRole` reading "select" out of "Select department", `actionCapability`
+    // reading `enter` out of `presses Enter`).
+    expect(outcomeOf('clicks the "Active" toggle', 'when')).toBe('action -> checkbox "Active"');
+
+    // THE HALF THAT MATTERS. A role noun in VERB position is still a verb, so a
+    // clause that really does ask us to toggle something is still refused.
+    expect(outcomeOf('toggles the "Active" box', 'when')).toBe('refused: action-not-supported');
+    // And the subject prefix comes off before the strip, or `User uploads …` loses
+    // its verb — which is exactly what the first draft did.
+    expect(outcomeOf('User uploads the document', 'when')).toBe('refused: action-not-supported');
   });
 });
 

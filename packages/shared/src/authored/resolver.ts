@@ -253,10 +253,42 @@ export function extractRole(text: string): string | undefined {
   // Reading one out of it is the inference this function exists to avoid, and
   // it turned a row that resolved into one that matched nothing.
   const outsideTheName = text.replace(/["'`][^"'`]*["'`]/g, ' ');
+
+  // A ROLE WORD DESCRIBES THE TARGET ONLY IF IT SITS BESIDE IT.
+  //
+  // `clicks "Save" in the dialog` was read as naming a DIALOG, so the resolver
+  // looked for a dialog called "Save" and refused `target-not-found` — a refusal
+  // for the wrong reason, blaming the QA's name for a scope phrase we could not
+  // express. `dialog` describes where the button is, not what it is.
+  //
+  // Same rule as the quote-stripping above, one step further out: the name is not
+  // a description of the element, and neither is a word attached to something
+  // else in the sentence. Two words either side of the quoted name, measured
+  // against the role nouns a QA actually writes — `the "Users" link`,
+  // `the "Export" menu item`, `the "Done" heading is visible` all fit inside it,
+  // and `in the dialog` (three words out) does not.
+  //
+  // With NO quoted name there is no anchor, so the whole clause is scanned as
+  // before. That path carries the old risk and `clicks on the Sign in button`
+  // depends on it.
+  const anchored = windowAroundName(text);
   for (const [pattern, role] of ROLE_WORDS) {
-    if (pattern.test(outsideTheName)) return role;
+    if (pattern.test(anchored ?? outsideTheName)) return role;
   }
   return undefined;
+}
+
+/** Two words either side of the first quoted name, or `undefined` if unquoted. */
+function windowAroundName(text: string): string | undefined {
+  const quoted = /["'`][^"'`]{2,}["'`]/.exec(text);
+  if (!quoted) return undefined;
+  const before = text.slice(0, quoted.index).trim().split(/\s+/).slice(-2);
+  const after = text
+    .slice(quoted.index + quoted[0].length)
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2);
+  return [...before, ...after].join(' ');
 }
 
 /**

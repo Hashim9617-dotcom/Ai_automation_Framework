@@ -366,8 +366,42 @@ export function columnVerbConflict(clause: {
   return undefined;
 }
 
+/**
+ * Words that are ROLE NOUNS, not verbs, however much they look like one.
+ *
+ * `clicks the "Active" toggle` was refused `action-not-supported`, naming the verb
+ * `toggle` — a NOUN, and the clause's leading verb was `clicks`, which is
+ * performable. The refusal was right by luck (there is no `switch` role word, so it
+ * would not have resolved) and the REASON was wrong, which sends the QA to wait for
+ * a toggle action that has nothing to do with it.
+ *
+ * Third instance of one rule: an element's own name is not a description of it.
+ * `extractRole` read "select" out of "Select department"; `actionCapability` read
+ * `enter` out of `presses Enter`; this reads `toggle` out of a control called a
+ * toggle. Quoting the name does not help here, because the ROLE NOUN sits outside
+ * the quotes by construction.
+ *
+ * Stripped only AFTER the first word, which is the verb position. A clause that
+ * genuinely says *"toggle the switch"* keeps its verb and is still refused; one
+ * that says *"clicks the toggle"* does not lose its click. Position is the whole
+ * discriminator, and it is the one thing a word list cannot supply.
+ */
+const ROLE_NOUNS =
+  /\b(toggles?|switch(?:es)?|select(?:or)?s?|filters?|searche?s?|links?|checkboxe?s?|entry|entries|drop-?downs?)\b/gi;
+
 export function actionCapability(text: string): ActionCapability {
-  const outsideNames = text.replace(/["'`][^"'`]*["'`]/g, ' ');
+  // THE SUBJECT PREFIX COMES OFF FIRST, and the order is a bug I made: with
+  // `User uploads the document`, the leading word was `User`, so `uploads` sat in
+  // the strippable region and was removed — turning a named refusal into an unnamed
+  // one. Caught by `U1`, which had been asserting that exact verb for a week.
+  const stem = text
+    .replace(/["'`][^"'`]*["'`]/g, ' ')
+    .trim()
+    .replace(SUBJECT_PREFIX, '');
+  // What is left of the FIRST word is the verb. Everything after it may hold role
+  // nouns, and a role noun is not the action being performed.
+  const leadingWord = /^\S+/.exec(stem)?.[0] ?? '';
+  const outsideNames = leadingWord + stem.slice(leadingWord.length).replace(ROLE_NOUNS, ' ');
   const named = NAMED_UNPERFORMABLE_VERBS.exec(outsideNames)?.[1]?.toLowerCase();
   if (named) return { performable: false, verb: named };
   if (PERFORMABLE_ACTION_VERBS.test(outsideNames)) return { performable: true };
