@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { homedir, userInfo } from 'node:os';
 import path from 'node:path';
 import { test, expect, captureAccessibilityTree, runSheet } from '@aitp/execution-engine';
 import {
@@ -79,6 +80,20 @@ const EXPECTED: Record<string, RowStatus> = {
 
 /** C3 — exact, and written before the run. `> 0` would pass on the wrong number. */
 const EXPECTED_APP_TEAM_ROWS = 1;
+
+/**
+ * G2 — columns an app-team CSV row is allowed to leave EMPTY.
+ *
+ * Declared before the check was run, and the empty list IS the declaration:
+ * every column of a row handed to the app team should carry something, because a
+ * blank cell in an issue sheet reads as "nothing to say" rather than "not
+ * available" — the same distinction `NOT_ANALYSED` exists for.
+ *
+ * It is a list rather than a boolean so that a future exception has to be WRITTEN
+ * DOWN with a name. The Module column was blank in every sheet this writer ever
+ * produced and nothing said so, because nothing was looking column by column.
+ */
+const ALLOWED_EMPTY_COLUMNS: readonly string[] = [];
 
 const HEADER: string[] = [...FINAL_TEST_CASES_SCHEMA.expectedHeaders];
 
@@ -301,6 +316,31 @@ test.describe('runSheet against the bundled demo app @demo', () => {
     expect(dataRows[0]).toContain('automation-fixture-user');
     expect(dataRows[0]).toContain('run_runsheetspec');
 
+    // ---- G2: every column of every app-team row, not the row as one string ----
+    //
+    // `toContain` over a joined line cannot see a blank cell, which is how the
+    // Module column stayed empty in every sheet this writer produced. Parsed
+    // properly because `Observed` holds a comma inside quotes, so splitting on
+    // `,` would shift every column after it and compare the wrong cells.
+    const grid = parseCsv(csv);
+    expect(grid.length, 'the CSV parsed to no rows — the check had no subject').toBe(
+      EXPECTED_APP_TEAM_ROWS + 1,
+    );
+    const headings = grid[0]!;
+    expect(headings.length).toBeGreaterThan(5);
+    for (const [index, cells] of grid.slice(1).entries()) {
+      expect(cells.length, `data row ${index + 1} has the wrong column count`).toBe(
+        headings.length,
+      );
+      for (const [column, heading] of headings.entries()) {
+        if (ALLOWED_EMPTY_COLUMNS.includes(heading)) continue;
+        expect(
+          cells[column]!.trim(),
+          `data row ${index + 1}, column "${heading}" is empty`,
+        ).not.toBe('');
+      }
+    }
+
     // ---- C2: no credential literal, and no trace path, in ANY text output ----
     const texts = textFilesIn(outDir);
     expect(
@@ -311,6 +351,21 @@ test.describe('runSheet against the bundled demo app @demo', () => {
       const body = readFileSync(file, 'utf8');
       expect(body, `${file} carries the Test Data literal`).not.toContain('NotARealPassword-0000');
       expect(body, `${file} carries a trace path`).not.toContain('trace.zip');
+
+      // ---- G3: no absolute path out of this machine ----
+      //
+      // Not a credential, and still not something to hand over: a report and a
+      // CSV are what a QA pastes into an issue tracker, and an absolute path
+      // carries the developer's home directory and OS username with it. Every
+      // path a reader needs is inside the repo, so every path can be
+      // repo-relative.
+      //
+      // `runBy` is injected here (`fixture-user`), so the username cannot reach
+      // these files legitimately. When the CLI resolves identity for real and
+      // `runBySource` is `os`, `Reported By` IS the username by design — that
+      // check belongs to whoever writes the CLI, per column rather than per file.
+      expect(body, `${file} carries the home directory`).not.toContain(homedir());
+      expect(body, `${file} carries the OS username`).not.toContain(userInfo().username);
     }
 
     // The report exists and names the run.
@@ -328,6 +383,48 @@ test.describe('runSheet against the bundled demo app @demo', () => {
     expect(tracked.filter((f) => /\.(xlsx|xlsm|xls|ods)$/i.test(f))).toEqual([]);
   });
 });
+
+/**
+ * RFC 4180, enough of it to check a cell rather than a line.
+ *
+ * Deliberately NOT the writer's own splitting logic: a parser borrowed from the
+ * thing under test agrees with it by construction, which is the counting-gateway
+ * mistake. This reads quotes, doubled quotes and CRLF the way Excel does, which
+ * is the reader this file is written for.
+ */
+function parseCsv(text: string): string[][] {
+  const body = text.startsWith(String.fromCharCode(0xfeff)) ? text.slice(1) : text;
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+
+  for (let i = 0; i < body.length; i += 1) {
+    const char = body[i]!;
+    if (quoted) {
+      if (char !== '"') cell += char;
+      else if (body[i + 1] === '"') {
+        cell += '"';
+        i += 1;
+      } else quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === ',') {
+      row.push(cell);
+      cell = '';
+    } else if (char === '\r' && body[i + 1] === '\n') {
+      row.push(cell);
+      cell = '';
+      rows.push(row);
+      row = [];
+      i += 1;
+    } else cell += char;
+  }
+  if (cell !== '' || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows;
+}
 
 /**
  * `git ls-files`, as lines.

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { Page } from '@playwright/test';
-import { TEXT_ROLES, type StepExecutor, type StepOutcome } from '@aitp/shared';
+import { findRepoRoot, TEXT_ROLES, type StepExecutor, type StepOutcome } from '@aitp/shared';
 
 /**
  * The browser-backed `StepExecutor`.
@@ -39,6 +39,27 @@ export interface ExecutorPage {
   screenshot: (options: { path: string }) => Promise<unknown>;
 }
 
+/**
+ * The path a REPORT may carry, as opposed to the path the file is written to.
+ *
+ * An absolute path here is not a credential and is still not something to hand
+ * over: `RowEvidence.screenshot` lands in the report and in the app team's CSV,
+ * both of which a QA pastes into an issue tracker, so it travelled with the
+ * developer's home directory and OS username attached — measured, on a real run,
+ * in both files at once. Every path a reader needs is inside the repo, so every
+ * path a reader is given can be repo-relative.
+ *
+ * A directory OUTSIDE the repo keeps its absolute path. `path.relative` would
+ * answer `..\..\..\Temp\…`, which leaks the same layout while being harder to
+ * read and no longer resolvable from anywhere in particular. Production never
+ * takes that branch — `runSheet` documents `outDir` as being under `artifacts/`
+ * — and the demo spec's own scan is what would notice if it ever did.
+ */
+function recordedPath(file: string): string {
+  const relative = path.relative(findRepoRoot(), file);
+  return relative.startsWith('..') || path.isAbsolute(relative) ? file : relative;
+}
+
 const slug = (value: string): string =>
   value
     .replace(/[^a-z0-9]+/gi, '-')
@@ -61,7 +82,12 @@ export function createPlaywrightStepExecutor(
       // error. The failing clause is attached by the caller regardless.
       return options.tracePath ? { trace: options.tracePath } : {};
     }
-    return { screenshot: file, ...(options.tracePath ? { trace: options.tracePath } : {}) };
+    // WRITE the absolute path, RECORD the repo-relative one. Those are two
+    // different jobs and were one string.
+    return {
+      screenshot: recordedPath(file),
+      ...(options.tracePath ? { trace: options.tracePath } : {}),
+    };
   };
 
   return async ({ rowId, step, target }): Promise<StepOutcome> => {

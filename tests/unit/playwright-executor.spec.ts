@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { createPlaywrightStepExecutor, type ExecutorPage } from '@aitp/execution-engine';
-import type { CaseStep } from '@aitp/shared';
+import { findRepoRoot, type CaseStep } from '@aitp/shared';
 
 /**
  * The executor's POLICY, against a stub page.
@@ -61,7 +61,15 @@ const stubPage = (options: StubOptions = {}): ExecutorPage & { shots: string[] }
   };
 };
 
-const artifactDir = mkdtempSync(path.join(tmpdir(), 'aitp-exec-'));
+/**
+ * Under the repo, because that is where a real run writes.
+ *
+ * It used to be a temp directory, which made X4 assert a path shape PRODUCTION
+ * NEVER PRODUCES — so it could not have noticed that the recorded path was
+ * absolute. The stub's `screenshot` records the name and writes nothing, so
+ * nothing lands here.
+ */
+const artifactDir = path.join(findRepoRoot(), 'artifacts', 'unit-executor');
 const make = (page: ExecutorPage, extra: Record<string, unknown> = {}) =>
   createPlaywrightStepExecutor(page, {
     artifactDir,
@@ -191,9 +199,39 @@ test.describe('evidence is captured by path (X4) @unit', () => {
     const page = stubPage({ count: 0 });
     const outcome = await make(page)({ rowId: 'SI_2 / TC_1', step: clickStep, target });
 
-    expect(outcome.evidence!.screenshot).toContain(artifactDir);
+    // The path a REPORT carries is repo-relative, exactly — not merely "contains
+    // the directory", which an absolute path also satisfies and which is how this
+    // shipped an absolute path into the report and the app team's CSV.
+    expect(outcome.evidence!.screenshot).toBe(
+      path.join('artifacts', 'unit-executor', 'si-2-tc-1-missing-target.png'),
+    );
+    expect(path.isAbsolute(outcome.evidence!.screenshot!)).toBe(false);
     expect(outcome.evidence!.trace).toBe('artifacts/runs/run_x/trace.zip');
+
+    // The file is still WRITTEN to an absolute path. Two jobs, two strings: a
+    // relative path handed to `page.screenshot` would land wherever the process
+    // happened to be.
+    expect(path.isAbsolute(page.shots[0]!)).toBe(true);
     expect(page.shots.length).toBe(1);
+  });
+
+  test('X4b: a directory OUTSIDE the repo keeps its absolute path', async () => {
+    // wrong: `path.relative` is applied unconditionally, and a temp directory
+    // becomes `..\..\..\Users\…\Temp\…` — the same layout leaked, now unreadable
+    // and resolvable from nowhere in particular.
+    //
+    // Discriminating against X4 above: same executor, same stub, same call; only
+    // the directory is outside the repo, and the answer differs.
+    const outside = mkdtempSync(path.join(tmpdir(), 'aitp-exec-'));
+    const page = stubPage({ count: 0 });
+    const outcome = await make(page, { artifactDir: outside })({
+      rowId: 'SI_2 / TC_1',
+      step: clickStep,
+      target,
+    });
+
+    expect(outcome.evidence!.screenshot).toBe(path.join(outside, 'si-2-tc-1-missing-target.png'));
+    expect(path.isAbsolute(outcome.evidence!.screenshot!)).toBe(true);
   });
 
   test('X4: a PASSING outcome takes no screenshot', async () => {
