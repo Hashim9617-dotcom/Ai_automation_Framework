@@ -1,0 +1,340 @@
+import { execSync } from 'node:child_process';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { test, expect, captureAccessibilityTree, runSheet } from '@aitp/execution-engine';
+import {
+  FINAL_TEST_CASES_SCHEMA,
+  findRepoRoot,
+  type BoundedCapture,
+  type RowStatus,
+  type RunIdentity,
+} from '@aitp/shared';
+import { buildXlsx } from '../support/xlsx-fixture';
+import { LoginPage } from './pages/login.page';
+
+/**
+ * The first end-to-end run of `runSheet` — a real workbook, a real page, a real
+ * report and a real CSV.
+ *
+ * `runSheet` is COMPOSED, NOT YET WIRED: this test is its only caller. The CLI
+ * (`pnpm run-sheet`) arrives in 3b and is what will tie the end to something a
+ * person invokes.
+ *
+ * ## What this covers, and what 3b still owes
+ *
+ * Six of the seven row outcomes appear below. The two that do not:
+ *
+ * - **`stale-capture`** needs a target that is IN the capture and NOT on the
+ *   page. The capture here is taken FROM the page (see F2 below), so that state
+ *   is impossible by construction — which is the right trade: a hand-written
+ *   capture could manufacture it, and a hand-written capture is what §R showed
+ *   hides the ORDER. It belongs with 3b's disk-loaded capture.
+ * - **loading a capture from disk** at all. Measured 2026-09-29: all nine
+ *   sessions under `artifacts/inspect/` are the customer system, and `artifacts/`
+ *   is gitignored, so there is no demo capture to load and a fresh clone has
+ *   none.
+ *
+ * ## F2 — the capture is taken in a SEPARATE context, then thrown away
+ *
+ * If this test signed in to take the capture and then handed the composition the
+ * same page, a broken `signIn` inside `runSheet` would be invisible: the page
+ * would already be where the rows need it. So the capture comes from its own
+ * browser context, that context is closed, and the composition gets a fresh page
+ * at `about:blank`. Both facts are asserted, and `signIn` is counted.
+ */
+
+/** Fake by construction, and shaped like the real sheet's `mail id : … Password : …`. */
+const FAKE_CREDENTIAL = 'mail id : qa.fixture@example.invalid Password : NotARealPassword-0000';
+
+/**
+ * PRE-REGISTERED OUTCOMES (C8).
+ *
+ * Written before the first run. If the run disagrees, the run is the finding and
+ * this table is not edited to match it.
+ */
+const EXPECTED: Record<string, RowStatus> = {
+  // Proven by `heading "Register employee"` — the employees view's own h1.
+  'SI_001 / TC_001': 'passed',
+  // A SECOND real locator (the h2), so one element is not carrying the file.
+  'SI_002 / TC_001': 'passed',
+  // Resolves (the heading IS in the capture) and fails on the PROPERTY: the
+  // clause claims it is not visible, and it is. Failing on resolution instead
+  // would be a different outcome (`refused`) and would prove nothing about the
+  // executor reading a live page.
+  'SI_003 / TC_001': 'failed',
+  // `attaches` is an action the platform cannot perform; refused at resolve, so
+  // no click is attempted.
+  'UP_001 / TC_001': 'refused',
+  // "Save employee" carries a write word, and ALLOW_WRITES is not set.
+  'WR_001 / TC_001': 'held',
+  // Identity but no Given/When/And/Then content at all.
+  // Pre-registered as UR_001 / TC_001. Reader identifies unreadable rows by sheet
+  // position only (UnreadableSheetRow, final-test-cases.ts:110). Finding F-UR-ID.
+  // Status unchanged.
+  'sheet row 7': 'unreadable',
+};
+
+/** C3 — exact, and written before the run. `> 0` would pass on the wrong number. */
+const EXPECTED_APP_TEAM_ROWS = 1;
+
+const HEADER: string[] = [...FINAL_TEST_CASES_SCHEMA.expectedHeaders];
+
+/** Column positions, by name, from the schema this reader validates against. */
+const COL = FINAL_TEST_CASES_SCHEMA.columns;
+
+const sheetRow = (cells: Partial<Record<keyof typeof COL, string>>): string[] => {
+  const row = Array.from({ length: HEADER.length }, () => '');
+  for (const [key, value] of Object.entries(cells)) {
+    row[COL[key as keyof typeof COL] - 1] = value ?? '';
+  }
+  return row;
+};
+
+const FIXTURE_ROWS: string[][] = [
+  sheetRow({
+    module: 'Employee registration',
+    scenarioId: 'SI_001',
+    testCaseId: 'TC_001',
+    scenarioName: 'the registration form is on screen',
+    then: 'verify the "Register employee" heading is visible',
+  }),
+  sheetRow({
+    module: 'Employee registration',
+    scenarioId: 'SI_002',
+    testCaseId: 'TC_001',
+    scenarioName: 'the directory section is on screen',
+    then: 'verify the "Employee directory" heading is visible',
+  }),
+  sheetRow({
+    module: 'Employee registration',
+    scenarioId: 'SI_003',
+    testCaseId: 'TC_001',
+    scenarioName: 'the directory section is absent',
+    then: 'verify the "Employee directory" heading is not visible',
+    // C2: the credential-shaped cell sits on the row that REACHES the CSV. On a
+    // passing row it never would, so "the literal is not in the CSV" would have
+    // been true of an empty file.
+    testData: FAKE_CREDENTIAL,
+  }),
+  sheetRow({
+    module: 'Employee registration',
+    scenarioId: 'UP_001',
+    testCaseId: 'TC_001',
+    scenarioName: 'a document is attached to the record',
+    when: 'user attaches the document',
+    then: 'verify the "Employee directory" heading is visible',
+  }),
+  sheetRow({
+    module: 'Employee registration',
+    scenarioId: 'WR_001',
+    testCaseId: 'TC_001',
+    scenarioName: 'the form is submitted',
+    when: 'clicks on "Save employee"',
+    then: 'verify the "Employee directory" heading is visible',
+  }),
+  // No clause columns at all — identity without content.
+  sheetRow({
+    module: 'Employee registration',
+    scenarioId: 'UR_001',
+    testCaseId: 'TC_001',
+    scenarioName: 'a row somebody started and left',
+  }),
+];
+
+/** Text files a leak could hide in. Screenshots and traces are binary. */
+const textFilesIn = (dir: string): string[] =>
+  readdirSync(dir)
+    .filter((f) => /\.(md|csv|json|txt)$/i.test(f))
+    .map((f) => path.join(dir, f));
+
+test.describe('runSheet against the bundled demo app @demo', () => {
+  test('R1: every row lands on its pre-registered outcome, and both outputs are written', async ({
+    env,
+    browser,
+  }) => {
+    // wrong: the run is green because the fixture asks nothing of the page — the
+    // outcomes below are the only thing that distinguishes a real run from a
+    // composition that resolved everything and executed nothing.
+    const root = findRepoRoot();
+    const outDir = path.join(root, 'artifacts', 'run-sheet-spec');
+    mkdirSync(outDir, { recursive: true });
+
+    // The workbook is built at runtime, under artifacts/, which is gitignored.
+    const workbook = path.join(outDir, 'fixture.xlsx');
+    writeFileSync(
+      workbook,
+      buildXlsx([{ name: FINAL_TEST_CASES_SCHEMA.sheetName, rows: [HEADER, ...FIXTURE_ROWS] }]),
+    );
+    // The fixture must be inside artifacts/ — not beside a real workbook.
+    expect(path.resolve(workbook).startsWith(path.join(root, 'artifacts') + path.sep)).toBe(true);
+
+    // ---- F2: the capture comes from its own context, which is then closed ----
+    // BOTH screens, and the first run is why. With only the employees state,
+    // `createEntryVerifier` refused at load: `assertProvenByInCapture` validates
+    // EVERY module in the map, and the bundled-demo map also describes `Login`,
+    // whose `provenBy heading "Sign in"` was not in a capture taken after signing
+    // in. That breadth is the validator working — a map entry nobody can prove is
+    // a map entry that fails row by row later — and the fixture was the thin
+    // thing. A real `pnpm inspect` session walks several screens too.
+    const captureContext = await browser.newContext();
+    const capturePage = await captureContext.newPage();
+    const captureLogin = new LoginPage(capturePage, env, {});
+    await captureLogin.open();
+    await expect(capturePage.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+    const loginTree = await captureAccessibilityTree(capturePage, { maxNodes: 1_000 });
+
+    await captureLogin.login(env.users.admin!.username, env.users.admin!.password);
+    await expect(
+      capturePage.getByRole('heading', { name: 'Register employee', exact: true }),
+    ).toBeVisible();
+    const employeesTree = await captureAccessibilityTree(capturePage, { maxNodes: 1_000 });
+
+    const capture: BoundedCapture = {
+      sessionId: 'run-sheet-spec',
+      states: [
+        {
+          id: 'login',
+          label: 'login',
+          url: loginTree.url,
+          nodes: loginTree.nodes,
+          truncated: loginTree.truncated,
+        },
+        {
+          id: 'employees',
+          label: 'employees',
+          url: employeesTree.url,
+          nodes: employeesTree.nodes,
+          truncated: employeesTree.truncated,
+        },
+      ],
+      transitions: [],
+      selection: { keywords: [], available: [], chosen: [], excluded: [] },
+    };
+    await captureContext.close();
+
+    // The capture must actually hold the screen, or every resolution below is
+    // about an empty page (§T: the input has to have arrived).
+    expect(capture.states).toHaveLength(2);
+    for (const state of capture.states) expect(state.nodes.length).toBeGreaterThan(3);
+
+    // ---- a FRESH page, and signIn counted ----
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    expect(page.url(), 'the composition must start from a page it has not signed in on').toBe(
+      'about:blank',
+    );
+
+    let signIns = 0;
+    const login = new LoginPage(page, env, {});
+    const signIn = async (): Promise<void> => {
+      signIns += 1;
+      await login.open();
+      await login.login(env.users.admin!.username, env.users.admin!.password);
+    };
+
+    const identity: RunIdentity = { runBy: 'fixture-user', runBySource: 'git' };
+    const rowsBefore = await page.getByTestId('employee-row').count();
+
+    const result = await runSheet({
+      workbook,
+      sheet: FINAL_TEST_CASES_SCHEMA.sheetName,
+      env,
+      capture,
+      page,
+      signIn,
+      outDir,
+      identity,
+      runId: 'run_runsheetspec',
+      provenance: {
+        target: 'the bundled demo app on 127.0.0.1:4173',
+        proves: 'the composition reads a sheet, proves an entry state and runs rows on a real page',
+        doesNotProve: 'anything about the customer system, whose sheet and screens differ',
+      },
+    });
+
+    expect(signIns, 'signIn must be called exactly once per run').toBe(1);
+    expect(result.runId).toBe('run_runsheetspec');
+
+    // §T — the run saw the rows the sheet had, counted from the inputs.
+    expect(result.rowsRead).toBe(FIXTURE_ROWS.length);
+    expect(result.run.tally.rowsRead).toBe(FIXTURE_ROWS.length);
+
+    // ---- C8: actual vs pre-registered, as one object ----
+    const actual = Object.fromEntries(result.run.results.map((r) => [r.rowId, r.status]));
+    expect(actual).toEqual(EXPECTED);
+
+    // ---- C4: the RIGHT reason, not merely the right status ----
+    const byId = Object.fromEntries(result.run.results.map((r) => [r.rowId, r]));
+
+    // SI_003 failed on the Then clause, reading the page — not on a timeout and
+    // not because the entry state was never reached.
+    const failedRow = byId['SI_003 / TC_001']!;
+    expect(failedRow.evidence?.failingClause).toContain('Employee directory');
+    expect(failedRow.evidence?.failingClause).toContain('present=false');
+    expect(failedRow.observed?.join(' ')).toContain('present=true');
+    expect(failedRow.detail).not.toMatch(/timeout|timed out/i);
+    expect(failedRow.status).not.toBe('given-not-reached');
+
+    // WR_001 is held for a WRITE, read off its own row rather than inferred.
+    const heldRow = byId['WR_001 / TC_001']!;
+    expect(heldRow.detail).toContain('create, modify or delete data');
+    expect(heldRow.detail).toContain('ALLOW_WRITES');
+
+    // And the write did not happen. Measured 2026-09-29: "Save employee" makes no
+    // network call — it pushes into an in-memory array and re-renders, writing
+    // `employee-row` rows and hiding `empty-state`. So the absence IS observable.
+    expect(await page.getByTestId('employee-row').count()).toBe(rowsBefore);
+    await expect(page.getByTestId('empty-state')).toBeVisible();
+
+    // ---- C3: the CSV carries exactly the app-team rows, a number fixed above ----
+    const csv = readFileSync(result.automationSheetPath, 'utf8');
+    const dataRows = csv
+      .replace(/^\uFEFF/, '')
+      .trim()
+      .split('\r\n')
+      .slice(1);
+    expect(dataRows).toHaveLength(EXPECTED_APP_TEAM_ROWS);
+    expect(dataRows[0]).toContain('SI_003 / TC_001');
+    expect(dataRows[0]).toContain('automation-fixture-user');
+    expect(dataRows[0]).toContain('run_runsheetspec');
+
+    // ---- C2: no credential literal, and no trace path, in ANY text output ----
+    const texts = textFilesIn(outDir);
+    expect(
+      texts.length,
+      'the leak scan read no files — its silence would mean nothing',
+    ).toBeGreaterThanOrEqual(2);
+    for (const file of texts) {
+      const body = readFileSync(file, 'utf8');
+      expect(body, `${file} carries the Test Data literal`).not.toContain('NotARealPassword-0000');
+      expect(body, `${file} carries a trace path`).not.toContain('trace.zip');
+    }
+
+    // The report exists and names the run.
+    expect(readFileSync(result.reportPath, 'utf8')).toContain('run_runsheetspec');
+
+    await context.close();
+  });
+
+  test('R2: the run leaves no workbook in the repo', () => {
+    // wrong: a fixture written outside artifacts/ is ignored by `*.xlsx` alone,
+    // and that rule is unanchored — if it were ever tightened, a committed
+    // workbook would be one `git add` away. This asserts the tracked set itself.
+    const tracked = execSyncLines('git ls-files');
+    expect(tracked.length, 'the listing read nothing').toBeGreaterThan(50);
+    expect(tracked.filter((f) => /\.(xlsx|xlsm|xls|ods)$/i.test(f))).toEqual([]);
+  });
+});
+
+/**
+ * `git ls-files`, as lines.
+ *
+ * `git` is the one spawn this repo exempts from `spawn-clean`, and the exemption
+ * is reasoned: git consults neither `NODE_PATH` nor `NODE_OPTIONS`, so its answer
+ * cannot differ between the runner's environment and a production one.
+ */
+function execSyncLines(command: string): string[] {
+  return execSync(command, { cwd: findRepoRoot(), encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 })
+    .split(/\r?\n/)
+    .filter(Boolean);
+}

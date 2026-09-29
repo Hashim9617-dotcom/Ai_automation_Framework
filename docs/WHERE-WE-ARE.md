@@ -489,6 +489,18 @@ dropped is worse than one that was never listed.
 | 7   | Deferred: slug-collision check in `pnpm onboard`; per-application `artifacts/` layout; the `moduleOf` plumbing decision.                                                  | **Corrected:** `pnpm onboard` **does not exist** — the check is deferred to a command still to be written. `artifacts/` is flat today (`auth`, `inspect`, `reports`, `runs`, `smoke`, `test-results`). The `moduleOf` decision is deliberately timed: it belongs to whoever writes the first real implementation, because that is the first moment anyone can tell whether its two sources are genuinely two (`execute.ts:259-268`). |
 | 8   | Onboarding is not broken by removing the `'qa'` fallback.                                                                                                                 | Confirmed: `.env.example:6` ships `TEST_ENV=local`, so a fresh clone lands on the bundled fixture rather than on a refusal.                                                                                                                                                                                                                                                                                                          |
 
+| 9 | **F-UR-ID** — an unreadable row that HAS a Scenario ID / Test Case ID loses them. | The reader keeps only `sheetRow` (`UnreadableSheetRow`, `final-test-cases.ts:110`). The real unreadable rows 15/208 had no identity, so the type has no field for one; a row with an ID but blank clauses is a **third shape** — and probably the common one, since an ID is written first and the clauses later. Owner: **platform**. Low: the sheet row still locates it in Excel. **Fix before the first DMS run (3a-2).** |
+| 10 | **`assertProvenByInCapture` validates the WHOLE module map**, not only the modules the sheet uses. | Found by running 3a: a capture of one screen was refused because the map also describes `Login`. That breadth is the validator working — a map entry nobody can prove fails row by row later — but a DMS run needs a capture, **possibly merged from several sessions**, proving every map entry. It is a second whole-run gate beside `assertEveryModuleMapped`. Decide at **3b** (disk-load / merge) and **3c**. |
+
+### `runSheet` is composed, not yet wired
+
+`packages/execution-engine/src/authored/run-sheet.ts` assembles the whole chain —
+sheet read, resolve, module map, entry verify, execute, report, automation sheet —
+and `tests/demo/run-sheet.spec.ts` is its **only caller**. The end is tied to
+something a person invokes in **3b**, when the CLI arrives. Until then the
+composition exists and has been exercised against a real page; nothing in
+production reaches it.
+
 ### On the missing harness, specifically
 
 The reusable part is not a harness. It is the **core**: the three controls

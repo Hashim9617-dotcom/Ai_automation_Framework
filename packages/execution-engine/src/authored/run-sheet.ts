@@ -1,0 +1,182 @@
+import path from 'node:path';
+import { readFileSync } from 'node:fs';
+import type { Page } from '@playwright/test';
+import {
+  assertEveryModuleMapped,
+  executeAuthoredRows,
+  findRepoRoot,
+  loadModuleMap,
+  newId,
+  readFinalTestCases,
+  readSheetGrid,
+  resolveAuthoredRow,
+  resolveRunIdentity,
+  triageSheet,
+  writeAuthoredReport,
+  writeAutomationSheet,
+  defaultRunIdentitySources,
+  type AuthoredRunResult,
+  type BoundedCapture,
+  type EntryControl,
+  type RunIdentity,
+  type RunProvenance,
+} from '@aitp/shared';
+import type { EnvironmentConfig } from '../config/schema';
+import { createEntryVerifier } from './entry-verifier';
+import { createPlaywrightStepExecutor } from './playwright-executor';
+
+/**
+ * One authored sheet, end to end: read it, resolve it, prove the entry state,
+ * run it, and write both outputs.
+ *
+ * ## Why this lives here and not in `@aitp/shared`
+ *
+ * It needs a Playwright `Page`. `@aitp/shared` has no Playwright dependency and
+ * must not gain one — it is the package `apps/api` compiles into its own `dist`,
+ * and every runtime dependency of a compiled package becomes an invisible
+ * requirement of the API. So the composition sits beside the two pieces that
+ * already hold a page: `entry-verifier.ts` and `playwright-executor.ts`.
+ *
+ * ## What it does NOT do
+ *
+ * - **It never sets `allowWrites`.** `executeAuthoredRows` defaults it to
+ *   `false`, and this file does not pass it at all, so there is no parameter for
+ *   a caller to thread a flag through. A write-risky row is held; that is the
+ *   whole behaviour.
+ * - **It does not own the browser.** The caller creates and closes the page, so
+ *   a test can hand it one whose state it controls.
+ * - **It does not load the capture from disk.** Measured 2026-09-29: all nine
+ *   capture sessions under `artifacts/inspect/` are the customer system; there is
+ *   no capture for the bundled demo app, and `artifacts/` is gitignored so a
+ *   fresh clone has none at all. A loader here would have to fail on every clone
+ *   for a reason that is not wrong. The caller supplies it — from a real page, or
+ *   from disk once 3b gives it a source.
+ * - **It writes nothing to the workbook.** `readSheetGrid` takes bytes, not a
+ *   path it can write back to.
+ *
+ * ## The application is DERIVED, never asked for
+ *
+ * `env.application` is a required field on every environment file, so the module
+ * map is `config/apps/<application>/module-map.json`. There is no option here to
+ * name an application, because a second source for it is a second thing that can
+ * disagree with the environment a run already resolved.
+ */
+export interface RunSheetOptions {
+  /** Path to the workbook. Read as bytes; never written. */
+  workbook: string;
+  /**
+   * The sheet to read. REQUIRED, no default.
+   *
+   * The real book holds five test-case-shaped sheets with different layouts, so
+   * defaulting to the first — or to the one that looks right — reads a different
+   * layout as if it were this one and every row becomes garbage that looks like
+   * data.
+   */
+  sheet: string;
+  /** Already resolved by the caller. `application` selects the module map. */
+  env: EnvironmentConfig;
+  /** The capture the rows are resolved and the entry states proved against. */
+  capture: BoundedCapture;
+  /** Caller-owned. The composition drives it and never closes it. */
+  page: Page;
+  /** App-specific, so it stays out of `packages/`. Called once per run. */
+  signIn: () => Promise<void>;
+  /** Where the report, the CSV and the screenshots go. Under `artifacts/`. */
+  outDir: string;
+  /** What a green run here does and does not establish. Required by the report. */
+  provenance: RunProvenance;
+  /** Injectable so a test does not depend on the machine's git config. */
+  identity?: RunIdentity;
+  /** Injectable so a test can assert on an exact value. */
+  runId?: string;
+}
+
+export interface RunSheetResult {
+  runId: string;
+  run: AuthoredRunResult;
+  reportPath: string;
+  automationSheetPath: string;
+  /**
+   * Rows the SHEET had, counted from the inputs rather than from the results.
+   *
+   * A count taken from the output cannot notice rows that never became results,
+   * which is the oldest reporting bug there is (§T: a check must assert it had a
+   * subject).
+   */
+  rowsRead: number;
+}
+
+export async function runSheet(options: RunSheetOptions): Promise<RunSheetResult> {
+  const grid = readSheetGrid(readFileSync(options.workbook), options.sheet);
+  const sheet = readFinalTestCases(grid);
+  const rowsRead = sheet.rows.length + sheet.unreadable.length;
+  if (rowsRead === 0) {
+    throw new Error(
+      `${options.workbook}: read 0 rows from "${options.sheet}" — refusing to report a run over ` +
+        'nothing. A sheet with no rows and a sheet that failed to parse are not the same answer.',
+    );
+  }
+
+  // The module map is per APPLICATION, and the application comes from the
+  // environment that was already resolved. Every module the sheet names must
+  // have an entry: an unmapped module is refused for the whole run rather than
+  // skipped, because a skipped module is a screen nobody knows went untested.
+  const mapFile = path.join(
+    findRepoRoot(),
+    'config',
+    'apps',
+    options.env.application,
+    'module-map.json',
+  );
+  const map = loadModuleMap(mapFile);
+  const moduleOfRow = new Map(sheet.rows.map((row) => [row.rowId, row.module]));
+  assertEveryModuleMapped([...moduleOfRow.values()], map, mapFile);
+
+  const resolved = sheet.rows.map((row) =>
+    // The entry state is the module's route, named by the map rather than
+    // guessed from the row.
+    resolveAuthoredRow(row, options.capture, map[row.module]!.route.replace(/^\//, '') || 'root'),
+  );
+
+  const entry: EntryControl = {
+    moduleOf: (row) => moduleOfRow.get(row.rowId) ?? '(unknown module)',
+    verify: createEntryVerifier({
+      map,
+      capture: options.capture,
+      mapFile,
+      page: options.page,
+      signIn: options.signIn,
+    }),
+  };
+
+  const runId = options.runId ?? newId('run');
+  const run = await executeAuthoredRows({
+    runId,
+    resolved,
+    unreadable: sheet.unreadable,
+    entry,
+    execute: createPlaywrightStepExecutor(options.page, { artifactDir: options.outDir }),
+    // `allowWrites` is deliberately absent: the default is `false` and there is
+    // no way through this function to change it.
+  });
+
+  const report = writeAuthoredReport(run, {
+    outputDir: options.outDir,
+    sheetName: options.sheet,
+    provenance: options.provenance,
+    triage: triageSheet(sheet.rows, new Set(Object.keys(map))),
+  });
+
+  const automationSheet = writeAutomationSheet(run, {
+    outputDir: options.outDir,
+    identity: options.identity ?? resolveRunIdentity(defaultRunIdentitySources),
+  });
+
+  return {
+    runId,
+    run,
+    reportPath: report.file,
+    automationSheetPath: automationSheet.file,
+    rowsRead,
+  };
+}
