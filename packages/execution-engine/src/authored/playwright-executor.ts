@@ -57,7 +57,16 @@ export interface ExecutorPage {
  */
 function recordedPath(file: string): string {
   const relative = path.relative(findRepoRoot(), file);
-  return relative.startsWith('..') || path.isAbsolute(relative) ? file : relative;
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return file;
+  // FORWARD SLASHES, so the cell reads the same on every machine.
+  //
+  // `path.relative` answers in the host's separator, so the same run produced
+  // `artifacts\run-sheet-spec\…` on Windows and `artifacts/run-sheet-spec/…`
+  // elsewhere — in a CSV a QA pastes into a shared sheet, where the reader has no
+  // way to know which machine wrote it. The separator is not information here:
+  // the path is repo-relative, and every tool that will be handed it (git, a
+  // browser, a markdown link, Windows itself) accepts a forward slash.
+  return relative.split(path.sep).join('/');
 }
 
 const slug = (value: string): string =>

@@ -189,34 +189,106 @@ const SHOULD_ASSERTION = /\bshould\b/i;
 const SUBJECT_PREFIX = /^(?:the\s+)?(?:user|users|system|admin|qa|tester|portal)\s+/i;
 
 /**
- * Action verbs the platform CLASSIFIES but cannot PERFORM.
+ * Action verbs the platform can actually PERFORM. An ALLOWLIST.
  *
- * `upload` is in `ACTION_VERBS` above, so such a clause becomes a normal
- * action step — and an action step is `{ kind, description }` with nowhere to
- * put a file. The executor then clicks whatever target resolved and returns
- * `passed`, so a row saying "uploads a document" comes back green having
- * clicked a button and uploaded nothing. A false pass is worse than a refusal.
+ * ## This was a denylist, and a denylist here is fail-OPEN
  *
- * Deliberately NOT removed from `ACTION_VERBS`: the clause IS an action, the
- * QA wrote it correctly, and reclassifying it as unparseable would blame the
- * sentence for a gap in the platform.
+ * It listed `upload|attach|browse` and let everything else through, on the
+ * reasoning that those were the actions with nowhere to put a file. Measured
+ * 2026-09-29 against a capture holding a node for every name these clauses
+ * could slice out — the point being to see what happens when the target IS on
+ * the page:
  *
- * Kept here rather than in the resolver so the two verb lists sit together —
- * a second list somewhere else drifts from this one, and a drifted list reads
- * exactly like a correct one.
+ * | clause | became | executor |
+ * | --- | --- | --- |
+ * | `user enters 'Jane' in First name` | action, target **option "Jane"** | CLICK -> passed |
+ * | `types 'Jane' into First name` | action, target **option "Jane"** | CLICK -> passed |
+ * | `selects 'HR' from Department` | action, target **option "HR"** | CLICK -> passed |
+ *
+ * `enters`, `types` and `selects` are all in `ACTION_VERBS`, and
+ * `extractTarget`'s quoted-name pattern — which is right to trust a name a human
+ * put in quotes — grabs the **VALUE** as if it were an element. So the clause
+ * becomes *"click the thing called Jane"*, and on any page where a value happens
+ * to match a control name (an option, a row, a tag, a filter chip) it clicks it
+ * and reports a pass with nothing typed.
+ *
+ * The usual case is barely better: when no control is named `Jane` the row is
+ * refused `target-not-found` — *"nothing clickable named Jane"* — which blames
+ * the QA's sentence for a gap in the platform, and sends them to rewrite a row
+ * that is already correct.
+ *
+ * So the list is inverted. The executor does exactly one thing —
+ * `locator.click()` — and this is that one thing's vocabulary. A new verb added
+ * to `ACTION_VERBS` now REFUSES by default instead of silently becoming a click,
+ * which is the only direction that fails safe.
+ *
+ * ## The three judgement calls, all resolved toward refusal
+ *
+ * `select`, `open` and `navigate` are genuinely ambiguous: *"selects the Roles
+ * tab"* is a click and *"selects 'HR' from Department"* is not, and the verb
+ * cannot tell them apart. They are OUT, because the two errors are not
+ * symmetric — a refusal is recoverable (the QA writes "clicks the Roles tab" and
+ * it runs), and a false pass is a row reported green having done nothing.
+ *
+ * `upload`/`attach`/`browse` need no entry of their own any more: they are
+ * simply not on the list, which is the same answer reached by the general rule
+ * instead of by three names someone had to think of.
+ *
+ * Kept beside `ACTION_VERBS` deliberately. A second verb list somewhere else
+ * drifts from this one, and a drifted list reads exactly like a correct one.
  */
-const UNSUPPORTED_ACTION_VERBS = /^(uploads?|uploading|attaches?|browses?)\b/i;
+const PERFORMABLE_ACTION_VERBS =
+  /\b(clicks?|clicked|clicking|presses?|pressed|pressing|taps?|tapped|tapping)\b/i;
 
 /**
- * Can the platform actually carry out this action clause?
+ * Unperformable verbs BY NAME — and this list cannot open a gate, only improve a
+ * message, which is why a list is safe here and was not safe before.
  *
- * Uses the SAME subject prefix as `classifyClause`, so "User uploads a file"
- * is tested on its verb exactly as classification tests it. A separate prefix
- * here would answer a different question about the same sentence.
+ * The gate is `PERFORMABLE_ACTION_VERBS` above: a clause with no click verb is
+ * refused whether or not it appears below. This list only decides whether the
+ * refusal can NAME the verb — `"selects" is not an action this platform can
+ * perform`, which tells a QA to wait for a feature — or has to say the vaguer
+ * *"no performable action could be read out of it"*, which tells them to rewrite
+ * the sentence. Two different next moves, so the distinction is worth a list;
+ * a word missing from it costs a good message, never a false pass.
+ *
+ * It is checked BEFORE the allowlist, not after. *"clicks Save and enters
+ * Jane"* contains a click verb and is still not performable as written — only
+ * half of it would happen, and the half that did would report a pass.
  */
-export function unsupportedActionVerb(text: string): string | undefined {
-  const stem = text.trim().replace(SUBJECT_PREFIX, '');
-  return UNSUPPORTED_ACTION_VERBS.exec(stem)?.[1]?.toLowerCase();
+const NAMED_UNPERFORMABLE_VERBS =
+  /\b(uploads?|uploaded|uploading|attaches?|attached|attaching|browses?|browsed|browsing|enters?|entered|entering|types?|typed|typing|fills?|filled|filling|selects?|selected|selecting|chooses?|chose|choosing|navigates?|navigated|navigating|searches?|searched|searching|opens?|opened|opening|drags?|dragged|dragging|scrolls?|scrolled|scrolling|hovers?|hovered|hovering|toggles?|toggled|toggling|switches?|switched|switching)\b/i;
+
+/** Whether the executor can carry out an action clause, and if not, which verb. */
+export interface ActionCapability {
+  performable: boolean;
+  /**
+   * The verb to NAME in a refusal. Absent when nothing recognisable was found,
+   * which is a different sentence to a different person — see the list above.
+   */
+  verb?: string;
+}
+
+/**
+ * Can the executor carry out this action clause?
+ *
+ * Position-independent, and QUOTED NAMES ARE EXCLUDED first — the same rule
+ * `extractRole` learned the hard way, that an element's own name is not a
+ * description of it. *"verify by clicking 'Sign in'"* is a performable action
+ * whose leading word is an assert verb, and a leading-word test refused it,
+ * which would have made this function override the COLUMN the QA wrote. The
+ * column decides what a clause IS; this only decides whether we can do it.
+ *
+ * The cost, stated: an UNQUOTED control name containing one of the words above
+ * — *"clicks the Select all checkbox"* — is refused. Quoting the name fixes it,
+ * and a refusal a QA can undo in one edit is the cheap direction.
+ */
+export function actionCapability(text: string): ActionCapability {
+  const outsideNames = text.replace(/["'`][^"'`]*["'`]/g, ' ');
+  const named = NAMED_UNPERFORMABLE_VERBS.exec(outsideNames)?.[1]?.toLowerCase();
+  if (named) return { performable: false, verb: named };
+  if (PERFORMABLE_ACTION_VERBS.test(outsideNames)) return { performable: true };
+  return { performable: false };
 }
 
 export function classifyClause(text: string): { kind: ClauseKind; why?: string } {

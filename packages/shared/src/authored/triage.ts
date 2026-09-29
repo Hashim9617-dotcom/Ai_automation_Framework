@@ -1,4 +1,4 @@
-import { unsupportedActionVerb, type AuthoredRow } from './final-test-cases';
+import { actionCapability, type AuthoredRow } from './final-test-cases';
 import { extractTarget } from './resolve-authored';
 
 /**
@@ -232,7 +232,7 @@ function classifyByClauses(clauses: AuthoredRow['clauses']): {
 } {
   // AN ACTION WE CANNOT PERFORM STOPS THE ROW BEFORE ANYTHING ELSE IS ASKED.
   //
-  // Same predicate the resolver refuses on (`unsupportedActionVerb`), imported
+  // Same predicate the resolver refuses on (`actionCapability`), imported
   // rather than restated: two verb lists drift, and a drifted list reads exactly
   // like a correct one. The point of this branch is that triage and the run give
   // the SAME answer — a ceiling that counts a row the run then refuses is the
@@ -244,7 +244,11 @@ function classifyByClauses(clauses: AuthoredRow['clauses']): {
   // cost of the choice, stated: a row that is BOTH unsupported and vague appears
   // here now and in the QA's list later, once the capability lands.
   const unsupported = clauses.find(
-    (clause) => clause.kind === 'action' && unsupportedActionVerb(clause.text) !== undefined,
+    // A NAMED verb, not merely "not performable". The unnamed case is a clause
+    // nothing could read an action out of, and that belongs to the QA's
+    // `too-vague-to-verify` rather than to our capability backlog — the same
+    // split the resolver makes when it chooses between the two refusal reasons.
+    (clause) => clause.kind === 'action' && actionCapability(clause.text).verb !== undefined,
   );
   if (unsupported) {
     return { reason: 'unsupported-action', evidence: unsupported.text };

@@ -110,33 +110,32 @@ const signInOrThrow =
     }
   };
 
-const row = (rowId: string, module: string): ResolvedAuthoredRow =>
-  ({
-    rowId,
-    scenarioId: rowId.split(' / ')[0]!,
-    testCaseId: rowId.split(' / ')[1]!,
-    module,
-    sheetRow: 3,
-    title: rowId,
-    outcome: 'ok',
-    owner: 'none',
-    steps: [
-      {
-        kind: 'assert',
-        role: 'heading',
-        name: 'Register employee',
-        property: 'present',
-        expected: true,
-      },
-    ],
-    targets: [{ stepIndex: 0, role: 'heading', name: 'Register employee' }],
-    clauseKinds: ['assert'],
-    givenClauses: [],
-    refusals: [],
-    grades: [],
-    writeRisk: 'read-only',
-    summary: 'resolved',
-  }) as ResolvedAuthoredRow;
+const row = (rowId: string, module: string): ResolvedAuthoredRow => ({
+  rowId,
+  scenarioId: rowId.split(' / ')[0]!,
+  testCaseId: rowId.split(' / ')[1]!,
+  module,
+  sheetRow: 3,
+  title: rowId,
+  outcome: 'ok',
+  owner: 'none',
+  steps: [
+    {
+      kind: 'assert',
+      role: 'heading',
+      name: 'Register employee',
+      property: 'present',
+      expected: true,
+    },
+  ],
+  targets: [{ stepIndex: 0, role: 'heading', name: 'Register employee' }],
+  clauseKinds: ['assert'],
+  givenClauses: [],
+  refusals: [],
+  grades: [],
+  writeRisk: 'read-only',
+  summary: 'resolved',
+});
 
 test.describe('the entry verifier against the real demo app @demo', () => {
   test('D1: a wrong password is `auth`, in the application’s own words', async ({

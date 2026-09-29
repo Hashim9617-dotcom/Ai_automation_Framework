@@ -35,16 +35,35 @@ const IDENTITY: RunIdentity = { runBy: 'Hashim Khan', runBySource: 'git' };
  * two other fixtures and stayed silent about this one. A spec that never
  * mentions a field cannot fail on it — no test set it, and none read the column.
  */
-const row = (over: Partial<RowResult> & Pick<RowResult, 'rowId' | 'status' | 'owner'>): RowResult =>
-  ({
-    scenarioId: over.rowId.split(' / ')[0],
-    testCaseId: 'TC_1',
-    module: 'Employee registration',
-    sheetRow: 3,
-    title: 'a row',
-    detail: 'd',
-    ...over,
-  }) as RowResult;
+const row = (
+  over: Partial<RowResult> & {
+    rowId: string;
+    /**
+     * `given-not-reached` is EXCLUDED, which is what lets the cast go.
+     *
+     * With the full `RowStatus` the literal cannot be matched to either arm of
+     * the union — `reason` is required on one and forbidden on the other — so
+     * `as RowResult` was the only way to build it, and `as` is why a missing
+     * required field was invisible here while the compiler flagged two other
+     * fixtures. Narrowed, the literal is checked. A test needing an entry
+     * failure builds it explicitly, the way `authored-run.spec.ts` does.
+     */
+    status: Exclude<RowResult['status'], 'given-not-reached'>;
+    owner: RowResult['owner'];
+  },
+): RowResult => ({
+  scenarioId: over.rowId.split(' / ')[0]!,
+  testCaseId: 'TC_1',
+  module: 'Employee registration',
+  sheetRow: 3,
+  title: 'a row',
+  detail: 'd',
+  // One step ran and stopped — the shape of every row this sheet carries. The
+  // compiler asked for this field, which is the point: under the `as RowResult`
+  // this fixture used to carry, it would not have.
+  stepsRun: 1,
+  ...over,
+});
 
 const runOf = (results: RowResult[]): AuthoredRunResult => ({
   runId: 'run_fixture01',

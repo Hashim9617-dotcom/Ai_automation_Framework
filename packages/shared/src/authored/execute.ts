@@ -125,6 +125,23 @@ interface RowResultFields {
   orphanedContent?: string[];
   /** What each step actually observed. Positive evidence, not silence. */
   observed?: string[];
+  /**
+   * HOW MANY STEPS THE EXECUTOR WAS ACTUALLY ASKED TO RUN. Required, so `0` is a
+   * recorded fact rather than the absence of one.
+   *
+   * There was no record of this anywhere, and `observed` is not it: an optional
+   * array is absent on a held row, and absent is not zero. So "the hold stopped
+   * the row before anything ran" could only be checked INDIRECTLY — the demo
+   * spec counted `employee-row` elements on the page, which measured the demo
+   * app's behaviour rather than the platform's. That check also turned out not to
+   * discriminate: the app's own validation blocks a bare click, so `0` rows would
+   * have appeared whether the hold worked or not.
+   *
+   * This is the direct claim. `0` for held, refused, unreadable and
+   * `given-not-reached`, by construction — each of those `continue`s before the
+   * step loop — and it is asserted rather than assumed.
+   */
+  stepsRun: number;
   /** Present on every row that RAN and did not pass. Paths, never contents. */
   evidence?: RowEvidence;
 }
@@ -394,6 +411,7 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       module: row.module ?? '',
       sheetRow: row.sheetRow,
       title: 'unidentified row',
+      stepsRun: 0,
       status: 'unreadable',
       owner: OWNER_OF.unreadable,
       detail: described.message,
@@ -425,6 +443,11 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       module: row.module,
       sheetRow: row.sheetRow,
       title: row.title,
+      // ZERO UNTIL A STEP IS ACTUALLY RUN. Every branch that `continue`s below
+      // — held, refused, given-not-reached — keeps this, so the claim "nothing
+      // ran" is recorded by construction rather than by each branch remembering
+      // to say so. The two branches that DO run steps override it.
+      stepsRun: 0,
     };
 
     // Write risk gates EXECUTION, not just classification (§9.4). Held is a
@@ -525,6 +548,7 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
         ...common,
         status: 'passed',
         owner: OWNER_OF.passed,
+        stepsRun: observations.length,
         detail: observations.join(' | ') || 'no steps to run',
         observed: observations,
         ...(preflight ? { preflight } : {}),
@@ -545,6 +569,7 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       ...common,
       status,
       owner: OWNER_OF[status],
+      stepsRun: observations.length,
       detail:
         stopped.outcome.kind === 'no-observable-check'
           ? `nothing observable to check for "${clause}" — this clause cannot be verified as written`

@@ -136,25 +136,24 @@ test.describe('the reason is the stage that failed (V1) @unit', () => {
 });
 
 test.describe('an unreached module stops every row it owns (V2) @unit', () => {
-  const row = (rowId: string): ResolvedAuthoredRow =>
-    ({
-      rowId,
-      scenarioId: rowId.split(' / ')[0]!,
-      testCaseId: rowId.split(' / ')[1]!,
-      module: 'Employee registration',
-      sheetRow: 3,
-      title: rowId,
-      outcome: 'ok',
-      owner: 'none',
-      steps: [{ kind: 'action', description: 'click "Save"' }],
-      targets: [{ stepIndex: 0, role: 'button', name: 'Save' }],
-      clauseKinds: ['action'],
-      givenClauses: [],
-      refusals: [],
-      grades: [],
-      writeRisk: 'read-only',
-      summary: 'resolved',
-    }) as ResolvedAuthoredRow;
+  const row = (rowId: string): ResolvedAuthoredRow => ({
+    rowId,
+    scenarioId: rowId.split(' / ')[0]!,
+    testCaseId: rowId.split(' / ')[1]!,
+    module: 'Employee registration',
+    sheetRow: 3,
+    title: rowId,
+    outcome: 'ok',
+    owner: 'none',
+    steps: [{ kind: 'action', description: 'click "Save"' }],
+    targets: [{ stepIndex: 0, role: 'button', name: 'Save' }],
+    clauseKinds: ['action'],
+    givenClauses: [],
+    refusals: [],
+    grades: [],
+    writeRisk: 'read-only',
+    summary: 'resolved',
+  });
 
   test('V2: every row of the module is given-not-reached, and NO step runs', async () => {
     // wrong: the rows run anyway against whatever screen is open, and a target

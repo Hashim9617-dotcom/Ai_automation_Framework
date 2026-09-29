@@ -233,6 +233,8 @@ test.describe('the arithmetic balances (E2) @unit', () => {
     detail: `the run never reached the starting point (${reason})`,
     reason,
     module: 'Login',
+    // Zero by definition: the entry gate runs before any step.
+    stepsRun: 0,
   });
 
   test('E2: the seventh bucket is counted, and the sum still balances', () => {

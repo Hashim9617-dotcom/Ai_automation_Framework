@@ -298,11 +298,24 @@ test.describe('runSheet against the bundled demo app @demo', () => {
     expect(heldRow.detail).toContain('create, modify or delete data');
     expect(heldRow.detail).toContain('ALLOW_WRITES');
 
-    // And the write did not happen. Measured 2026-09-29: "Save employee" makes no
-    // network call — it pushes into an in-memory array and re-renders, writing
-    // `employee-row` rows and hiding `empty-state`. So the absence IS observable.
+    // AND NOTHING RAN. The direct claim, not a proxy for it.
+    //
+    // This was `employee-row` count === rowsBefore plus `empty-state` visible,
+    // and both were measured on 2026-09-29 to be NON-DISCRIMINATING: the demo
+    // app's own validation rejects a bare "Save employee" click, so the count
+    // stays 0 whether the hold worked or not. The check was measuring the demo
+    // app's form validation and reading as a check on the platform's write gate.
+    //
+    // `stepsRun` is the platform's own record of how many steps the executor was
+    // asked to run. 0 for a held row by construction.
+    expect(heldRow.stepsRun, 'a held row must not have run a step').toBe(0);
+    // Discriminating in the same assertion family: the row that DID run has a
+    // non-zero count, so `0` above is not what every row reports.
+    expect(failedRow.stepsRun).toBeGreaterThan(0);
+
+    // The DOM check stays, downgraded to what it actually is: corroboration that
+    // the page did not change, not the proof that nothing ran.
     expect(await page.getByTestId('employee-row').count()).toBe(rowsBefore);
-    await expect(page.getByTestId('empty-state')).toBeVisible();
 
     // ---- C3: the CSV carries exactly the app-team rows, a number fixed above ----
     const csv = readFileSync(result.automationSheetPath, 'utf8');

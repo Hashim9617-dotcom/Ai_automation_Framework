@@ -202,9 +202,13 @@ test.describe('evidence is captured by path (X4) @unit', () => {
     // The path a REPORT carries is repo-relative, exactly — not merely "contains
     // the directory", which an absolute path also satisfies and which is how this
     // shipped an absolute path into the report and the app team's CSV.
+    // Forward slashes, LITERALLY — not `path.join`, which would agree with the
+    // implementation on whatever separator the host uses and assert nothing about
+    // which one lands in the CSV.
     expect(outcome.evidence!.screenshot).toBe(
-      path.join('artifacts', 'unit-executor', 'si-2-tc-1-missing-target.png'),
+      'artifacts/unit-executor/si-2-tc-1-missing-target.png',
     );
+    expect(outcome.evidence!.screenshot).not.toContain('\\');
     expect(path.isAbsolute(outcome.evidence!.screenshot!)).toBe(false);
     expect(outcome.evidence!.trace).toBe('artifacts/runs/run_x/trace.zip');
 

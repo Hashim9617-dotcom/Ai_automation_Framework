@@ -4,7 +4,7 @@ import {
   resolveAuthoredRow,
   renderTriage,
   triageSheet,
-  unsupportedActionVerb,
+  actionCapability,
   TRIAGE_OWNER,
   type AuthoredRow,
   type BoundedCapture,
@@ -64,6 +64,18 @@ const CAPTURE: BoundedCapture = {
         { role: 'button', name: 'Attach', enabled: true },
         { role: 'button', name: 'Save', enabled: true },
         { role: 'heading', name: 'Done', enabled: true },
+        { role: 'textbox', name: 'First name', enabled: true },
+        // A control named `Jane` — the VALUE a fill clause carries, not a
+        // control anybody would write a step about. It is here deliberately, and
+        // it is what makes W2 below discriminating: without it a fill clause is
+        // refused because nothing matched, which proves nothing about the verb.
+        // Real pages supply this by accident all the time — an option, a table
+        // row, a filter chip, a tag.
+        { role: 'option', name: 'Jane', enabled: true },
+        // §W's own clause needs its target. `Save` above is not it: the write
+        // gate reads the whole step text, and a target named `Save employee` is
+        // what the clause §W names actually points at.
+        { role: 'button', name: 'Save employee', enabled: true },
       ],
       truncated: false,
     },
@@ -79,30 +91,29 @@ const CAPTURE: BoundedCapture = {
  * outright — two fixtures sharing a `rowId` fail on that instead of on the
  * property under test, which is the run being right and the fixture being wrong.
  */
-const rowWith = (whenText: string, id: string): AuthoredRow =>
-  ({
-    rowId: `${id} / TC_1`,
-    scenarioId: id,
-    testCaseId: 'TC_1',
-    sheetRow: 3,
-    module: 'Bulk upload',
-    feature: '',
-    // NOT 'the upload row': assessWriteRisk reads the TITLE as well as the
-    // steps, so a title containing a write word held every row in this file and
-    // the refusal could never be observed. The fixture was manufacturing the
-    // gate it was supposed to be testing around.
-    scenarioName: 'the clause under test',
-    objective: '',
-    testType: '',
-    priority: '',
-    preconditions: '',
-    testData: '',
-    type: '',
-    clauses: [
-      { text: whenText, source: 'when', kind: 'action' },
-      { text: 'verify the "Done" heading is present', source: 'then', kind: 'assert' },
-    ],
-  }) as AuthoredRow;
+const rowWith = (whenText: string, id: string): AuthoredRow => ({
+  rowId: `${id} / TC_1`,
+  scenarioId: id,
+  testCaseId: 'TC_1',
+  sheetRow: 3,
+  module: 'Bulk upload',
+  feature: '',
+  // NOT 'the upload row': assessWriteRisk reads the TITLE as well as the
+  // steps, so a title containing a write word held every row in this file and
+  // the refusal could never be observed. The fixture was manufacturing the
+  // gate it was supposed to be testing around.
+  scenarioName: 'the clause under test',
+  objective: '',
+  testType: '',
+  priority: '',
+  preconditions: '',
+  testData: '',
+  type: '',
+  clauses: [
+    { text: whenText, source: 'when', kind: 'action' },
+    { text: 'verify the "Done" heading is present', source: 'then', kind: 'assert' },
+  ],
+});
 
 /** Records every click the executor attempts, so "no click" is checkable. */
 const clickRecorder = (): { clicks: string[]; execute: StepExecutor } => {
@@ -129,13 +140,85 @@ test.describe('a file-upload clause is refused rather than clicked @unit', () =>
     // how the real sheet writes every clause (measured: requiring the verb at
     // position 0 left 217 of 513 And-clauses unclassified) — is not recognised,
     // and the false pass survives for exactly the sentences that occur.
-    expect(unsupportedActionVerb('uploads the document')).toBe('uploads');
-    expect(unsupportedActionVerb('User uploads the document')).toBe('uploads');
-    expect(unsupportedActionVerb('the user attaches a file')).toBe('attaches');
-    expect(unsupportedActionVerb('browses for a file')).toBe('browses');
+    expect(actionCapability('uploads the document')).toEqual({
+      performable: false,
+      verb: 'uploads',
+    });
+    expect(actionCapability('User uploads the document')).toEqual({
+      performable: false,
+      verb: 'uploads',
+    });
+    expect(actionCapability('the user attaches a file')).toEqual({
+      performable: false,
+      verb: 'attaches',
+    });
+    expect(actionCapability('browses for a file')).toEqual({
+      performable: false,
+      verb: 'browses',
+    });
     // The other half of the same function: a normal action is NOT swept up.
-    expect(unsupportedActionVerb('clicks the Save button')).toBeUndefined();
-    expect(unsupportedActionVerb('User clicks on "Save"')).toBeUndefined();
+    expect(actionCapability('clicks the Save button')).toEqual({ performable: true });
+    expect(actionCapability('User clicks on "Save"')).toEqual({ performable: true });
+  });
+
+  test('U1b: the FILL family is refused too, because the list is an allowlist', () => {
+    // wrong: the list names the verbs it knows about and lets the rest through —
+    // fail-OPEN — so `enters`, `types` and `selects` become clicks. Measured
+    // 2026-09-29: all three resolved to `option "Jane"` / `option "HR"`, the
+    // clause's own VALUE read as an element name, and clicked it for a pass.
+    //
+    // This test would pass under a denylist the day someone adds these four
+    // words. `U1c` below is the one that tests the property rather than the list.
+    for (const [clause, verb] of [
+      ["user enters 'Jane' in First name", 'enters'],
+      ["types 'Jane' into First name", 'types'],
+      ["selects 'HR' from Department", 'selects'],
+      ['navigates to the dashboard', 'navigates'],
+    ] as const) {
+      expect(actionCapability(clause), clause).toEqual({ performable: false, verb });
+    }
+
+    // Still the other half: the whole click family passes through, past tense
+    // included — Door A's generated steps read "clicked Save".
+    for (const clause of ['taps the tile', 'presses "Enter"', 'Clicking the row', 'clicked Save']) {
+      expect(actionCapability(clause), clause).toEqual({ performable: true });
+    }
+
+    // THE COST OF THE RULE, PINNED RATHER THAN DISCOVERED LATER.
+    //
+    // `presses Enter` — unquoted — is refused, because the KEY is called Enter
+    // and `enter` is a fill verb. Found by this test failing on it, not by
+    // review. It is the same shape as `extractRole` reading "select" out of
+    // "Select department": an element's own name is not a description of what is
+    // being done to it, and an unquoted name is indistinguishable from prose.
+    //
+    // Quoting fixes it, which is why this is a documented cost and not a bug:
+    // the line above proves `presses "Enter"` runs.
+    expect(actionCapability('presses Enter')).toEqual({ performable: false, verb: 'enter' });
+  });
+
+  test('U1c: an UNKNOWN verb is refused, which is the whole point of an allowlist', () => {
+    // wrong: the list is a denylist, so a verb nobody thought of — and there is
+    // always one — passes straight through and becomes a click. `frobnicates
+    // "Attach"` then resolves to `button "Attach"` and reports a pass.
+    //
+    // This is the test a list-shaped test cannot be: the verb below is not in
+    // either list and never will be, so it can only come out right if the rule is
+    // "must contain a click verb" rather than "must not be one of these".
+    expect(actionCapability('User frobnicates "Attach"')).toEqual({ performable: false });
+
+    // And a clause that contains BOTH: performable is not enough on its own,
+    // because only the click half would happen and it would report a pass.
+    expect(actionCapability('clicks Save and enters Jane')).toEqual({
+      performable: false,
+      verb: 'enters',
+    });
+
+    // The column still decides what a clause IS. "verify by clicking X" is an
+    // action the QA labelled as one, and its leading word is an assert verb — a
+    // leading-word test refused it, which made this function overrule the person
+    // who wrote the sheet.
+    expect(actionCapability('verify by clicking "Sign in"')).toEqual({ performable: true });
   });
 
   test('U2: an ATTACH clause whose target resolves is refused, and nothing is clicked', async () => {
@@ -151,8 +234,11 @@ test.describe('a file-upload clause is refused rather than clicked @unit', () =>
 
     expect(resolved.outcome).toBe('row-unclear');
     expect(resolved.refusals.map((r) => r.why)).toContain('action-not-supported');
+    // The reason NAMES THE VERB. It used to say "file upload is not supported
+    // yet" for every unsupported action, which was true of this clause and wrong
+    // for `selects 'HR' from Department` — see W3.
     expect(resolved.refusals.map((r) => r.reason).join(' ')).toContain(
-      'file upload is not supported yet — the step would click without selecting a file',
+      '"attaches" is not an action this platform can perform',
     );
     // Refused at RESOLVE, so the row carries no runnable step at all — a check
     // inside the executor would already be holding a page.
@@ -239,7 +325,7 @@ test.describe('a file-upload clause is refused rather than clicked @unit', () =>
  * headline number included work the platform declines to do. Measured before the
  * fix: `automatable: 2` for two rows, one of which the run refuses.
  *
- * Both sides now ask the SAME predicate — `unsupportedActionVerb`, imported, not
+ * Both sides now ask the SAME predicate — `actionCapability`, imported, not
  * restated. Two verb lists drift, and a drifted list reads like a correct one.
  */
 test.describe('triage and the run give the same answer @unit', () => {
@@ -275,6 +361,86 @@ test.describe('triage and the run give the same answer @unit', () => {
     expect(triaged.reason).toBe('automatable');
     expect(status).toBe('passed');
     expect(clicks).toEqual(['button "Attach"']);
+  });
+
+  // The title deliberately does NOT quote the clause under test. `CB4` in
+  // `tests/api/command-box.spec.ts` asserts that every test matching "test
+  // employee registration" has `demo` in its title, to prove the inventory was
+  // listed for the right environment — so a UNIT test whose title contains
+  // "employee" breaks it. Recorded rather than worked around silently: that
+  // assertion couples an environment claim to the global corpus of test titles,
+  // and the next person to write one will hit it too.
+  test('W1: a click clause passes the allowlist — the WRITE gate is what holds the row', async () => {
+    // wrong: the allowlist refuses everything, which stops every false pass and
+    // automates nothing — a rule satisfied without knowing anything about the
+    // clause. `U4` and `T2` are the plain controls for that; this one is the
+    // clause §W names, and it is here because it comes back `held`, which could
+    // mean either gate. Separating them is the whole test: the row RESOLVED, so
+    // the verb was accepted, and only then was it held for the write.
+    //
+    // The order matters and is measured here rather than assumed: the write gate
+    // runs BEFORE the refusal check in `executeAuthoredRows`, so `held` alone
+    // proves nothing about the verb — a fill clause on a write-risky row would
+    // also read `held`.
+    const clause = 'clicks on "Save employee"';
+    expect(actionCapability(clause), 'the allowlist rejected a click').toEqual({
+      performable: true,
+    });
+
+    const resolved = resolveAuthoredRow(rowWith(clause, 'W_1'), CAPTURE, 'upload');
+    expect(resolved.outcome, 'the clause did not resolve at all').not.toBe('row-unclear');
+    expect(resolved.refusals).toEqual([]);
+    // Both of the fixture's clauses resolved — the action AND the `Then` every
+    // `rowWith` row carries. Listed in full rather than filtered, so this cannot
+    // pass on a row where only the assertion survived.
+    expect(resolved.targets.map((t) => `${t.role} "${t.name}"`)).toEqual([
+      'button "Save employee"',
+      'heading "Done"',
+    ]);
+
+    const { clicks, execute } = clickRecorder();
+    const run = await executeAuthoredRows({ resolved: [resolved], unreadable: [], execute, entry });
+
+    expect(run.results[0]!.status).toBe('held');
+    expect(run.results[0]!.detail).toContain('ALLOW_WRITES');
+    // Held means nothing ran, which is the other half of what `held` claims.
+    expect(clicks).toEqual([]);
+  });
+
+  test('W2: a FILL clause is refused by both, with the target sitting right there', async () => {
+    // wrong: the clause becomes `click option "Jane"` and the row is reported
+    // PASSED with nothing typed into anything — measured, at the previous commit,
+    // on exactly this capture.
+    //
+    // The capture holds `option "Jane"`, so this refusal is NOT "nothing matched"
+    // — the fixture can reach the false pass, and did.
+    const triaged = triageOf("user enters 'Jane' in First name", 'W_3');
+    const { status, clicks } = await runOf("user enters 'Jane' in First name", 'W_4');
+
+    expect(triaged.reason).toBe('unsupported-action');
+    expect(TRIAGE_OWNER[triaged.reason]).toBe('platform');
+    expect(status).toBe('refused');
+    expect(clicks).toEqual([]);
+  });
+
+  test('W3: the refusal NAMES the verb, and blames the platform not the sentence', async () => {
+    // wrong: the reason still says "file upload is not supported", so a QA whose
+    // row says `selects 'HR' from Department` is told about uploads. Worse, the
+    // pre-allowlist path refused this as `unparseable-step` — "no element could
+    // be read out of it" — which blames a sentence that is perfectly clear and
+    // sends them to rewrite it.
+    const resolved = resolveAuthoredRow(
+      rowWith("selects 'HR' from Department", 'W_5'),
+      CAPTURE,
+      'upload',
+    );
+    const refusal = resolved.refusals.find((r) => r.why === 'action-not-supported');
+
+    expect(refusal, 'the row was not refused for the action at all').toBeDefined();
+    expect(refusal!.reason).toContain('"selects"');
+    expect(refusal!.reason).toContain('this platform can perform');
+    // Discriminating: it does NOT say the sentence was unreadable.
+    expect(refusal!.reason).not.toMatch(/could not be read|unparseable/i);
   });
 
   test('T3: the report names the owner, so the map is read rather than carried', () => {

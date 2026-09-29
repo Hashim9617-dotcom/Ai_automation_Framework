@@ -1,11 +1,7 @@
 import type { BoundedCapture } from '../generation/bounding';
 import { checkGrounding, type AssertStep, type CaseStep } from '../generation/grounding';
 import { assessWriteRisk } from '../generation/proposal';
-import {
-  unsupportedActionVerb,
-  type AuthoredRow,
-  type UnreadableSheetRow,
-} from './final-test-cases';
+import { actionCapability, type AuthoredRow, type UnreadableSheetRow } from './final-test-cases';
 import {
   CANDIDATE_ROLES,
   CLICKABLE_ROLES,
@@ -269,16 +265,25 @@ export function resolveAuthoredRow(
     // target yet. Resolve time, so a row refused for this never reaches
     // `executeAuthoredRows` as runnable and no browser action can begin.
     if (clause.kind === 'action') {
-      const unsupported = unsupportedActionVerb(clause.text);
-      if (unsupported) {
+      const capability = actionCapability(clause.text);
+      if (!capability.performable) {
         refusals.push({
           stepIndex,
           sentence: clause.text,
-          why: 'action-not-supported',
+          // TWO REASONS, because the QA's next move differs. A named verb is our
+          // gap — wait for the feature. Nothing recognisable is a sentence we
+          // could not read an action out of, which they can rewrite today. Both
+          // refuse; merging them would send half of each group to the wrong
+          // place, which is why `failed` and `refused` are separate too.
+          why: capability.verb ? 'action-not-supported' : 'unparseable-step',
           candidates: [],
-          reason:
-            `${authored.rowId}: file upload is not supported yet — the step would click ` +
-            'without selecting a file',
+          reason: capability.verb
+            ? `${authored.rowId}: "${capability.verb}" is not an action this platform can ` +
+              'perform — the only action it has is a click, so the step would click something ' +
+              'and report a pass having done nothing else'
+            : `${authored.rowId}, ${clause.source} clause "${clause.text}": no action this ` +
+              'platform can perform could be read out of it — it has only a click, and this ' +
+              'clause does not name one',
         });
         continue;
       }
