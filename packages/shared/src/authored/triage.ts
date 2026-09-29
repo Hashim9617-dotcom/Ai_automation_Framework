@@ -1,5 +1,5 @@
 import { actionCapability, columnVerbConflict, type AuthoredRow } from './final-test-cases';
-import { unverifiableAssertion } from './resolve-authored';
+import { unsupportedQualifier, unverifiableAssertion } from './resolve-authored';
 import { extractTarget } from './resolve-authored';
 
 /**
@@ -52,6 +52,16 @@ export type TriageReason =
    * written, and rewriting it makes the row run today.
    */
   | 'column-verb-conflict'
+  /**
+   * The clause names a POSITION or a REGION — an ordinal, a containing row or
+   * panel, a second quoted name nothing consumed.
+   *
+   * Ours, and the biggest single bucket the 3a-6 audit found: 14 of 36 clauses
+   * dropped a qualifier and ran anyway. Separate from `unverifiable-assertion`
+   * because the work differs — a locator we cannot build versus a fact we cannot
+   * read — and a QA reading either list should not have to sort them.
+   */
+  | 'qualifier-not-supported'
   /** Nothing stands in the way. */
   | 'automatable';
 
@@ -71,6 +81,7 @@ export const TRIAGE_OWNER = {
   // The QA's, deliberately: this one is a sentence they can rewrite into a row
   // that runs today, which none of the other platform-owned reasons are.
   'column-verb-conflict': 'qa',
+  'qualifier-not-supported': 'platform',
   automatable: 'none',
 } as const satisfies Record<TriageReason, string>;
 
@@ -220,6 +231,7 @@ export function triageSheet(
     'unsupported-action': 0,
     'unverifiable-assertion': 0,
     'column-verb-conflict': 0,
+    'qualifier-not-supported': 0,
     automatable: 0,
   };
   for (const row of triaged) counts[row.reason] += 1;
@@ -296,11 +308,22 @@ function classifyByClauses(clauses: AuthoredRow['clauses']): {
     return { reason: 'column-verb-conflict', evidence: conflicting.text };
   }
 
+  // SAME ORDER AS THE RESOLVER, and the order is a diagnosis rather than a
+  // preference: `has value "HR"` carries two quoted names AND a value comparison,
+  // and the comparison is what the QA needs to hear. Asking the claim first for an
+  // assertion, and the qualifier first for an action, is exactly what
+  // `resolveAuthoredRow` does — so the two cannot report different reasons for the
+  // same clause.
   const unverifiable = clauses.find(
     (clause) => clause.kind === 'assert' && unverifiableAssertion(clause.text) !== undefined,
   );
   if (unverifiable) {
     return { reason: 'unverifiable-assertion', evidence: unverifiable.text };
+  }
+
+  const qualified = clauses.find((clause) => unsupportedQualifier(clause.text) !== undefined);
+  if (qualified) {
+    return { reason: 'qualifier-not-supported', evidence: qualified.text };
   }
 
   // AUTOMATABLE NEEDS A VERIFIABLE ASSERTION, not just a clickable step.
@@ -432,6 +455,11 @@ export function renderTriage(triage: TriageResult): string {
     'unverifiable-assertion',
     'A state the platform cannot read yet',
     'The sentence is correct and names a real property of a real element — `empty`, `read-only`, `expanded` — and this platform can only read present, enabled, selected and checked. They are REFUSED rather than turned into "the element exists", which would pass as soon as the element is there. Nothing for the QA to change.',
+  );
+  sample(
+    'qualifier-not-supported',
+    'A position or a region the platform cannot address',
+    'The sentence is precise and this platform is not: it addresses an element by role and name, so an ordinal ("the second Edit"), a containing region ("in the row for Jane") or a second quoted name has nowhere to go. Measured against a real browser before these were refused: a clause scoped to one row clicked a DIFFERENT row and reported a pass. Nothing for the QA to change.',
   );
   sample(
     'column-verb-conflict',

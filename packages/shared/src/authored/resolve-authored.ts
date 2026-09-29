@@ -155,8 +155,67 @@ const PROPERTY_WORDS: Array<[RegExp, AssertStep['property'], boolean]> = [
 const UNVERIFIABLE_STATE_WORDS =
   /\b(empty|expanded|collapsed|read-?only|editable|required|optional|focused|sorted|highlighted)\b/i;
 
-/** `not`, in the forms a QA writes it. A negation nothing matched is a refusal. */
-const NEGATION_WORDS = /\bnot\b|\bno longer\b|\bnever\b|n['’]t\b/i;
+/**
+ * Negation, in the forms a QA writes it — checked BEFORE any property is matched.
+ *
+ * The order is the whole fix. This gate used to run only when `assertedProperty`
+ * found NOTHING, so a clause carrying both a negation and a positive state word
+ * never reached it: *"verify 'Saved' is no longer visible"* matched `visible`
+ * first and asserted `present=TRUE`. `no longer` was in this list at the time. The
+ * guard was correct and unreachable, which is the second species of unfalsifiable
+ * test — a check sitting where nothing can trigger it.
+ *
+ * `no longer` is listed before `no` so the longer form wins, and bare `no` is here
+ * rather than with the quantifiers for that reason: splitting it would make
+ * *"no longer"* a quantifier over matches, which it is not.
+ */
+const NEGATION_WORDS =
+  /\bno longer\b|\bnot\b|\bnever\b|\bwithout\b|\bcannot\b|can['’]t\b|n['’]t\b|\bno\b/i;
+
+/**
+ * The ONLY negative forms that become a property. Everything else negative refuses.
+ *
+ * An allowlist, for the reason the action verbs are one: a negation this list does
+ * not name is dropped, and a dropped negation asserts the OPPOSITE of the sentence
+ * — a row that passes exactly when it should fail. Measured: four of the audit's
+ * clauses did that.
+ *
+ * The bare antonyms (`unchecked`, `disabled`, `hidden`, `absent`, `gone`,
+ * `unselected`) carry no negation token at all, so they never reach this gate and
+ * are handled by `PROPERTY_WORDS` directly.
+ */
+const SUPPORTED_NEGATIVE =
+  /\bnot\s+(?:checked|ticked|selected|enabled|visible|present|shown|displayed)\b/i;
+
+/**
+ * A comparison or a count. Refused, because nothing here reads a VALUE.
+ *
+ * `verify the "Notes" field equals "10"` became `assert textbox present=true` — the
+ * comparison silently dropped, so the row passed as soon as the field existed. A
+ * value check that can never fail is worse than no value check: the row is green
+ * and reads as covered.
+ */
+const VALUE_CLAIM_WORDS =
+  /\b(equals?|equal to|contains?|containing|has value|with value|value of|starts with|ends with|matches)\b/i;
+
+/** `3 rows`, `10 records`. A count nothing counts. */
+const COUNT_CLAIM = /\b\d+\s+(rows?|records?|items?|results?|entries|entry|columns?|options?)\b/i;
+
+/**
+ * A POSITION or a REGION the platform cannot express, and a leftover quoted name.
+ *
+ * Every one of these was measured resolving to a bare target and clicking
+ * `.first()`: `clicks the second "Edit" button` clicked the first Edit, and
+ * `clicks "Edit" in the row for "Jane"` clicked Alice's.
+ *
+ * `any` is deliberately absent. It means "at least one", which is exactly what
+ * `present=true` over several matches already is — and it is the row that stops
+ * this being a rule that refuses every determiner.
+ */
+const ORDINAL_WORDS = /\b(first|second|third|fourth|fifth|sixth|last|\d+(?:st|nd|rd|th))\b/i;
+const SCOPE_WORDS =
+  /\b(within|next to|beside|underneath|in the [a-z]+ for|in the (?:dialog|modal|popup|table|grid|panel|section|header|footer|sidebar|row)|inside the|of the row|under the)\b/i;
+const QUANTIFIER_WORDS = /\b(all|each|every|both|none)\b/i;
 
 /**
  * What an assertion claims about its target, or `undefined` when nothing matched.
@@ -184,12 +243,54 @@ function assertedProperty(
  */
 export function unverifiableAssertion(text: string): string | undefined {
   const outsideNames = text.replace(/["'`][^"'`]*["'`]/g, ' ');
-  const word = UNVERIFIABLE_STATE_WORDS.exec(outsideNames)?.[1];
-  if (word) return word.toLowerCase();
-  // A NEGATION that matched no property is a claim we have not understood. It is
-  // the direction that matters: dropping a `not` turns an assertion into its
-  // opposite, which passes exactly when the row should fail.
-  return NEGATION_WORDS.test(outsideNames) ? 'not' : undefined;
+
+  // NEGATION FIRST, and unconditionally. This used to run only after
+  // `assertedProperty` found nothing, so a clause holding both a negation and a
+  // positive state word never reached it.
+  if (NEGATION_WORDS.test(outsideNames) && !SUPPORTED_NEGATIVE.test(outsideNames)) {
+    return NEGATION_WORDS.exec(outsideNames)![0]!.toLowerCase();
+  }
+
+  const value = VALUE_CLAIM_WORDS.exec(outsideNames)?.[1];
+  if (value) return value.toLowerCase();
+
+  const counted = COUNT_CLAIM.exec(outsideNames)?.[1];
+  if (counted) return counted.toLowerCase();
+
+  const state = UNVERIFIABLE_STATE_WORDS.exec(outsideNames)?.[1];
+  return state?.toLowerCase();
+}
+
+/**
+ * A qualifier naming a POSITION, a REGION, or a name nothing consumed.
+ *
+ * Applies to actions and assertions alike, because the same words appear in both:
+ * `clicks the second "Edit"` and `verify "Jane" appears under "Name"` fail for one
+ * reason, that the platform addresses an element by ROLE AND NAME and by nothing
+ * else.
+ *
+ * ## The leftover-quote rule is the structural half
+ *
+ * `extractTarget` takes the FIRST quoted string. A clause with two has therefore
+ * had one silently discarded, whatever the words between them are — so this catches
+ * scoping phrasings nobody thought to list. It is the only rule here that does not
+ * depend on a word list, and it caught four of the audit's rows on its own.
+ */
+export function unsupportedQualifier(text: string): string | undefined {
+  const quoted = text.match(/["'`][^"'`]{2,}["'`]/g) ?? [];
+  if (quoted.length > 1) {
+    return `${quoted.length} quoted names`;
+  }
+
+  const outsideNames = text.replace(/["'`][^"'`]*["'`]/g, ' ');
+  const ordinal = ORDINAL_WORDS.exec(outsideNames)?.[1];
+  if (ordinal) return ordinal.toLowerCase();
+
+  const scope = SCOPE_WORDS.exec(outsideNames)?.[1];
+  if (scope) return scope.toLowerCase();
+
+  const quantifier = QUANTIFIER_WORDS.exec(outsideNames)?.[1];
+  return quantifier?.toLowerCase();
 }
 
 export interface ResolvedAuthoredRow extends ResolvedRow {
@@ -319,6 +420,49 @@ export function resolveAuthoredRow(
     // The kind the column declared is still recorded on `clauseKinds` — `base`
     // reads it from the clause, not from anything decided here — so a reader can
     // see that the refusal did not quietly reinterpret the row.
+    // A CLAIM WE CANNOT READ, AND THEN A QUALIFIER WE CANNOT EXPRESS.
+    //
+    // Both before any target is extracted, because `extractTarget` succeeds on all
+    // of them — that is the failure mode. It slices `Notes` out of `the "Notes"
+    // field equals "10"` and hands back a perfectly plausible name with the
+    // comparison gone.
+    //
+    // The ORDER between these two is a diagnosis, not a coin toss: `has value "HR"`
+    // holds two quoted names AND a value comparison, and the comparison is what the
+    // QA has to hear about. So the claim is tested first for an assertion, and only
+    // actions reach the qualifier rule first (they cannot make a claim).
+    if (clause.kind === 'assert') {
+      const unverifiable = unverifiableAssertion(clause.text);
+      if (unverifiable) {
+        refusals.push({
+          stepIndex,
+          sentence: clause.text,
+          why: 'assertion-not-supported',
+          candidates: [],
+          reason:
+            `${authored.rowId}, ${clause.source} clause "${clause.text}": "${unverifiable}" is a ` +
+            'claim this platform cannot read — it can check present, enabled, selected and ' +
+            'checked, and refusing is better than asserting the element merely exists',
+        });
+        continue;
+      }
+    }
+
+    const qualifier = unsupportedQualifier(clause.text);
+    if (qualifier) {
+      refusals.push({
+        stepIndex,
+        sentence: clause.text,
+        why: 'qualifier-not-supported',
+        candidates: [],
+        reason:
+          `${authored.rowId}, ${clause.source} clause "${clause.text}": "${qualifier}" names a ` +
+          'position or a region, and this platform addresses an element by role and name only — ' +
+          'so the qualifier would be dropped and the step would act on whichever match came first',
+      });
+      continue;
+    }
+
     const conflict = columnVerbConflict(clause);
     if (conflict) {
       refusals.push({
@@ -453,26 +597,12 @@ export function resolveAuthoredRow(
     // must not borrow that default: "the Notes field is empty" became
     // `present=true` and passed as soon as the field existed, a check that cannot
     // fail on a row that reads as covered.
-    const claim = assertedProperty(clause.text);
-    if (!claim) {
-      const unverifiable = unverifiableAssertion(clause.text);
-      if (unverifiable) {
-        refusals.push({
-          stepIndex,
-          sentence: clause.text,
-          why: 'assertion-not-supported',
-          candidates: [],
-          reason:
-            `${authored.rowId}: "${unverifiable}" is a state this platform cannot read off ` +
-            `${candidates[0] ? `${candidates[0].role} "${target}"` : `"${target}"`} — it can ` +
-            'check present, enabled, selected and checked, and refusing is better than ' +
-            'asserting the element merely exists',
-        });
-        continue;
-      }
-    }
+    // The claim was already tested above, before any target existed — that is the
+    // point of its position. What is left here is the default: a clause naming an
+    // element and NO state means presence, which is what `verify "Approved"` says.
+    const claim = assertedProperty(clause.text) ?? { property: 'present' as const, expected: true };
 
-    const { property, expected } = claim ?? { property: 'present' as const, expected: true };
+    const { property, expected } = claim;
     if (candidates[0]) {
       targets.push({ stepIndex: steps.length, role: candidates[0].role, name: target });
     }

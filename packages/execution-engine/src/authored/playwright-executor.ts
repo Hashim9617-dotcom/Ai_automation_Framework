@@ -141,6 +141,33 @@ export function createPlaywrightStepExecutor(
       };
     }
 
+    // ABSENCE IS THE EXPECTED RESULT FOR AN ABSENCE ASSERTION.
+    //
+    // `count === 0` returned `target-not-on-page` for every step, including
+    // `verify X is not visible` — so a row asserting absence, on a page where the
+    // element really was absent, was reported `stale-capture`: "re-run `pnpm
+    // inspect`", about a capture that was current and a row that had just been
+    // satisfied. §11.4's mistake, arriving through the one step kind whose
+    // success looks like a missing element.
+    //
+    // It had no test, which is why it survived: every `count: 0` fixture in the
+    // executor's suite uses an action or a positive assertion.
+    const assertsAbsence = step.kind === 'assert' && step.property === 'present' && !step.expected;
+    if (assertsAbsence) {
+      return count === 0
+        ? {
+            kind: 'passed',
+            observed: `no ${target.role} named "${target.name}" on the live page, as asserted`,
+          }
+        : {
+            kind: 'failed',
+            observed:
+              `${count} ${target.role}(s) named "${target.name}" on the live page, ` +
+              'expected none',
+            evidence: await evidenceFor(rowId, 'assertion-failed'),
+          };
+    }
+
     if (count === 0) {
       // NOT a failure. The capture said this element was here.
       //
@@ -151,6 +178,28 @@ export function createPlaywrightStepExecutor(
         kind: 'target-not-on-page',
         observed: `no ${target.role} named "${target.name}" on the live page`,
         evidence: await evidenceFor(rowId, 'missing-target'),
+      };
+    }
+
+    // SEVERAL MATCHES ON THE LIVE PAGE, AND THE CLAUSE NAMES ONE.
+    //
+    // Before the click and before the property read, which is the whole point: the
+    // old code reached `locator.first()` and so the wrong element had already been
+    // clicked by the time anything could have noticed. Measured on a real page —
+    // a capture with one `button "Edit"`, a table with three, and
+    // `clicks "Edit" in the row for "Jane"` edited Alice.
+    //
+    // `present=true` is the exception and is NOT gated: it claims at least one
+    // match, which several satisfy. The count travels in `observed` anyway, so a
+    // reader can see how many there were rather than inferring one.
+    const claimsAtLeastOne = step.kind === 'assert' && step.property === 'present' && step.expected;
+    if (count > 1 && !claimsAtLeastOne) {
+      return {
+        kind: 'ambiguous-on-page',
+        observed:
+          `${count} elements on the live page match ${target.role} "${target.name}" — ` +
+          'this clause names one of them and nothing was done',
+        evidence: await evidenceFor(rowId, 'ambiguous-on-page'),
       };
     }
 
@@ -177,7 +226,12 @@ export function createPlaywrightStepExecutor(
       };
     }
 
-    const observed = `${target.role} "${target.name}" ${step.property}=${read}`;
+    // The COUNT travels with a presence claim, because "at least one" is a
+    // different observation from "exactly one" and the reader cannot tell them
+    // apart from `present=true` alone.
+    const observed =
+      `${target.role} "${target.name}" ${step.property}=${read}` +
+      (claimsAtLeastOne && count > 1 ? ` (${count} matches)` : '');
     return read === step.expected
       ? { kind: 'passed', observed }
       : {

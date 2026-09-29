@@ -240,7 +240,25 @@ export type StepOutcomeKind =
   /** The element is not on the live page. The CAPTURE is stale (§10.1). */
   | 'target-not-on-page'
   /** The clause resolves to nothing checkable. A refusal, never a quiet pass. */
-  | 'no-observable-check';
+  | 'no-observable-check'
+  /**
+   * SEVERAL elements on the LIVE PAGE match, and the clause names only one.
+   *
+   * The resolver already refuses ambiguity — against the CAPTURE. This is the same
+   * rule at the only layer that can see the running application, and it had no
+   * equivalent: the executor branched on `count === 0` and nothing else, so
+   * anything else clicked `.first()`.
+   *
+   * Measured against a real browser on 2026-09-29, with a capture holding ONE
+   * `button "Edit"` and a page holding three:
+   *
+   *     clicks "Edit"   passed   -> Alice edited
+   *
+   * A `Delete` clause meant for one record would have deleted another and reported
+   * a pass. The capture-side guard could not see it, because the capture was taken
+   * from a page with one row and the run happens against twenty.
+   */
+  | 'ambiguous-on-page';
 
 export interface StepOutcome {
   kind: StepOutcomeKind;
@@ -330,6 +348,16 @@ function statusForStepOutcome(
   // StepOutcome that a verdict could read (§10.2).
   if (kind === 'target-not-on-page') return 'stale-capture';
   if (kind === 'no-observable-check') return 'refused';
+  // AMBIGUITY ON THE LIVE PAGE IS A REFUSAL, NOT A FAILURE. The application did
+  // nothing wrong: we were handed a name that matches several of its elements and
+  // cannot say which. Reporting `failed` would send the app team after a bug that
+  // does not exist, which is §3's category error.
+  //
+  // The DETAIL is what carries the ownership, because `OWNER_OF.refused` is `qa`
+  // and this one is OURS — the QA's sentence may well have named the row, and the
+  // platform is what cannot express it. That asymmetry is real and recorded: the
+  // run's `Owner` union has no `platform` member, while `TRIAGE_OWNER` does.
+  if (kind === 'ambiguous-on-page') return 'refused';
   return 'failed';
 }
 
@@ -518,6 +546,20 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
           : undefined;
 
     const observations: string[] = [];
+    /**
+     * Steps that actually TOUCHED the page, which is not the same as steps the
+     * executor was called for.
+     *
+     * `observations.length` was used, and it counts every call — including one that
+     * stopped at a gate before clicking or reading anything. A row refused for
+     * live-page ambiguity would have reported `stepsRun: 1` while doing nothing,
+     * which is the claim `stepsRun` exists to make honestly.
+     *
+     * `passed` and `failed` are the two kinds that reached the page.
+     * `target-not-on-page`, `no-observable-check` and `ambiguous-on-page` all
+     * stopped before acting.
+     */
+    let stepsRun = 0;
     let stopped: { outcome: StepOutcome; step: CaseStep } | undefined;
 
     for (const [stepIndex, step] of row.steps.entries()) {
@@ -528,6 +570,7 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
         ...(target ? { target: { role: target.role, name: target.name } } : {}),
       });
       observations.push(outcome.observed || '(nothing observed)');
+      if (outcome.kind === 'passed' || outcome.kind === 'failed') stepsRun += 1;
 
       // An ASSERTION that "passed" while observing nothing has not been
       // checked — it has been assumed. Positive evidence or it is a refusal.
@@ -548,7 +591,7 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
         ...common,
         status: 'passed',
         owner: OWNER_OF.passed,
-        stepsRun: observations.length,
+        stepsRun,
         detail: observations.join(' | ') || 'no steps to run',
         observed: observations,
         ...(preflight ? { preflight } : {}),
@@ -569,7 +612,7 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       ...common,
       status,
       owner: OWNER_OF[status],
-      stepsRun: observations.length,
+      stepsRun,
       detail:
         stopped.outcome.kind === 'no-observable-check'
           ? `nothing observable to check for "${clause}" — this clause cannot be verified as written`

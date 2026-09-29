@@ -289,7 +289,13 @@ test.describe('runSheet against the bundled demo app @demo', () => {
     const failedRow = byId['SI_003 / TC_001']!;
     expect(failedRow.evidence?.failingClause).toContain('Employee directory');
     expect(failedRow.evidence?.failingClause).toContain('present=false');
-    expect(failedRow.observed?.join(' ')).toContain('present=true');
+    // The OBSERVATION, in the words an absence assertion now uses. It used to read
+    // `present=true, expected false`, which came from `.first().isVisible()` — and
+    // that path also reported `stale-capture` when the element was genuinely absent
+    // and the row therefore SATISFIED. An absence assertion now counts matches, so
+    // it says how many it found, and the row still fails for the same reason.
+    expect(failedRow.observed?.join(' ')).toContain('1 heading(s) named "Employee directory"');
+    expect(failedRow.observed?.join(' ')).toContain('expected none');
     expect(failedRow.detail).not.toMatch(/timeout|timed out/i);
     expect(failedRow.status).not.toBe('given-not-reached');
 

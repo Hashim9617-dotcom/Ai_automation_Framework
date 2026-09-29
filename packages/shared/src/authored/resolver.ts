@@ -64,7 +64,21 @@ export type RefusalReason =
    * direction makes some mechanism the authority over the person who wrote the
    * sheet, and the one direction that is certainly wrong is running it anyway.
    */
-  | 'column-verb-conflict';
+  | 'column-verb-conflict'
+  /**
+   * The clause names a POSITION or a REGION, and we address by role and name only.
+   *
+   * `clicks the second "Edit" button`, `clicks "Edit" in the row for "Jane"`. Every
+   * one of these resolved to a bare target and clicked `.first()` — measured
+   * against a real browser, where the Jane-scoped clause edited Alice and reported
+   * a pass.
+   *
+   * Ours, not the QA's: their sentence is precise and it is the platform that
+   * cannot express it. Kept apart from `assertion-not-supported` because the work
+   * is different — one is a locator we cannot build, the other a fact we cannot
+   * read.
+   */
+  | 'qualifier-not-supported';
 
 export interface StepRefusal {
   stepIndex: number;
