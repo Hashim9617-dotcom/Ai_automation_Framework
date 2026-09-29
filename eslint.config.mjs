@@ -47,6 +47,42 @@ export default tseslint.config(
     },
   },
   {
+    /**
+     * PRODUCTION CODE DOES NOT IMPORT FROM `tests/`.
+     *
+     * `tests/support/xlsx-fixture.ts` builds a workbook, and there is no xlsx
+     * WRITER in production deliberately: the QA's workbook is read and never
+     * written (E5), and a writer reachable from `packages/` is one import away
+     * from someone "just updating the Status column".
+     *
+     * The scope was MEASURED before the rule was added — 99 files under these
+     * three directories, none importing from `tests/` — so this pins a property
+     * that already held rather than announcing a cleanup. A rule added to fix
+     * nothing is still worth having: it is the difference between a property and
+     * a habit.
+     *
+     * `allowTypeImports` is deliberately NOT set. A type-only import creates no
+     * runtime edge, but it does create a dependency the next person will widen
+     * into a value import, and the boundary is cheaper to hold than to restore.
+     */
+    files: ['packages/**/*.ts', 'apps/**/*.ts', 'scripts/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/tests/*', '**/tests/**', '../tests/*', '../../tests/*'],
+              message:
+                'Production code must not import from tests/. Test helpers live there on purpose — ' +
+                'see tests/support/xlsx-fixture.ts for why there is no xlsx writer in packages/.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Specs read better with a little more freedom.
     files: ['tests/**/*.ts'],
     rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
