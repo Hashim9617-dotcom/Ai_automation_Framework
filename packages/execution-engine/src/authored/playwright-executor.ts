@@ -1,6 +1,12 @@
 import path from 'node:path';
 import type { Page } from '@playwright/test';
-import { findRepoRoot, TEXT_ROLES, type StepExecutor, type StepOutcome } from '@aitp/shared';
+import {
+  findRepoRoot,
+  TEXT_ROLES,
+  type AssertStep,
+  type StepExecutor,
+  type StepOutcome,
+} from '@aitp/shared';
 
 /**
  * The browser-backed `StepExecutor`.
@@ -185,12 +191,16 @@ export function createPlaywrightStepExecutor(
 /** Reads one property, or `undefined` when the page cannot answer. */
 async function observeProperty(
   locator: ReturnType<Page['getByRole']>,
-  property: 'present' | 'enabled' | 'selected',
+  property: AssertStep['property'],
   timeout: number,
 ): Promise<boolean | undefined> {
   try {
     if (property === 'present') return await locator.first().isVisible({ timeout });
     if (property === 'enabled') return await locator.first().isEnabled({ timeout });
+    // `isChecked` throws on an element that is not checkable, which is caught
+    // below and returns `undefined` — a SILENCE, not a `false`. A checkbox
+    // assertion aimed at a heading must not read as "the heading is unchecked".
+    if (property === 'checked') return await locator.first().isChecked({ timeout });
     const selected = await locator.first().getAttribute('aria-selected');
     // No attribute means the page does not express selection for this element.
     // That is a silence, and a silence is not a `false` — the same distinction

@@ -105,8 +105,19 @@ export interface AssertStep {
   kind: 'assert';
   role: string;
   name: string;
-  /** Which fact about the node is being claimed. */
-  property: 'present' | 'enabled' | 'selected';
+  /**
+   * Which fact about the node is being claimed.
+   *
+   * `checked` was missing, and its absence was not a gap — it was a false pass.
+   * `assertedProperty` fell through to `present`, so *"the Active checkbox is
+   * checked"* asserted only that the box EXISTS, and *"is not checked"* produced
+   * the identical step. A row and its exact negation were the same assertion and
+   * both went green.
+   *
+   * `AccessibilityNode` already recorded `checked`, so the capture could answer
+   * the question the whole time; nothing asked it.
+   */
+  property: 'present' | 'enabled' | 'selected' | 'checked';
   expected: boolean;
 }
 
@@ -381,8 +392,27 @@ export function checkGrounding(capture: StateCapture, candidate: CandidateCase):
       continue;
     }
 
+    /**
+     * A `Record` over the property union, not a ternary.
+     *
+     * The ternary it replaced read `enabled` or else `selected`, so adding a
+     * fourth property would have silently read `selected` for it — a value about
+     * a different fact, graded and reported as if it answered the assertion.
+     * Keyed on the union, a new property does not compile until it is handled.
+     *
+     * `present` never reaches here; it is answered above, from whether any node
+     * matched at all rather than from a field.
+     */
+    const READERS: Record<
+      Exclude<AssertStep['property'], 'present'>,
+      (node: AccessibilityNode) => boolean | undefined
+    > = {
+      enabled: (node) => node.enabled,
+      selected: (node) => node.selected,
+      checked: (node) => node.checked,
+    };
     const read = (candidate: AccessibilityNode): boolean | undefined =>
-      step.property === 'enabled' ? candidate.enabled : candidate.selected;
+      READERS[step.property as Exclude<AssertStep['property'], 'present'>](candidate);
 
     /**
      * The candidates DISAGREE, so no value can be attributed.

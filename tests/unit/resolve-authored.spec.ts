@@ -95,8 +95,24 @@ test.describe('the column decides the clause kind (C1) @unit', () => {
    * human saying what this clause is, and the moment a tie-break exists the
    * model has become the authority over the QA who wrote the sheet.
    */
-  test('C1: text that READS like an action is still an assertion if the column says assert', () => {
-    // "click" is the strongest possible action signal. The column says Then.
+  /**
+   * A COLUMN/TEXT CONTRADICTION IS NOW REFUSED, AND THE PROPERTY IS UNCHANGED.
+   *
+   * These two used to assert that the clause RESOLVED with the column's kind.
+   * That was the right property and an incomplete conclusion: the column's kind
+   * was never overruled, and the clause still ran — so `click the "Sign in"
+   * button should be visible` became an assertion about presence, and the action
+   * the QA wrote into a Then column simply never happened.
+   *
+   * A4 refuses instead. The verb gets a VETO and never a vote: it cannot
+   * reclassify the clause, and it can stop it. Both tests therefore assert the
+   * SAME property they always did — `clauseKinds` still records what the column
+   * said — plus the refusal, and that no step was produced.
+   */
+  test('C1: text that READS like an action is refused, never reclassified, in a Then column', () => {
+    // wrong: the clause resolves as an assertion about presence, so the click the
+    // QA wrote never happens and the row goes green — the column was honoured and
+    // the sentence was ignored.
     const resolved = resolveAuthoredRow(
       rowOf([
         { text: 'click the "Sign in" button should be visible', source: 'then', kind: 'assert' },
@@ -104,19 +120,26 @@ test.describe('the column decides the clause kind (C1) @unit', () => {
       CAPTURE,
       'login',
     );
-    expect(resolved.steps[0]!.kind).toBe('assert');
+    expect(resolved.outcome).toBe('row-unclear');
+    expect(resolved.refusals[0]!.why).toBe('column-verb-conflict');
+    // The property this test has always existed for: the column's kind survives.
     expect(resolved.clauseKinds).toEqual(['assert']);
+    expect(resolved.steps).toEqual([]);
   });
 
-  test('C1: text that READS like an assertion is still an action if the column says action', () => {
-    // The discriminating half. Without it, a resolver that ignored the column
-    // and always produced assertions would pass the test above.
+  test('C1: text that READS like an assertion is refused, never reclassified, in a When column', () => {
+    // The discriminating half, and it still is. Without it, a resolver that
+    // reclassified everything as an assertion would pass the test above — it
+    // would record `assert` here too, where the column says action.
     const resolved = resolveAuthoredRow(
       rowOf([{ text: 'verify by clicking "Sign in"', source: 'when', kind: 'action' }]),
       CAPTURE,
       'login',
     );
-    expect(resolved.steps[0]!.kind).toBe('action');
+    expect(resolved.outcome).toBe('row-unclear');
+    expect(resolved.refusals[0]!.why).toBe('column-verb-conflict');
+    expect(resolved.clauseKinds).toEqual(['action']);
+    expect(resolved.steps).toEqual([]);
   });
 
   test('C1: the kind carried out is exactly the kind carried in', () => {

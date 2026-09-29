@@ -1,4 +1,5 @@
-import { actionCapability, type AuthoredRow } from './final-test-cases';
+import { actionCapability, columnVerbConflict, type AuthoredRow } from './final-test-cases';
+import { unverifiableAssertion } from './resolve-authored';
 import { extractTarget } from './resolve-authored';
 
 /**
@@ -35,6 +36,22 @@ export type TriageReason =
    * row we could not run even after they rewrote it.
    */
   | 'unsupported-action'
+  /**
+   * The clause claims a STATE this platform cannot read — `empty`, `read-only`.
+   *
+   * Ours, like `unsupported-action`, and kept apart from it because the two need
+   * different work: one is an action to build, the other a property to be able to
+   * observe. A single "platform gap" bucket would hide which.
+   */
+  | 'unverifiable-assertion'
+  /**
+   * The COLUMN and the clause's verb disagree — `checks the "Active" box`.
+   *
+   * The only one of the three platform-ish reasons that is the QA's to fix, and
+   * that is why it is separate: the sentence genuinely cannot be acted on as
+   * written, and rewriting it makes the row run today.
+   */
+  | 'column-verb-conflict'
   /** Nothing stands in the way. */
   | 'automatable';
 
@@ -50,6 +67,10 @@ export const TRIAGE_OWNER = {
   'outcome-not-element': 'platform',
   'too-vague-to-verify': 'qa',
   'unsupported-action': 'platform',
+  'unverifiable-assertion': 'platform',
+  // The QA's, deliberately: this one is a sentence they can rewrite into a row
+  // that runs today, which none of the other platform-owned reasons are.
+  'column-verb-conflict': 'qa',
   automatable: 'none',
 } as const satisfies Record<TriageReason, string>;
 
@@ -197,6 +218,8 @@ export function triageSheet(
     'outcome-not-element': 0,
     'too-vague-to-verify': 0,
     'unsupported-action': 0,
+    'unverifiable-assertion': 0,
+    'column-verb-conflict': 0,
     automatable: 0,
   };
   for (const row of triaged) counts[row.reason] += 1;
@@ -252,6 +275,32 @@ function classifyByClauses(clauses: AuthoredRow['clauses']): {
   );
   if (unsupported) {
     return { reason: 'unsupported-action', evidence: unsupported.text };
+  }
+
+  // THE SAME TWO REFUSALS THE RESOLVER ADDED, ASKED WITH THE SAME PREDICATES.
+  //
+  // `columnVerbConflict` and `unverifiableAssertion` are imported, not restated,
+  // for the reason the branch above exists: a second copy of either rule drifts,
+  // and a drifted rule makes the ceiling promise rows the run refuses. That hole
+  // was closed once for upload (e3a8f76) and two new refusal reasons would have
+  // reopened it.
+  //
+  // Ahead of the vague/outcome tests, same precedence and same reasoning: a row
+  // we could not run even after the QA rewrote it does not belong in their list.
+  // The conflict case is the exception that proves the ordering is about cost
+  // rather than blame — it is owned by the QA and still sits here, because a
+  // sentence contradicting its own column is a more specific finding than "too
+  // vague", and the specific one is the one they can act on.
+  const conflicting = clauses.find((clause) => columnVerbConflict(clause) !== undefined);
+  if (conflicting) {
+    return { reason: 'column-verb-conflict', evidence: conflicting.text };
+  }
+
+  const unverifiable = clauses.find(
+    (clause) => clause.kind === 'assert' && unverifiableAssertion(clause.text) !== undefined,
+  );
+  if (unverifiable) {
+    return { reason: 'unverifiable-assertion', evidence: unverifiable.text };
   }
 
   // AUTOMATABLE NEEDS A VERIFIABLE ASSERTION, not just a clickable step.
@@ -378,6 +427,16 @@ export function renderTriage(triage: TriageResult): string {
     'unsupported-action',
     'An action the platform cannot perform yet',
     'The sentence is correct and the screen is captured. These name a file upload, and an action step carries no file — so the run REFUSES them rather than clicking a button and reporting a pass. Nothing for the QA to change.',
+  );
+  sample(
+    'unverifiable-assertion',
+    'A state the platform cannot read yet',
+    'The sentence is correct and names a real property of a real element — `empty`, `read-only`, `expanded` — and this platform can only read present, enabled, selected and checked. They are REFUSED rather than turned into "the element exists", which would pass as soon as the element is there. Nothing for the QA to change.',
+  );
+  sample(
+    'column-verb-conflict',
+    'The column and the sentence disagree',
+    'The Given/When/Then column says one thing and the sentence’s own verb says another — a click in a Then, an assertion verb in a When, or a `checks`/`ticks` clause that names no state to check. The column is never overruled, so these are refused rather than guessed. **These run today once the sentence is rewritten to match its column**, which makes them the fastest rows on this list to recover.',
   );
   sample(
     'too-vague-to-verify',

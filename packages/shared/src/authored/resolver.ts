@@ -43,7 +43,28 @@ export type RefusalReason =
   | 'target-not-found'
   | 'entry-state-not-captured'
   /** The clause is a valid action the platform cannot perform — see §upload. */
-  | 'action-not-supported';
+  | 'action-not-supported'
+  /**
+   * The clause claims a STATE nothing here can read.
+   *
+   * Its own reason, apart from `action-not-supported`, because the two are
+   * different gaps in different directions: one is an action we cannot take, the
+   * other a fact we cannot observe. Merged, neither backlog is actionable.
+   *
+   * It exists because the alternative was silence: `assertedProperty` fell
+   * through to `present=true`, so "the Notes field is empty" asserted that the
+   * field EXISTS and passed — a check that cannot fail, on a green row.
+   */
+  | 'assertion-not-supported'
+  /**
+   * The COLUMN and the clause's own verb say different things.
+   *
+   * Refused, never reclassified. The column is a human saying what the clause is
+   * (§2b), so the verb gets a VETO and never a vote — a tie-break in either
+   * direction makes some mechanism the authority over the person who wrote the
+   * sheet, and the one direction that is certainly wrong is running it anyway.
+   */
+  | 'column-verb-conflict';
 
 export interface StepRefusal {
   stepIndex: number;

@@ -283,6 +283,89 @@ export interface ActionCapability {
  * — *"clicks the Select all checkbox"* — is refused. Quoting the name fixes it,
  * and a refusal a QA can undo in one edit is the cheap direction.
  */
+/**
+ * A bare check/tick verb: an ACTION wearing an assertion's clothes.
+ *
+ * `checks` is in `ASSERT_VERBS`, so `checks the "Active" box` classifies as an
+ * assertion and resolved to `assert checkbox "Active" present=true` — green as
+ * soon as the box exists, having ticked nothing. Measured 2026-09-29 in the `and`
+ * and `then` columns both.
+ *
+ * The discriminator is NOT the target's role, which was the obvious guess: it is
+ * whether the clause names a STATE at all. `checks that "Done" is visible` and
+ * `checks the "Save" button is present` are ordinary verifications and must keep
+ * working; `checks the "Active" box` names no state, so there is nothing to
+ * verify and the only reading that does anything is the tick this platform cannot
+ * perform.
+ *
+ * Role-free by design, and the reason is `triage`: it is handed row text and the
+ * set of captured MODULES, never a capture, so a role-based rule could not be
+ * asked there and triage would promise rows the run refuses.
+ */
+const CHECK_FAMILY_VERBS = /\b(checks?|checking|ticks?|ticking|unchecks?|unticks?)\b/i;
+
+/** Any word that names a state a verification could be about. */
+const STATE_CLAIM_WORDS =
+  /\b(checked|ticked|unchecked|selected|enabled|disabled|visible|present|shown|displayed|hidden|absent|gone|empty|expanded|collapsed|read-?only|editable|required|equals?|contains?|matches)\b/i;
+
+/**
+ * Where the COLUMN and the TEXT contradict each other, named.
+ *
+ * The column is a human saying what a clause is, and it always wins — that is
+ * §2b and it is not negotiable. This does not re-derive the kind; it refuses.
+ * The verb gets a VETO, never a vote: a clause whose column and text disagree
+ * produces nothing, and the kind the column declared is still what gets recorded.
+ *
+ * Shared with `triage` so the ceiling cannot count a row the run then refuses.
+ */
+export function columnVerbConflict(clause: {
+  text: string;
+  source: ClauseSource;
+}): string | undefined {
+  const outsideNames = clause.text.replace(/["'`][^"'`]*["'`]/g, ' ');
+  const stem = outsideNames.trim().replace(SUBJECT_PREFIX, '');
+
+  // 1. An ASSERT verb in the When column. The column says "do something".
+  if (clause.source === 'when' && ASSERT_VERBS.test(stem)) {
+    return `the When column says this is an action, and the clause starts with an assertion verb`;
+  }
+
+  // 2. An ACTION verb leading the Then column. The column says "check
+  //    something", and doing something is not checking it.
+  //
+  // `ACTION_VERBS` rather than a new list, and LEADING rather than anywhere. Two
+  // drafts were wrong before this one, each in a way worth keeping:
+  //
+  // - testing only `PERFORMABLE_ACTION_VERBS` missed `selects the "Yes" radio`,
+  //   which then fell through to the assert path and became `present=true` — the
+  //   exact false pass this function exists for;
+  // - testing `NAMED_UNPERFORMABLE_VERBS` instead refuses `verify the "Yes" radio
+  //   is selected`, because `selected` is in it as a state word. A list holding
+  //   both a verb and its participle cannot tell an action from an assertion.
+  //
+  // `ACTION_VERBS` is the vocabulary `classifyClause` already uses to decide that
+  // a clause IS an action, is anchored after the subject, and holds finite verb
+  // forms only. Anchoring also means an unquoted control name later in the clause
+  // cannot trigger this.
+  if (clause.source === 'then' && ACTION_VERBS.test(stem)) {
+    return (
+      `the Then column says this is an assertion, and the clause starts with the action verb ` +
+      `"${ACTION_VERBS.exec(stem)![1]!.toLowerCase()}"`
+    );
+  }
+
+  // 3. A check/tick verb naming no state, in ANY column.
+  if (CHECK_FAMILY_VERBS.test(stem) && !STATE_CLAIM_WORDS.test(outsideNames)) {
+    return (
+      `"${CHECK_FAMILY_VERBS.exec(stem)![1]!.toLowerCase()}" names no state to verify, so this ` +
+      'reads as ticking a box rather than checking one — write `verify the "X" checkbox is ' +
+      'checked` (or `is not checked`) to VERIFY it; there is no tick action yet'
+    );
+  }
+
+  return undefined;
+}
+
 export function actionCapability(text: string): ActionCapability {
   const outsideNames = text.replace(/["'`][^"'`]*["'`]/g, ' ');
   const named = NAMED_UNPERFORMABLE_VERBS.exec(outsideNames)?.[1]?.toLowerCase();

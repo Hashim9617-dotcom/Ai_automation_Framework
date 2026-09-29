@@ -1,7 +1,12 @@
 import type { BoundedCapture } from '../generation/bounding';
 import { checkGrounding, type AssertStep, type CaseStep } from '../generation/grounding';
 import { assessWriteRisk } from '../generation/proposal';
-import { actionCapability, type AuthoredRow, type UnreadableSheetRow } from './final-test-cases';
+import {
+  actionCapability,
+  columnVerbConflict,
+  type AuthoredRow,
+  type UnreadableSheetRow,
+} from './final-test-cases';
 import {
   CANDIDATE_ROLES,
   CLICKABLE_ROLES,
@@ -105,21 +110,86 @@ export function looksLikeAccessibleName(value: string): boolean {
   return !SENTENCE_SHAPE.test(value);
 }
 
+/**
+ * State words, and the property each claims. ORDER MATTERS: negatives first.
+ *
+ * Measured 2026-09-29 over sixteen phrases — eight did not assert what they said.
+ * Two faults, and the list below is written the way it is because of them:
+ *
+ * - **`checked` was absent entirely**, so `is checked` and `is not checked` BOTH
+ *   fell through to `present=true`. A row and its exact negation were the same
+ *   assertion, and both passed as soon as the box existed.
+ * - **`not enabled` was absent while `enabled` was present**, so *"the Save
+ *   button is not enabled"* matched `enabled` and asserted `enabled=TRUE`. Not a
+ *   missing check — the opposite one, green whenever the button was enabled.
+ *
+ * So every property carries BOTH polarities, negative first, and the negative
+ * pattern spells out the `not X` form rather than relying on a separate antonym
+ * happening to exist. `disabled` is kept beside `not enabled` for that reason:
+ * the antonym is a convenience, never the only way to express the negative.
+ */
 const PROPERTY_WORDS: Array<[RegExp, AssertStep['property'], boolean]> = [
+  [/\bnot\s+checked\b|\bunchecked\b|\bunticked\b/i, 'checked', false],
+  [/\bchecked\b|\bticked\b/i, 'checked', true],
   [/\bnot\s+selected\b|\bunselected\b/i, 'selected', false],
   [/\bselected\b/i, 'selected', true],
-  [/\bdisabled\b/i, 'enabled', false],
+  [/\bnot\s+enabled\b|\bdisabled\b/i, 'enabled', false],
   [/\benabled\b/i, 'enabled', true],
-  [/\b(?:not\s+(?:visible|present|shown)|absent|hidden|gone)\b/i, 'present', false],
+  [/\b(?:not\s+(?:visible|present|shown|displayed)|absent|hidden|gone)\b/i, 'present', false],
   [/\b(?:visible|present|shown|appears?|displayed)\b/i, 'present', true],
 ];
 
-/** What an assertion claims about its target. Presence unless it says otherwise. */
-function assertedProperty(text: string): { property: AssertStep['property']; expected: boolean } {
+/**
+ * State words this platform recognises as STATES and cannot verify.
+ *
+ * Not the same list as the one above and not its complement: these are words a QA
+ * genuinely writes, that name a real property of a real element, and that no
+ * capture field and no Playwright call in this codebase can answer. Measured, from
+ * the same pass: each of them produced `present=true`, so the row asserted that
+ * the element EXISTS and passed — a check that cannot fail.
+ *
+ * They are REFUSED rather than approximated. The alternative — grading them
+ * `assumed` forever — puts them in the capture's backlog, and the capture is not
+ * where the gap is.
+ */
+const UNVERIFIABLE_STATE_WORDS =
+  /\b(empty|expanded|collapsed|read-?only|editable|required|optional|focused|sorted|highlighted)\b/i;
+
+/** `not`, in the forms a QA writes it. A negation nothing matched is a refusal. */
+const NEGATION_WORDS = /\bnot\b|\bno longer\b|\bnever\b|n['’]t\b/i;
+
+/**
+ * What an assertion claims about its target, or `undefined` when nothing matched.
+ *
+ * It used to DEFAULT to `present=true`, which is right for *"verify 'Approved'"* —
+ * a clause naming an element and no state — and catastrophic for one naming a
+ * state the list does not hold. The caller now decides, because only the caller
+ * can see whether the clause was making a state claim at all.
+ */
+function assertedProperty(
+  text: string,
+): { property: AssertStep['property']; expected: boolean } | undefined {
   for (const [pattern, property, expected] of PROPERTY_WORDS) {
     if (pattern.test(text)) return { property, expected };
   }
-  return { property: 'present', expected: true };
+  return undefined;
+}
+
+/**
+ * The state word this clause makes a claim about that nothing here can verify.
+ *
+ * Quoted names are excluded first: a checkbox called "Required" is not a QA saying
+ * the field is required. Same rule `extractRole` learned by reading "select" out
+ * of "Select department".
+ */
+export function unverifiableAssertion(text: string): string | undefined {
+  const outsideNames = text.replace(/["'`][^"'`]*["'`]/g, ' ');
+  const word = UNVERIFIABLE_STATE_WORDS.exec(outsideNames)?.[1];
+  if (word) return word.toLowerCase();
+  // A NEGATION that matched no property is a claim we have not understood. It is
+  // the direction that matters: dropping a `not` turns an assertion into its
+  // opposite, which passes exactly when the row should fail.
+  return NEGATION_WORDS.test(outsideNames) ? 'not' : undefined;
 }
 
 export interface ResolvedAuthoredRow extends ResolvedRow {
@@ -234,6 +304,30 @@ export function resolveAuthoredRow(
     // business to resolve.
     if (clause.source === 'given') {
       givenClauses.push(clause.text);
+      continue;
+    }
+
+    // THE COLUMN AND THE VERB DISAGREE, so nothing is run and nothing is
+    // reclassified.
+    //
+    // FIRST, ahead of every other test, and the position is the diagnosis: a
+    // clause whose column contradicts its own text cannot be usefully described
+    // as "an action we cannot perform" or "a target we could not find". Both of
+    // those would be true statements about a sentence whose real problem is that
+    // two sources disagree about what it is.
+    //
+    // The kind the column declared is still recorded on `clauseKinds` — `base`
+    // reads it from the clause, not from anything decided here — so a reader can
+    // see that the refusal did not quietly reinterpret the row.
+    const conflict = columnVerbConflict(clause);
+    if (conflict) {
+      refusals.push({
+        stepIndex,
+        sentence: clause.text,
+        why: 'column-verb-conflict',
+        candidates: [],
+        reason: `${authored.rowId}, ${clause.source} clause "${clause.text}": ${conflict}`,
+      });
       continue;
     }
 
@@ -352,7 +446,33 @@ export function resolveAuthoredRow(
       continue;
     }
 
-    const { property, expected } = assertedProperty(clause.text);
+    // A STATE CLAIM NOTHING CAN READ IS REFUSED, NOT TURNED INTO `present`.
+    //
+    // The default below is for a clause that names an element and no state —
+    // `verify "Approved"` means "it is there". A clause that DOES name a state
+    // must not borrow that default: "the Notes field is empty" became
+    // `present=true` and passed as soon as the field existed, a check that cannot
+    // fail on a row that reads as covered.
+    const claim = assertedProperty(clause.text);
+    if (!claim) {
+      const unverifiable = unverifiableAssertion(clause.text);
+      if (unverifiable) {
+        refusals.push({
+          stepIndex,
+          sentence: clause.text,
+          why: 'assertion-not-supported',
+          candidates: [],
+          reason:
+            `${authored.rowId}: "${unverifiable}" is a state this platform cannot read off ` +
+            `${candidates[0] ? `${candidates[0].role} "${target}"` : `"${target}"`} — it can ` +
+            'check present, enabled, selected and checked, and refusing is better than ' +
+            'asserting the element merely exists',
+        });
+        continue;
+      }
+    }
+
+    const { property, expected } = claim ?? { property: 'present' as const, expected: true };
     if (candidates[0]) {
       targets.push({ stepIndex: steps.length, role: candidates[0].role, name: target });
     }
