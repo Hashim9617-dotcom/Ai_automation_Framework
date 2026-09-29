@@ -171,6 +171,43 @@ exactly that. So each mutation declares what should catch it:
 > that B works is a fact about B; B working is compatible with A still carrying
 > the weight (§V).
 
+> **A detector needs a case it CATCHES and a case it stays silent about**, and
+> the silent one is the case the assertion is written against (§W).
+
+> **Before acting on a red result, state WHY it is red** and check the reason is
+> the property under test. A test that goes green because its expectation moved
+> has been silenced, not satisfied (§X).
+
+> **When gates are ordered, a test of the LATER one must show the earlier one was
+> passed rather than skipped** — otherwise two causes share the verdict (§Y).
+
+> **Ask a mechanism for its verdict.** Counting, indexing or substring-matching
+> its output asks a question the output cannot always express, and the case it
+> cannot express is the one the check exists for (§Z).
+
+> **A search that reports "nothing else uses this" must include an input it is
+> KNOWN to find** — otherwise "no matches" and "no matches in the subset my
+> pattern covers" are the same output (§AA).
+
+> **Re-take a measurement before quoting it**, especially one something outside
+> this session can change: a working tree, a remote, an environment variable
+> (§AB).
+
+> **A capability list is an ALLOWLIST of what the mechanism can do, never a
+> denylist of what it cannot** — a denylist is fail-open. And **ambiguity
+> resolves toward REFUSAL, never toward the reading that can pass** (§AC).
+
+> **A test fixture is TYPED, not cast.** The instrument must be required to
+> supply every field the code under test reads; the field a cast lets you forget
+> is the one no test will ever mention (§AD).
+
+> **A hand-written list beside a derived set is acceptable only when the worst a
+> missing entry can do is degrade a MESSAGE.** If it can change a verdict, open a
+> gate or drop a row, it must be derived (§AE).
+
+> **A pre-registered `EXPECTED` entry changes only by stop, report, approval and
+> a visible record — never because a run said something else** (§AF).
+
 **Measured here, because the failure mode is not the obvious guess:** Playwright
 transpiles without typechecking, so a _type_ error in a mutation is invisible
 and 203 tests still pass; a _syntax_ error aborts Babel before any test runs,

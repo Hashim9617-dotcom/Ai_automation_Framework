@@ -3093,3 +3093,315 @@ Here **five checks ran on the real thing, observed it correctly, and still
 missed**, because every one of them was pointed at the new mechanism rather than
 at the old one's absence. A check can be perfectly sound and aimed at the wrong
 question.
+
+---
+
+## W. A detector needs a case it CATCHES and a case it does not (2026-09-29)
+
+`WR_001` is a write-risky row, and the demo run proved the hold worked by counting
+`employee-row` elements on the page: 0 before, 0 after. Read as _"nothing was
+written"_.
+
+Measured on the real app, by hand, from the same state:
+
+```
+employee-row before          : 0
+after clicking Save ONLY     : 0    form-message: "Please complete all required fields."
+after filling + Save         : 1    form-message: "Employee saved successfully."
+```
+
+Two facts, and they point opposite ways. The counter **is** a live detector — the
+count can reach 1, so the assertion was not vacuous in general. And for
+**this row** it could not discriminate, because the app's own validation rejects a
+bare click, so `0` would appear whether the hold fired or not.
+
+> **A detector is only evidence when BOTH halves have been observed: an input it
+> reports on, and an input it stays silent about — with the silent one being the
+> case the assertion is actually written against.**
+
+The half that is usually skipped is the second, because the first is what the test
+was written to show. Here it took a hand-run probe against the real page to find
+that the silent half was silent for an unrelated reason.
+
+The fix was not a better DOM check. It was to stop measuring the application and
+measure the platform: `RowResult.stepsRun` (H2) is the run's own record of how
+many steps the executor was asked to run, `0` for a held row by construction, and
+the demo spec now asserts `heldRow.stepsRun === 0` beside `failedRow.stepsRun > 0`
+— the two halves in adjacent lines. The known-positive is in the §AC excerpt
+below: `allowWrites=true` turns the same row into `stepsRun=1`.
+
+`U1b` and `U1c` in `tests/unit/upload-not-supported.spec.ts` are the same shape in
+miniature: a list of verbs that must be refused, then a list that must pass, then
+a verb in neither list that must still be refused.
+
+---
+
+## X. A refusal, a failure or a mutation must happen for the RIGHT reason
+
+A red test is not automatically evidence. Three from this session, each of which
+would have been "fixed" the wrong way by looking only at the colour:
+
+| what went red                                            | the reason I assumed             | the actual reason                                                                                                                                                                   |
+| -------------------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `W1`, first draft — `clicks on "Save"` expected `passed` | the allowlist rejected the click | `Save` is a WRITE word, so the row was `held`. The control was failing for a reason with nothing to do with the property under test.                                                |
+| `U1b` — `presses Enter` expected performable             | a bug in the allowlist           | the key is CALLED Enter, and `enter` is a fill verb. A real collision, and the same shape as `extractRole` reading "select" out of "Select department".                             |
+| `C1` / `C7` in `resolve-authored.spec.ts`                | the tests were stale             | the first draft of `actionCapability` read the LEADING WORD, so it refused `verify by clicking "Sign in"` — overruling the COLUMN the QA wrote, which is the rule §13.4 exists for. |
+
+Each had a tempting cheap fix — change the expected status, delete the `presses
+Enter` case, update the two old tests — and each would have removed the finding
+while keeping the colour green.
+
+> **Before acting on a red result, state WHY it is red and check that the reason
+> is the property under test.** A test that goes green because its expectation
+> moved has been silenced, not satisfied.
+
+`W1` kept its `held` and grew an assertion about resolution instead; `presses
+Enter` became a pinned, documented cost with `presses "Enter"` proving the
+recoverable half; `C1`/`C7` rewrote the implementation. The §Q verdict table is
+the same rule for mutations: **caught by a test**, **caught by the type system**
+and **void** are three outcomes, and a mutation that did not compile is not a
+mutation that was caught.
+
+---
+
+## Y. A LATER gate's test must prove the EARLIER gate did not fire
+
+`executeAuthoredRows` runs the write-risk gate before the refusal check. So
+`held` is produced by a write-risky row whether or not the row resolved, and
+`status === 'held'` is therefore **not** evidence that a clause was accepted.
+
+`W1` is the clause §W was asked about, `clicks on "Save employee"`, and it comes
+back `held`. The test is only meaningful because it establishes the order first:
+
+```ts
+expect(actionCapability(clause)).toEqual({ performable: true });
+const resolved = resolveAuthoredRow(rowWith(clause, 'W_1'), CAPTURE, 'upload');
+expect(resolved.outcome, 'the clause did not resolve at all').not.toBe('row-unclear');
+expect(resolved.refusals).toEqual([]);
+// ...only now:
+expect(run.results[0]!.status).toBe('held');
+```
+
+> **When gates are ordered, a test of the later one must show the earlier one was
+> passed rather than skipped.** Otherwise the verdict is shared by two causes and
+> the test cannot tell which produced it.
+
+`U3` is the companion, pinning the direction deliberately: an `uploads` clause is
+stopped by the write gate FIRST, so _"upload is refused now"_ is true of a
+mechanism that never runs for that word. Relax the hold and the false pass returns
+through a door nobody was watching.
+
+---
+
+## Z. A gate reads the VERDICT, not a count, a position or a substring
+
+Two from the same commit, both invisible until the shape changed:
+
+- The app-team CSV was checked with `expect(dataRows[0]).toContain('SI_003 / TC_001')`
+  over a **joined line**. A joined line cannot express a blank cell, so the
+  `Module` column was empty in every sheet the writer ever produced and no
+  assertion could see it. Parsed to cells and checked column by column against a
+  declared `ALLOWED_EMPTY_COLUMNS` (declared empty), it fails immediately.
+- `WR_001`'s hold was proved by a DOM element **count** rather than by the run's
+  own verdict. §W above is what that cost.
+
+> **Ask the mechanism for its answer. Counting, indexing or substring-matching its
+> output asks a question the output cannot always express** — and the case it
+> cannot express is the one the check exists for.
+
+The same reasoning, stated positively, is why `OWNER_OF` and `TALLY_BUCKET` are
+`Record`s over the status union rather than lists: a bucket is looked up, never
+counted into place.
+
+---
+
+## AA. A search that found nothing must first prove it could find something
+
+Before inverting the verb list I measured which action verbs the suites actually
+use, so that nothing working would break. The scan collected clause literals with
+
+```
+grep -rhoE "(when|and|description): '[^']+'" --include=*.ts tests packages scripts
+```
+
+and reported only click-family verbs. **Three specs then broke** — `C1` and `C7`
+in `resolve-authored.spec.ts` and `T` in `triage.spec.ts` — because those build
+clauses as `rowOf([{ text: '…', source: 'when', kind: 'action' }])`, a shape the
+pattern never matched. The scan was not wrong about what it found; it was wrong
+about what it had looked at, and it said nothing about that.
+
+> **A scan that reports "nothing else uses this" must include an input it is KNOWN
+> to find.** Without one, "no matches" and "no matches in the subset my pattern
+> happens to cover" are the same output.
+
+This is §T pointed at a search rather than a check: the effect rule asks whether
+what you did landed, §T asks whether there was anything to do it to, and this asks
+whether the instrument can see the population it is reporting on. The earlier
+instance is the callers audit, where `loadEnvironment` — known to have callers —
+was searched alongside the symbols being audited, and the 8 hits it returned are
+what made "11 of 14 links are tests only" mean anything.
+
+---
+
+## AB. Re-measure a number before repeating it
+
+Asked how many commits were unpushed, I answered **4** from a `[ahead 4]` I had
+read in an earlier turn. Measured:
+
+```
+$ git rev-list --count origin/master..master
+2
+```
+
+The user had pushed in between. One turn later the same command answered `1`, for
+the same reason. Nothing was wrong with the original measurement; it had simply
+stopped being true, and a number carried forward reads exactly like a number just
+taken.
+
+> **A measurement is about a moment. Re-take it before quoting it, especially one
+> that something outside this session can change** — the working tree, a remote, a
+> capture directory, an environment variable.
+
+Same family as welding a headline number to the assumption it was measured under:
+there the qualifier is a condition, here it is a timestamp.
+
+---
+
+## AC. What the executor may do is an ALLOWLIST, and ambiguity refuses
+
+`UNSUPPORTED_ACTION_VERBS` was a denylist — `upload|attach|browse` — so every
+other verb in `ACTION_VERBS` reached an executor whose entire vocabulary is
+`locator.click()`. Measured against a capture holding a node for every name these
+clauses could slice out, which is the point: the question is what happens when the
+target IS on the page.
+
+| clause                             | became                           | executor        |
+| ---------------------------------- | -------------------------------- | --------------- |
+| `clicks on "Save employee"`        | action, `button "Save employee"` | CLICK -> passed |
+| `user enters 'Jane' in First name` | action, **`option "Jane"`**      | CLICK -> passed |
+| `types 'Jane' into First name`     | action, **`option "Jane"`**      | CLICK -> passed |
+| `selects 'HR' from Department`     | action, **`option "HR"`**        | CLICK -> passed |
+
+`extractTarget`'s quoted-name pattern is right to trust a name a human put in
+quotes, and it therefore grabs the clause's **VALUE**. The clause becomes _"click
+the thing called Jane"_, and on any page where a value matches a control name — an
+option, a table row, a tag, a filter chip — it clicks it and reports a pass with
+nothing typed. Five of nine probe clauses could run and pass; after inverting the
+list, two, one of which is the control.
+
+> **A capability list is an ALLOWLIST of what the mechanism can do, never a
+> denylist of what it cannot.** A denylist is fail-open: the next verb added
+> anywhere upstream silently becomes whatever the executor happens to do.
+
+The known-positive, run in `scratch/` and deleted, after asserting the target was
+the bundled demo app on a localhost host:
+
+```
+allowWrites=false  status=held    stepsRun=0  executor calls=0
+allowWrites=true   status=passed  stepsRun=1  executor calls=1
+```
+
+Three verbs — `select`, `open`, `navigate` — are genuinely ambiguous. _"selects
+the Roles tab"_ is a click and _"selects 'HR' from Department"_ is not, and no
+amount of reading the verb separates them.
+
+> **Ambiguity resolves toward REFUSAL, never toward the reading that can pass.**
+> The two errors are not symmetric: a refusal is recoverable in one edit by the
+> person who wrote the row, and a false pass is a green row that verified nothing
+> and will never be revisited.
+
+And the refusal must name the right owner. Two reasons, not one: a NAMED
+unperformable verb is our gap, so the QA waits for a feature; a clause with no
+performable verb at all is one they can rewrite today. Merging them sends half of
+each group to the wrong place, for the same reason `failed` and `refused` are
+separate statuses.
+
+---
+
+## AD. A test fixture is TYPED, not cast
+
+Four fixtures built their rows with `as` — `as RowResult`, `as ResolvedAuthoredRow`
+twice, `as AuthoredRow`. An assertion is not an assignment, so a missing required
+property is not an error, and the compiler cannot ask the fixture for a field the
+production code reads.
+
+`automation-sheet.spec.ts` is what that costs. It builds a `RowResult` with `as`
+and **never mentions `module` anywhere**: no test set it, none read the `Module`
+column, and the column was blank in every sheet the writer produced. The comment
+beside the cell explained why — reasoned from the type, never from the file.
+
+The proof is the pair of §Q predictions, both declared before the change:
+
+| change                  | predicted                                                | actual          |
+| ----------------------- | -------------------------------------------------------- | --------------- |
+| remove the four casts   | 0 failures (3a-2 had already added `module` to all four) | 0               |
+| add required `stepsRun` | 8 sites, named                                           | exactly those 8 |
+
+The eighth is `automation-sheet.spec.ts`'s builder, **catchable only because the
+cast was gone**. Under `as RowResult` it would have stayed silent, exactly as it
+had for `module`.
+
+> **The instrument must be required to supply every field the code under test
+> reads.** A cast removes that requirement silently, and the field it lets you
+> forget is the one no test will ever mention.
+
+Casting is sometimes the only way to build a value of a discriminated union, which
+is why `as RowResult` was there. The answer is to narrow the parameter instead —
+`status: Exclude<RowStatus, 'given-not-reached'>` lets the compiler pick an arm,
+and a test needing an entry failure builds one explicitly.
+
+---
+
+## AE. A hand-written list beside a derived set will drift
+
+`NAMED_UNPERFORMABLE_VERBS` sits next to `ACTION_VERBS` and
+`PERFORMABLE_ACTION_VERBS`, and it is a hand-written list of words. It is
+nonetheless safe, and the reason is worth stating because it is the test for
+whether such a list is acceptable at all:
+
+> **A hand-written list beside a derived set is acceptable only when the worst a
+> missing entry can do is degrade a MESSAGE.** If a missing entry can change a
+> verdict, open a gate or drop a row, the list is load-bearing and must be derived.
+
+The gate here is the allowlist: a verb missing from the hand-written list is still
+refused, it merely gets the vaguer of the two refusal sentences. Compare the
+denylist it replaced, where a missing entry produced a click and a false pass —
+same file, same shape, opposite consequence.
+
+The counter-example found in the same commit: `CB4` in `command-box.spec.ts`
+asserts that **every** test whose title matches "test employee registration" has
+`demo` in its title, to prove an inventory was listed for the right environment.
+That is a hand-written coupling to the global corpus of test titles, and it broke
+when a new `@unit` test quoted the clause `clicks on "Save employee"` — while the
+listing was perfectly correct. `some(demo) && no app-suite title` says the same
+thing without depending on what every other test in the repo is called. Recorded
+as open item 17 rather than weakened in passing, because the assertion is doing
+real work.
+
+---
+
+## AF. A pre-registered expectation changes by APPROVAL, never by the verdict
+
+`tests/demo/run-sheet.spec.ts` carries an `EXPECTED` table written before the
+first run. One row disagreed: the unreadable row had been pre-registered as
+`UR_001 / TC_001` and the run reported `sheet row 7`.
+
+The full cycle, which is the point:
+
+1. **Stop.** The run disagreed with the pre-registration, so the run is a finding.
+2. **Report**, with the mechanism: `UnreadableSheetRow` kept only `sheetRow`, so a
+   row with both ids and no clause content lost them.
+3. **Approval** to edit the key, with the divergence recorded in the file and in
+   `WHERE-WE-ARE` as F-UR-ID — owner platform, fix before the first DMS run.
+4. **Visible diff**: the edited key carried a comment naming the finding, so a
+   reader could not mistake it for the original registration.
+5. The reader was then fixed, and the key **returned to the value first written**.
+
+> **An `EXPECTED` entry may be edited only after stopping, reporting the
+> divergence, getting approval, and leaving a visible record of what was changed
+> and why. It is never edited because a run said something else** — that is the
+> run overwriting the prediction it exists to be checked against.
+
+The status never moved in any of this: the row was `unreadable` at every step. Only
+the name it was reported under changed, which is what made the divergence small
+enough to be tempting.
