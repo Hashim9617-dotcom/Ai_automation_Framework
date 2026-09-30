@@ -13,7 +13,7 @@ function attempt(overrides: Partial<TestResult> = {}): TestResult {
   return {
     id: 'test-1',
     title: 'Admin create forms › the create-user form will not submit while empty',
-    file: 'tests/app/admin.spec.ts',
+    file: 'tests/apps/dms/admin.spec.ts',
     project: 'chromium',
     tags: [],
     outcome: TestOutcome.Failed,

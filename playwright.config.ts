@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 import type { AitpProjectOptions } from './packages/execution-engine/src/fixtures/core';
 import {
@@ -48,59 +50,52 @@ const base = liveEnv ?? demoEnv;
 // yet at config-load time. Gating on existsSync here would have frozen
 // `storageState` at `undefined` for that whole run, permanently missing the
 // session `setup` was about to create.
-const savedSession = liveEnv ? authStatePath(liveEnv.name) : undefined;
-
-/** Live browser projects never collect the fixture suite, and never could. */
-const liveTestIgnore = ['**/api/**', '**/unit/**', '**/tests/demo/**'];
+const savedSession = liveEnv ? authStatePath(liveEnv) : undefined;
 
 /**
- * The one application `tests/app/**` was written against.
+ * A LIVE PROJECT COLLECTS ONE APPLICATION'S SPECS, BY PATH.
  *
- * `tests/app/` holds six specs and seven page objects, and every one of them
- * describes DmsSynergy — its sidebar, its upload wizard, its admin screens.
- * Nothing said so. The split was demo-vs-live, so ANY non-local environment
- * collected all of it: measured 2026-09-30 with a second application declared as
- * `app2`, `--list` returned **47 tests in 8 files**, every one a DMS spec.
+ * `tests/app/` held six specs and seven page objects, every one of them describing
+ * DmsSynergy — its sidebar, its upload wizard, its admin screens — and nothing said
+ * so. The split was demo-vs-live, so ANY non-local environment collected all of it:
+ * measured 2026-09-30 with a second application declared as `app2`, `--list`
+ * returned 47 tests, every one a DMS spec. A QA adding their own application would
+ * have driven DMS's page objects against it, `@write` tests included.
  *
- * A QA who adds their own application and runs `pnpm test` would therefore drive
- * DMS's page objects against their app — and `@write` tests live in that same
- * suite. This is the minimal version of the fix: collect them only for the
- * application they were written for, and say plainly that nothing was collected
- * for any other.
+ * K2 answered that with a comparison here — hold the suite unless
+ * `application === 'dms'`. This replaces the comparison with STRUCTURE: the specs
+ * moved to `tests/apps/dms/`, and a project collects `tests/apps/<application>/`.
+ * There is no list to keep and no condition to get wrong; an application with no
+ * directory collects nothing because there is nothing at that path.
  *
- * The full answer is a `tests/apps/<application>/` layout so each application's
- * specs are found by their own path rather than by a comparison here. That is
- * multi-app item 2; this is the guard that makes the gap safe until then.
+ * `testMatch` rather than `testIgnore`, which is the substance of the change: an
+ * ignore list has to name everything that does not belong, so the next directory
+ * added is included by default — fail-open, the shape this repo has now corrected
+ * five times. A match names what DOES belong.
  */
-const APP_SUITE_APPLICATION = 'dms';
+const liveTestMatch = liveEnv
+  ? `**/tests/apps/${liveEnv.application}/**/*.spec.ts`
+  : // No live environment resolved, so no live project will run. A pattern that
+    // matches nothing is the honest value; `undefined` would mean "match the
+    // default", which is every spec in the repo.
+    '**/__no_live_environment__/**';
 
-/**
- * Do the DMS specs belong to the environment being run?
- *
- * Keyed on `application`, not on the environment NAME, because `app`, `qa` and
- * `staging` are three environments of one application and all three should collect
- * the same suite.
- */
-const collectsAppSuite = liveEnv?.application === APP_SUITE_APPLICATION;
-
-if (liveEnv && !collectsAppSuite) {
-  // A SENTENCE, not silence. Zero collected tests and no explanation reads as a
-  // broken config, and the next thing someone does is start deleting ignores.
-  // The count it prints will not be zero, and saying so here is the difference
-  // between a message and a puzzle: every browser project depends on `live-setup`,
-  // whose own `testMatch` picks up the sign-in and the environment-name guard. Both
-  // are application-agnostic — a manual sign-in works anywhere — so they stay.
+if (liveEnv && !existsSync(path.join(__dirname, 'tests', 'apps', liveEnv.application))) {
+  // A SENTENCE, not silence. Zero collected specs with no explanation reads as a
+  // broken config, and the next thing someone does is start deleting patterns.
+  //
+  // The count it prints will not be zero, and saying so is the difference between a
+  // message and a puzzle: every browser project depends on `live-setup`, whose own
+  // `testMatch` picks up the sign-in and the environment-name guard. Both are
+  // application-agnostic — a manual sign-in works anywhere — so they stay.
   process.stderr.write(
-    `\nNo specs for application "${liveEnv.application}" — tests/app/** was written for ` +
-      `"${APP_SUITE_APPLICATION}" and is not collected here.\n` +
+    `\nNo specs for application "${liveEnv.application}": tests/apps/${liveEnv.application}/ ` +
+      'does not exist.\n' +
       'The two tests still listed are the sign-in setup and the environment-name ' +
       'guard, which are not application-specific.\n' +
       'Unit and API tests are unaffected; run them with --project=unit or --project=api.\n\n',
   );
 }
-
-/** `tests/app/**` as well, for any application those specs were not written for. */
-const appSuiteIgnore = collectsAppSuite ? liveTestIgnore : [...liveTestIgnore, '**/tests/app/**'];
 
 /**
  * One config, every environment. Environment-specific values (URLs, timeouts,
@@ -192,7 +187,7 @@ export default defineConfig<AitpProjectOptions>({
 
     {
       name: 'chromium',
-      testIgnore: appSuiteIgnore,
+      testMatch: liveTestMatch,
       dependencies: ['live-setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -201,7 +196,7 @@ export default defineConfig<AitpProjectOptions>({
     },
     {
       name: 'firefox',
-      testIgnore: appSuiteIgnore,
+      testMatch: liveTestMatch,
       dependencies: ['live-setup'],
       use: {
         ...devices['Desktop Firefox'],
@@ -210,7 +205,7 @@ export default defineConfig<AitpProjectOptions>({
     },
     {
       name: 'webkit',
-      testIgnore: appSuiteIgnore,
+      testMatch: liveTestMatch,
       dependencies: ['live-setup'],
       use: {
         ...devices['Desktop Safari'],
@@ -219,7 +214,7 @@ export default defineConfig<AitpProjectOptions>({
     },
     {
       name: 'mobile-chrome',
-      testIgnore: appSuiteIgnore,
+      testMatch: liveTestMatch,
       dependencies: ['live-setup'],
       use: { ...devices['Pixel 7'], ...(savedSession ? { storageState: savedSession } : {}) },
     },

@@ -40,7 +40,7 @@ function waitForEnter(prompt: string): Promise<void> {
 async function main(): Promise<void> {
   const env = loadEnvironment();
   const url = process.argv[2] ?? env.baseUrl;
-  const statePath = authStatePath(env.name);
+  const statePath = authStatePath(env);
   mkdirSync(path.dirname(statePath), { recursive: true });
 
   let browser: Browser | undefined;

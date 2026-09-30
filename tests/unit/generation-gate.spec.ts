@@ -26,19 +26,19 @@ const inventory: InventoryEntry[] = [
   {
     title: 'Global Search › selecting all results enables the bulk download',
     leafTitle: 'selecting all results enables the bulk download',
-    file: 'tests/app/global-search.spec.ts',
+    file: 'tests/apps/dms/global-search.spec.ts',
     tags: ['@regression', '@search'],
   },
   {
     title: 'Bulk Upload wizard › the metadata template download is gated on a document type',
     leafTitle: 'the metadata template download is gated on a document type',
-    file: 'tests/app/upload.spec.ts',
+    file: 'tests/apps/dms/upload.spec.ts',
     tags: ['@regression', '@upload'],
   },
   {
     title: 'Admin lists › Users list loads and is searchable',
     leafTitle: 'Users list loads and is searchable',
-    file: 'tests/app/admin.spec.ts',
+    file: 'tests/apps/dms/admin.spec.ts',
     tags: ['@regression', '@admin'],
   },
 ];
@@ -61,7 +61,7 @@ test.describe('generation gate @unit', () => {
     const top = verdict.suppressedBy[0]!;
 
     expect(top.title).toContain('bulk download');
-    expect(top.file).toBe('tests/app/global-search.spec.ts');
+    expect(top.file).toBe('tests/apps/dms/global-search.spec.ts');
     expect(top.score).toBeGreaterThan(0);
   });
 
@@ -89,13 +89,13 @@ test.describe('generation gate @unit', () => {
       {
         title: 'plain bulk download of search results',
         leafTitle: 'plain bulk download of search results',
-        file: 'tests/app/a.spec.ts',
+        file: 'tests/apps/dms/a.spec.ts',
         tags: [],
       },
       {
         title: 'tagged bulk download',
         leafTitle: 'tagged bulk download',
-        file: 'tests/app/b.spec.ts',
+        file: 'tests/apps/dms/b.spec.ts',
         tags: ['@search'],
       },
     ];

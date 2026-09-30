@@ -186,7 +186,7 @@ test.describe('the cache avoids the MODEL (L1) @unit', () => {
           {
             title: 'Upload wizard > workspace step selects',
             leafTitle: 'workspace step selects',
-            file: 'tests/app/upload.spec.ts',
+            file: 'tests/apps/dms/upload.spec.ts',
             tags: ['@upload'],
           },
         ],

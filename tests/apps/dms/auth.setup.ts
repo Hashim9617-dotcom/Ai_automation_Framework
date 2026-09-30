@@ -40,7 +40,7 @@ setup('authenticate', async ({ makePage, env, page, log }) => {
     { timeout: env.timeouts.navigation },
   );
 
-  const statePath = authStatePath(env.name);
+  const statePath = authStatePath(env);
   await page.context().storageState({ path: statePath });
   log.info('Automated session saved', { environment: env.name, landedOn: page.url() });
 });

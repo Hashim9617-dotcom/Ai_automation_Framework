@@ -89,3 +89,24 @@ export default tseslint.config(
   },
   prettier,
 );
+
+/**
+ * THE CROSS-APPLICATION IMPORT BOUNDARY IS NOT HERE, AND THAT IS A MEASUREMENT.
+ *
+ * `tests/apps/<x>/` must never import `tests/apps/<y>/`, and the first attempt was a
+ * `no-restricted-imports` block above this one. A planted violation —
+ * `tests/apps/other/probe.spec.ts` importing `../dms/pages/admin/admin-list.page` —
+ * was NOT caught, which is what the planted control exists to find.
+ *
+ * The reason is structural: `no-restricted-imports` matches the literal import
+ * SOURCE STRING, so it cannot tell `../dms/…` (out of one application, into
+ * another) from `../pages/…` (within one). Both are `../<segment>/…` and the rule
+ * has no idea how deep the importing file sits. `eslint-plugin-import`'s
+ * `no-restricted-paths` is path-aware and would express it; it is not installed.
+ *
+ * So the boundary is a scanning test instead — `tests/unit/app-suite-scope.spec.ts`
+ * — which resolves each import against the importing file and compares application
+ * directories. Same mechanism as `no-unscrubbed-spawn.spec.ts` and
+ * `app-agnostic.spec.ts`, used here for the same reason: the question needs a
+ * resolved path, and a linter matching strings cannot answer it.
+ */

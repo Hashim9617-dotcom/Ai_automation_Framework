@@ -24,6 +24,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { loadEnvironment } from '@aitp/execution-engine';
 import {
   HttpLlmGateway,
   BudgetGuard,
@@ -76,8 +77,13 @@ class RecordingGateway implements LlmGateway {
 
 /** Loads the richest capture on disk. No DMS needed — this is already here. */
 function loadCapture(root: string): { states: CapturedState[]; label: string } {
-  const dir = path.join(root, 'artifacts', 'inspect');
-  if (!existsSync(dir)) throw new Error('no artifacts/inspect — nothing to generate against');
+  // PER APPLICATION, from the resolved environment. It read every session on disk.
+  const application = loadEnvironment().application;
+  const dir = path.join(root, 'artifacts', application, 'inspect');
+  if (!existsSync(dir))
+    throw new Error(
+      `no artifacts/${application}/inspect — nothing to generate against. Run \`pnpm inspect\`.`,
+    );
 
   let best: { states: CapturedState[]; label: string; nodes: number } | undefined;
   for (const session of readdirSync(dir)) {

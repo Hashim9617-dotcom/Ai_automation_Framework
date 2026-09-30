@@ -1,4 +1,12 @@
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
@@ -70,6 +78,95 @@ const runList = (testEnv: string, extra: Record<string, string>) =>
     },
   );
 
+/**
+ * ONE APPLICATION'S SPECS DO NOT IMPORT ANOTHER'S.
+ *
+ * `tests/apps/<application>/` exists so a live project finds one application's specs
+ * BY PATH rather than by a comparison in the config. A page object borrowed across
+ * that line puts a second application's selectors into a run, and the structure that
+ * was supposed to keep them apart stops meaning anything.
+ *
+ * ## Why this is a test and not a lint rule
+ *
+ * The first attempt was `no-restricted-imports` in `eslint.config.mjs`. A planted
+ * violation — `tests/apps/other/probe.spec.ts` importing
+ * `../dms/pages/admin/admin-list.page` — was NOT caught: that rule matches the
+ * literal import SOURCE STRING, and `../dms/…` is indistinguishable from
+ * `../pages/…` without knowing how deep the importing file sits.
+ * `eslint-plugin-import`'s path-aware `no-restricted-paths` is not installed.
+ *
+ * So this resolves each import against its importing file, which is the only way to
+ * ask the question. Same mechanism as `no-unscrubbed-spawn.spec.ts`.
+ */
+const APPS_DIR = path.join(ROOT, 'tests', 'apps');
+
+/** Every `.ts` file under `tests/apps/`, with the application it belongs to. */
+const appFiles = (): Array<{ file: string; application: string }> => {
+  const found: Array<{ file: string; application: string }> = [];
+  for (const application of readdirSync(APPS_DIR, { withFileTypes: true })) {
+    if (!application.isDirectory()) continue;
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.ts'))
+          found.push({ file: full, application: application.name });
+      }
+    };
+    walk(path.join(APPS_DIR, application.name));
+  }
+  return found;
+};
+
+/** The application directory a resolved import lands in, if any. */
+const applicationOf = (resolved: string): string | undefined => {
+  const relative = path.relative(APPS_DIR, resolved);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return undefined;
+  return relative.split(path.sep)[0];
+};
+
+test.describe('no application imports another application @unit', () => {
+  test('every relative import inside tests/apps/ stays in its own application', () => {
+    // wrong: a page object is borrowed across applications, and a run for one system
+    // drives selectors written for another — while the directory layout still reads
+    // as though they are separate.
+    const files = appFiles();
+    // §T — a scan that read nothing would report clean while checking nothing.
+    expect(files.length, 'no files under tests/apps/ were scanned').toBeGreaterThan(10);
+
+    const offenders: string[] = [];
+    for (const { file, application } of files) {
+      const source = readFileSync(file, 'utf8');
+      for (const [, specifier] of source.matchAll(/from\s+'(\.[^']+)'/g)) {
+        const landed = applicationOf(path.resolve(path.dirname(file), specifier!));
+        if (landed !== undefined && landed !== application) {
+          offenders.push(`${path.relative(ROOT, file)} imports ${landed}'s "${specifier}"`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('a relative import WITHIN one application is fine', () => {
+    // The other half, and without it the check above is satisfied by a rule that
+    // forbids every relative import — which would ban `../app.page`, the ordinary
+    // way a page object reaches its own base class.
+    //
+    // Asserted as a fact about the tree rather than a hypothetical: these imports
+    // exist today and the scan above passes, so it is not refusing everything.
+    const withinApp = appFiles().filter(({ file }) => {
+      const source = readFileSync(file, 'utf8');
+      return [...source.matchAll(/from\s+'(\.[^']+)'/g)].some(
+        ([, s]) => applicationOf(path.resolve(path.dirname(file), s!)) !== undefined,
+      );
+    });
+    expect(
+      withinApp.length,
+      'no intra-application relative import exists, so the scan above proves nothing',
+    ).toBeGreaterThan(0);
+  });
+});
+
 test.describe('the DMS suite is scoped to the DMS application @unit', () => {
   test.slow();
 
@@ -89,7 +186,7 @@ test.describe('the DMS suite is scoped to the DMS application @unit', () => {
     const files = Number(/(\d+) files/.exec(listed)?.[1] ?? 0);
     expect(files, 'the DMS suite was not collected at all').toBeGreaterThan(5);
     // Named, so this cannot pass on a suite that happens to be large.
-    expect(listed).toContain('app\\smoke.spec.ts');
+    expect(listed).toContain('dms\\smoke.spec.ts');
     expect(listed).not.toMatch(/No specs for application/);
   });
 
@@ -138,12 +235,12 @@ test.describe('the DMS suite is scoped to the DMS application @unit', () => {
       const listed = listFor('app2', { AITP_REPO_ROOT: fakeRoot });
 
       expect(listed).toContain('No specs for application "app2"');
-      expect(listed).toContain('tests/app/** was written for "dms"');
+      expect(listed).toContain('tests/apps/app2/ does not exist');
       // NOT ONE DMS SPEC. The `[chromium]` prefix is what the project lists under;
       // the two `[live-setup]` entries are the sign-in and the environment-name
       // guard, neither of which is application-specific.
       expect(listed).not.toContain('[chromium]');
-      expect(listed).not.toContain('app\\smoke.spec.ts');
+      expect(listed).not.toContain('dms\\smoke.spec.ts');
       // And the message explains the non-zero count rather than leaving a puzzle.
       expect(listed).toMatch(/sign-in setup and the environment-name/);
     } finally {

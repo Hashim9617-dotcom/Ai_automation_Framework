@@ -105,12 +105,12 @@ const ALLOWED: Array<{ file: string; codePoint: number; why: string }> = [
     why: 'the real PUA icon glyph, quoted to record the exact accessible name (Finding 10)',
   },
   {
-    file: 'tests/app/pages/admin/user-roles.page.ts',
+    file: 'tests/apps/dms/pages/admin/user-roles.page.ts',
     codePoint: 0xeb62,
     why: 'same glyph, quoted in a comment recording the real name of Create Role',
   },
   {
-    file: 'tests/app/pages/admin/users.page.ts',
+    file: 'tests/apps/dms/pages/admin/users.page.ts',
     codePoint: 0xeb62,
     why: 'same glyph, quoted in a comment recording the real name of Create User',
   },

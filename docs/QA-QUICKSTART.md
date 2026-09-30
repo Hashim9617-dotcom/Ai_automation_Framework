@@ -2,20 +2,19 @@
 
 > ## This kit is for DMS only (for now)
 >
-> The Playwright specs under `tests/app/` were written against DmsSynergy — its
+> The Playwright specs under `tests/apps/dms/` were written against DmsSynergy — its
 > sidebar, its upload wizard, its admin screens. Point the platform at a different
 > application and `pnpm test` collects **no** specs for it and says so:
 >
 > ```
-> No specs for application "acme" — tests/app/** was written for "dms"
-> and is not collected here.
+> No specs for application "acme": tests/apps/acme/ does not exist.
 > ```
 >
 > That is deliberate, and it is new. Before it, any non-DMS environment collected
 > all 47 DMS tests and would have run DMS's page objects against your application.
 >
 > `pnpm auth`, `pnpm inspect`, `pnpm triage` and `pnpm verify` are not
-> DMS-specific and work against any target. Adding a second application properly —
+> DMS-specific and work against any target. Adding a second application means creating `tests/apps/<name>/` and `config/apps/<name>/` —
 > its own specs, its own captures — is separate work that has not been done.
 
 This is the short version for a QA joining the project on Windows. It gets you to
@@ -134,7 +133,7 @@ later runs do not sign in again.
 
 - **Needs the target system's credentials.** On `TEST_ENV=local` it signs in to the
   bundled demo app and needs nothing from you.
-- Writes: `artifacts/auth/<environment>.json`.
+- Writes: `artifacts/<application>/auth/<environment>.json`.
 - **That file is a live session. Never share it.**
 
 **Read the last line it prints.** It says `You landed on: <url>`, and that is your
@@ -150,7 +149,9 @@ covered, then finish.
 
 - **Needs the target system's credentials** (run `pnpm auth` first).
 - It only navigates. It does not click, type or submit anything.
-- Writes: `artifacts/inspect/<timestamp>/capture.json`, `report.md` and `pages.json`.
+- Writes: `artifacts/<application>/inspect/<timestamp>/capture.json`, `report.md` and
+  `pages.json`. The capture records which application, environment and `baseUrl` it
+  came from, so it can never be mistaken for another system’s.
 - **A capture contains real customer data and a live session token. Never share it.**
 
 It checks its own work: if the page it captured is the login page it prints
@@ -187,8 +188,8 @@ pnpm triage "C:/Users/you/Documents/Test case Sheet.xlsx" --out artifacts/triage
 
 - **Needs no network, no credentials and no browser.** It reads the file and nothing
   else.
-- **It does need at least one capture under `artifacts/inspect/`**, or it stops with
-  `no captures found under artifacts/inspect — refusing to report a ceiling`. That
+- **It does need at least one capture for THIS application**, or it stops with
+  `no captures found under artifacts/<application>/inspect`. That
   refusal is deliberate: the answer depends on which screens have been recorded, so
   a number computed with none would be meaningless. Run `pnpm inspect` first.
 - The module names in your sheet are paired against captured screens by a mapping
@@ -239,8 +240,8 @@ pnpm test:trace artifacts/…/trace.zip  # step through a failed test
 
 | command                     | writes to                                                          |
 | --------------------------- | ------------------------------------------------------------------ |
-| `pnpm auth`                 | `artifacts/auth/`                                                  |
-| `pnpm inspect`              | `artifacts/inspect/<timestamp>/`                                   |
+| `pnpm auth`                 | `artifacts/<application>/auth/`                                    |
+| `pnpm inspect`              | `artifacts/<application>/inspect/<timestamp>/`                     |
 | `pnpm triage … --out <dir>` | that directory (terminal only without `--out`)                     |
 | any test run                | `artifacts/test-results/`, `artifacts/reports/`, `artifacts/runs/` |
 
@@ -252,14 +253,14 @@ All of `artifacts/` is gitignored. `pnpm clean` deletes it.
 
 Not by email, not in a chat, not in a Jira attachment, not in a zip:
 
-| what                        | why                                                       |
-| --------------------------- | --------------------------------------------------------- |
-| **`.env`**                  | your credentials in plain text                            |
-| **`artifacts/auth/*.json`** | a live signed-in session — anyone with the file is you    |
-| **`artifacts/inspect/**`**  | captures hold real customer data and a session token      |
-| **any `trace.zip`**         | a replayable recording of a session, including its tokens |
-| **the QA workbook**         | its Test Data column holds real credentials               |
-| **`artifacts/` in general** | screenshots and videos of real records                    |
+| what                          | why                                                       |
+| ----------------------------- | --------------------------------------------------------- |
+| **`.env`**                    | your credentials in plain text                            |
+| **`artifacts/*/auth/*.json`** | a live signed-in session — anyone with the file is you    |
+| **`artifacts/*/inspect/**`**  | captures hold real customer data and a session token      |
+| **any `trace.zip`**           | a replayable recording of a session, including its tokens |
+| **the QA workbook**           | its Test Data column holds real credentials               |
+| **`artifacts/` in general**   | screenshots and videos of real records                    |
 
 A screenshot of one screen is usually fine to attach to a defect. A trace is not — it
 is the whole session.

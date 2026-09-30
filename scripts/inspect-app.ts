@@ -37,6 +37,7 @@ import readline from 'node:readline';
 import { chromium, type Browser, type Page } from '@playwright/test';
 import {
   authStatePath,
+  capturesDir,
   captureAccessibilityTree,
   captureDomSnapshot,
   crossCheckTransition,
@@ -50,7 +51,6 @@ import {
   type NameDivergence,
 } from '@aitp/execution-engine';
 import {
-  findRepoRoot,
   rootLogger,
   slugify,
   type AccessibilityNode,
@@ -75,6 +75,22 @@ import {
  * that is exactly what it needs to know to decide whether its output can be shared.
  */
 const BUNDLED_DEMO_SLUG = 'bundled-demo';
+
+/**
+ * A URL's host, or `undefined` when it cannot be parsed.
+ *
+ * `undefined` rather than a throw: an unparseable URL is the existing code's
+ * problem to report where it tries to navigate, and a comparison that cannot be
+ * made must not become a comparison that passes. The caller requires BOTH hosts
+ * before it refuses anything.
+ */
+function hostOf(value: string): string | undefined {
+  try {
+    return new URL(value).host;
+  } catch {
+    return undefined;
+  }
+}
 
 function proposeLabel(url: string, nodes: AccessibilityNode[]): string {
   const route =
@@ -301,6 +317,36 @@ async function main(): Promise<void> {
     return;
   }
 
+  // A URL ARGUMENT MAY NOT POINT AT A DIFFERENT HOST THAN THE ENVIRONMENT.
+  //
+  // The capture is about to be filed under `env.application` and labelled with
+  // `env.name` and `env.baseUrl`. If the argument sends the browser somewhere else,
+  // every one of those three is a confident lie about a file that will outlive the
+  // run — and a capture is provenance: it is what a locator was written against.
+  //
+  // This is SEC-2's shape one layer out. There, a run stated its target accurately
+  // while the target had already been redirected, so the statement laundered the
+  // redirection. Here the label cannot be checked against anything AFTERWARDS,
+  // because the label IS the only record of which system it came from. So the
+  // disagreement is refused at the point the two are still both visible.
+  //
+  // A path or a port on the same host is fine — that is navigating, which is the
+  // whole point of passing a URL.
+  if (process.argv[2]) {
+    const argHost = hostOf(process.argv[2]);
+    const envHost = hostOf(env.baseUrl);
+    if (argHost && envHost && argHost !== envHost) {
+      log.error(
+        `refusing to capture: the URL argument's host is "${argHost}" but environment ` +
+          `"${env.name}" is configured for "${envHost}". The capture would be filed under ` +
+          `application "${env.application}" and labelled with a baseUrl it never visited.\n` +
+          `  Point TEST_ENV at the environment you mean, or pass a URL on ${envHost}.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   // One timestamped directory per capture session, never overwritten.
   //
   // This used to write straight into artifacts/inspect/, so every run
@@ -308,7 +354,10 @@ async function main(): Promise<void> {
   // the ground truth the entire 45-test suite was built from — was lost: it
   // was silently replaced by a single-page capture, and the app's data has
   // moved on since, so it cannot be reproduced.
-  const inspectRoot = path.join(findRepoRoot(__dirname), 'artifacts', 'inspect');
+  // PER APPLICATION. It was `artifacts/inspect/<ts>/` — timestamp only — so two
+  // applications' captures landed in one flat directory and `triage` pooled them,
+  // measured 2026-09-30 with a second application declared.
+  const inspectRoot = capturesDir(env.application);
   const outDir = path.join(inspectRoot, new Date().toISOString().replace(/[:.]/g, '-'));
   mkdirSync(outDir, { recursive: true });
 
@@ -325,7 +374,7 @@ async function main(): Promise<void> {
   try {
     browser = await chromium.launch({ headless });
     // Reuse a session saved by `pnpm auth` so you do not log in again every time.
-    const savedSession = authStatePath(env.name);
+    const savedSession = authStatePath(env);
     const reuseSession = existsSync(savedSession);
 
     const context = await browser.newContext({
@@ -500,6 +549,24 @@ async function main(): Promise<void> {
       {
         sessionId: path.basename(outDir),
         capturedAt: new Date().toISOString(),
+        /**
+         * WHICH SYSTEM THIS CAME FROM. All three, together, at the point of
+         * resolution.
+         *
+         * A capture recorded `sessionId, capturedAt, states, transitions` and
+         * nothing else, so the only trace of its origin was the URL inside each
+         * state. Two applications' captures were then indistinguishable to any
+         * reader — which is how they came to be pooled.
+         *
+         * The label and the target are written together for the reason SEC-2
+         * earned: either alone is unfalsifiable. A label nothing can contradict, or
+         * a URL with nothing to contradict it.
+         */
+        application: env.application,
+        environment: env.name,
+        baseUrl: env.baseUrl,
+        /** How the application above was decided. `inspect` knows it first-hand. */
+        labelledBy: 'inspect' as const,
         states: captured.map((entry) => ({
           id: slugify(entry.label),
           label: entry.label,

@@ -144,9 +144,48 @@ export function ambientEnvName(): string | undefined {
  *
  * Under artifacts/ deliberately — that path is gitignored, and this file holds
  * live cookies and tokens. It must never reach a repository.
+ *
+ * ## Keyed on the APPLICATION as well as the environment
+ *
+ * It was `artifacts/auth/<env>.json`, keyed on the environment name alone. Two
+ * environments of one application are correctly separate there — `app` and `qa`
+ * are different sessions. What it could not express is two APPLICATIONS: a QA who
+ * reuses an environment name for a second target silently overwrites the first
+ * one's session, and a session file is the one artifact where "belongs to the
+ * wrong system" means a browser signed in somewhere nobody asked.
+ *
+ * It takes the resolved config rather than two strings on purpose. Both halves come
+ * from the same `loadEnvironment` call, so they cannot disagree — the pairing rule
+ * SEC-2 earned: record the label and the target together, at the point of
+ * resolution.
  */
-export function authStatePath(envName = resolveEnvName()): string {
-  return artifactsDir('auth', `${envName}.json`);
+export function authStatePath(env: Pick<EnvironmentConfig, 'name' | 'application'>): string {
+  return artifactsDir(env.application, 'auth', `${env.name}.json`);
+}
+
+/**
+ * Where an inspector's captures for one application live.
+ *
+ * Exported so the writer and every reader use one expression. Three readers
+ * resolved `artifacts/inspect` independently — `triage-sheet.ts`,
+ * `command.service.ts` and `generation-smoke.ts` — and a fourth path built by hand
+ * is how two applications' captures came to be pooled in one flat directory.
+ */
+export function capturesDir(application: string): string {
+  return artifactsDir(application, 'inspect');
+}
+
+/**
+ * The OLD, application-blind capture root. Still read, only to be reported.
+ *
+ * Sessions written before the move carry no application, and deleting them would
+ * throw away provenance — a capture is what a locator was written against, and an
+ * old one is more valuable than a new one for answering "why does this say ABCD".
+ * So readers count what they find here and say so, rather than pooling it into an
+ * application's set on the strength of nothing.
+ */
+export function legacyCapturesDir(): string {
+  return artifactsDir('inspect');
 }
 
 /**
@@ -244,7 +283,7 @@ export function loadEnvironment(envName = resolveEnvName()): EnvironmentConfig {
     log.info('Resolved environment', {
       environment: cached.name,
       baseUrl: cached.baseUrl,
-      storageState: authStatePath(cached.name),
+      storageState: authStatePath(cached),
     });
   }
 

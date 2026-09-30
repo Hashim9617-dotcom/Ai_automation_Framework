@@ -2,7 +2,7 @@ import { test, expect } from '@aitp/execution-engine';
 import { UsersPage } from './pages/admin/users.page';
 import { UserRolesPage } from './pages/admin/user-roles.page';
 import { UserGroupsPage } from './pages/admin/user-groups.page';
-import { employeeData } from '../support/employee-data';
+import { employeeData } from '../../support/employee-data';
 
 /**
  * Admin — Users, Roles and Groups.

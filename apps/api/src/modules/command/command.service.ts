@@ -75,7 +75,10 @@ export class CommandService {
 
   async interpret(request: CommandRequest) {
     const inventory = await this.loadInventory(request.environment);
-    const capture = this.loadCaptureStates();
+    // The REQUESTED environment decides which application's captures answer, for
+    // the reason the inventory above is keyed the same way: a corpus is a function
+    // of the environment, not of the process this happens to run in.
+    const capture = this.loadCaptureStates(request.environment);
     const sheetRows = this.loadSheetRows();
 
     const plan = planCommand({
@@ -210,8 +213,18 @@ export class CommandService {
    * `null` and "a capture with no states" are different answers with different
    * next steps, so they are kept distinct all the way to the response.
    */
-  private loadCaptureStates(): { states: string[]; capturedAt: string | null } | null {
-    const dir = path.join(this.repoRoot, 'artifacts', 'inspect');
+  private loadCaptureStates(
+    environment: string,
+  ): { states: string[]; capturedAt: string | null } | null {
+    // PER APPLICATION. This read `artifacts/inspect/` — every session on disk,
+    // whatever system it came from — so a command about one application could be
+    // answered with another's screens.
+    const dir = path.join(
+      this.repoRoot,
+      'artifacts',
+      loadEnvironment(environment).application,
+      'inspect',
+    );
     if (!existsSync(dir)) return null;
 
     let best: { states: string[]; capturedAt: string | null } | null = null;

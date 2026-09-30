@@ -31,6 +31,7 @@ import {
   renderTriage,
   findRepoRoot,
 } from '@aitp/shared';
+import { loadEnvironment } from '@aitp/execution-engine';
 
 /**
  * Module (sheet column 1) -> the captured route that IS that screen.
@@ -119,11 +120,29 @@ function pathMatchesRoute(capturedPath: string, route: string): boolean {
  * missing from this set understates the coverage, which understates a ceiling
  * that gets quoted.
  */
-function capturedPaths(root: string): { paths: Set<string>; unparseable: string[] } {
-  const dir = path.join(root, 'artifacts', 'inspect');
+function capturedPaths(
+  root: string,
+  application: string,
+): { paths: Set<string>; unparseable: string[]; unlabelled: number } {
+  // PER APPLICATION, and the legacy root is COUNTED rather than read.
+  //
+  // This used to read `artifacts/inspect/` — every session, whatever application it
+  // came from. Measured 2026-09-30 with a second application declared: both sets
+  // pooled into one, and a module was paired against a screen from a different
+  // system. A ceiling computed from that is a claim about the pairing, not the sheet.
+  //
+  // Sessions written before captures carried an application stay where they are and
+  // are counted. Silently folding them into this application's set would be exactly
+  // the guess the label exists to remove; silently ignoring them would understate
+  // the coverage, which understates a ceiling that gets quoted.
+  const dir = path.join(root, 'artifacts', application, 'inspect');
   const paths = new Set<string>();
   const unparseable: string[] = [];
-  if (!existsSync(dir)) return { paths, unparseable };
+  const legacy = path.join(root, 'artifacts', 'inspect');
+  const unlabelled = existsSync(legacy)
+    ? readdirSync(legacy, { withFileTypes: true }).filter((e) => e.isDirectory()).length
+    : 0;
+  if (!existsSync(dir)) return { paths, unparseable, unlabelled };
 
   const add = (url: unknown, where: string): void => {
     if (typeof url !== 'string') return void unparseable.push(`${where}: no url`);
@@ -145,7 +164,7 @@ function capturedPaths(root: string): { paths: Set<string>; unparseable: string[
         add(state.url, session);
     }
   }
-  return { paths, unparseable };
+  return { paths, unparseable, unlabelled };
 }
 
 function main(): void {
@@ -155,9 +174,28 @@ function main(): void {
   const outDir = outIndex > 0 ? process.argv[outIndex + 1] : undefined;
 
   const root = findRepoRoot();
-  const { paths, unparseable } = capturedPaths(root);
+  // The application comes from the resolved environment, never from an argument.
+  // A second source for it is a second thing that can disagree with the run.
+  const env = loadEnvironment();
+  const { paths, unparseable, unlabelled } = capturedPaths(root, env.application);
+
+  // COUNTED AND SAID, never pooled. A pre-move session has no application on it,
+  // so nothing here knows whether it belongs to this one.
+  if (unlabelled > 0) {
+    console.log(
+      `WARNING: ${unlabelled} capture session(s) under artifacts/inspect/ carry no ` +
+        'application and are NOT counted below. They were written before captures ' +
+        'recorded which system they came from.\n' +
+        `  Run the migration, or re-capture with TEST_ENV=${env.name}.`,
+    );
+  }
+
   if (paths.size === 0)
-    throw new Error('no captures found under artifacts/inspect — refusing to report a ceiling');
+    throw new Error(
+      `no captures found under artifacts/${env.application}/inspect — refusing to report a ` +
+        `ceiling. Run \`pnpm inspect\` with TEST_ENV=${env.name} first` +
+        (unlabelled > 0 ? `; ${unlabelled} unlabelled session(s) exist but cannot be used.` : '.'),
+    );
 
   const matchFor = (route: string): string | undefined =>
     [...paths].sort().find((captured) => pathMatchesRoute(captured, route));
