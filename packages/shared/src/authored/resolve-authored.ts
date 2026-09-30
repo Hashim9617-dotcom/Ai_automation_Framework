@@ -1,6 +1,6 @@
 import type { BoundedCapture } from '../generation/bounding';
 import { checkGrounding, type AssertStep, type CaseStep } from '../generation/grounding';
-import { assessWriteRisk } from '../generation/proposal';
+import { assessAuthoredWriteRisk } from './write-risk';
 import {
   actionCapability,
   columnVerbConflict,
@@ -306,6 +306,15 @@ export interface ResolvedAuthoredRow extends ResolvedRow {
    * `RowResultFields.module`.
    */
   module: string;
+  /**
+   * WHY the row is write-risky, when it is. Absent for a read-only row.
+   *
+   * Carried so the held row's detail can say which of the three rules fired — a
+   * checkbox held by its ROLE cannot be rephrased, and a button held by the word
+   * "Approve" in its label might be a row about a read-only screen. One sentence
+   * for both tells neither what to do.
+   */
+  writeRiskWhy?: string;
   /** The kinds actually used, in order — taken from the columns, never derived. */
   clauseKinds: string[];
   /**
@@ -351,14 +360,26 @@ export function resolveAuthoredRow(
     clauseKinds: authored.clauses.map((clause) => clause.kind),
     targets: [] as ResolvedAuthoredRow['targets'],
     givenClauses: [] as string[],
-    writeRisk: assessWriteRisk({
-      title: authored.scenarioName,
-      entryState,
-      steps: authored.clauses.map((clause) => ({
-        kind: 'action' as const,
-        description: clause.text,
-      })),
-    }),
+    /**
+     * A PRELIMINARY assessment, from the action clauses alone.
+     *
+     * The real one needs the RESOLVED ROLES and so cannot be computed until after
+     * the loop below; the three resolving returns override this. It exists for the
+     * two early refusal returns, which have no targets at all — and the value
+     * still matters there, because `executeAuthoredRows` checks the write gate
+     * BEFORE the refusal check, so a refused row that would write is reported
+     * `held` (pinned deliberately by `U3`).
+     *
+     * ACTION clauses only. Then clauses and `scenarioName` are excluded, which is
+     * the scope fix: a `scenarioName` of "employee is created" held rows that only
+     * read, and on the real sheet titles are routinely phrased that way.
+     */
+    writeRisk: assessAuthoredWriteRisk({
+      actionClauses: authored.clauses
+        .filter((clause) => clause.kind === 'action' && clause.source !== 'given')
+        .map((clause) => clause.text),
+      targets: [],
+    }).risk,
   };
 
   const state = capture.states.find((candidate) => candidate.id === entryState);
@@ -615,6 +636,25 @@ export function resolveAuthoredRow(
     });
   }
 
+  /**
+   * THE REAL WRITE ASSESSMENT, now that the roles are known.
+   *
+   * It cannot happen earlier: rule B reads the role of the element each action step
+   * RESOLVED to, and that is only decided by the candidate selection above. So
+   * `base` carries a text-only preliminary and every resolving return replaces it
+   * with this.
+   *
+   * Only the ACTION steps' targets, because only an action can write — a `present`
+   * assertion on a checkbox reads it.
+   */
+  const actionTargets = targets.filter((target) => steps[target.stepIndex]?.kind === 'action');
+  const writeRisk = assessAuthoredWriteRisk({
+    actionClauses: authored.clauses
+      .filter((clause) => clause.kind === 'action' && clause.source !== 'given')
+      .map((clause) => clause.text),
+    targets: actionTargets.map((target) => ({ role: target.role, name: target.name })),
+  });
+
   if (refusals.length > 0) {
     return {
       ...base,
@@ -642,6 +682,8 @@ export function resolveAuthoredRow(
       ...base,
       outcome: 'app-disagrees',
       owner: 'app-team',
+      writeRisk: writeRisk.risk,
+      ...(writeRisk.why ? { writeRiskWhy: writeRisk.why } : {}),
       steps,
       targets,
       givenClauses,
@@ -657,6 +699,8 @@ export function resolveAuthoredRow(
       ...base,
       outcome: 'capture-thin',
       owner: 'capture',
+      writeRisk: writeRisk.risk,
+      ...(writeRisk.why ? { writeRiskWhy: writeRisk.why } : {}),
       steps,
       targets,
       givenClauses,
@@ -670,6 +714,8 @@ export function resolveAuthoredRow(
     ...base,
     outcome: 'ok',
     owner: 'none',
+    writeRisk: writeRisk.risk,
+    ...(writeRisk.why ? { writeRiskWhy: writeRisk.why } : {}),
     steps,
     givenClauses,
     // `targets` was omitted here while both other resolving returns carried it,

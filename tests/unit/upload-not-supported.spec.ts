@@ -62,6 +62,16 @@ const CAPTURE: BoundedCapture = {
       url: 'https://app.example/upload',
       nodes: [
         { role: 'button', name: 'Attach', enabled: true },
+        /**
+         * A GENUINELY READ-ONLY control, and its absence broke five tests.
+         *
+         * `Attach` was this file's read-only control — `clicks on "Attach"` was the
+         * discriminating case proving the platform still runs normal actions. Once
+         * `attach` became a WRITE word (3a-9 rule D), that clause is HELD, which is
+         * correct: clicking Attach opens a file picker. So the control had to move
+         * to a name that writes nothing.
+         */
+        { role: 'button', name: 'View', enabled: true },
         { role: 'button', name: 'Save', enabled: true },
         { role: 'heading', name: 'Done', enabled: true },
         { role: 'textbox', name: 'First name', enabled: true },
@@ -247,6 +257,11 @@ test.describe('a file-upload clause is refused rather than clicked @unit', () =>
     const { clicks, execute } = clickRecorder();
     const run = await executeAuthoredRows({ resolved: [resolved], unreadable: [], execute, entry });
 
+    // `refused`, and it STAYED refused through 3a-9 on purpose. The widened write
+    // list briefly carried `attach`, which made this row `held` — the write gate
+    // runs first — and that traded an informative refusal ("this platform cannot
+    // do uploads") for a vaguer hold ("this would write"). The word bought no
+    // safety, because the refusal above already stops the row, so it came out.
     expect(run.results[0]!.status).toBe('refused');
     expect(clicks, 'a click was attempted for an unsupported action').toEqual([]);
   });
@@ -274,28 +289,36 @@ test.describe('a file-upload clause is refused rather than clicked @unit', () =>
     // wrong: the refusal is written on the clause KIND rather than the verb, so
     // every action clause is refused, the platform stops doing anything at all,
     // and the change still reads as safe because nothing false ever passes again.
-    const resolved = resolveAuthoredRow(rowWith('clicks on "Attach"', 'OK_1'), CAPTURE, 'upload');
+    // `"View"`, not `"Attach"`: `attach` is a WRITE word since 3a-9, so an Attach
+    // click is held — correctly, it opens a file picker. This control needs a name
+    // that writes nothing, or it stops discriminating and starts agreeing.
+    const resolved = resolveAuthoredRow(rowWith('clicks on "View"', 'OK_1'), CAPTURE, 'upload');
 
     expect(resolved.outcome).not.toBe('row-unclear');
     expect(resolved.refusals).toEqual([]);
+    expect(resolved.writeRisk).toBe('read-only');
 
     const { clicks, execute } = clickRecorder();
     const run = await executeAuthoredRows({ resolved: [resolved], unreadable: [], execute, entry });
 
     expect(run.results[0]!.status).toBe('passed');
-    expect(clicks).toEqual(['button "Attach"']);
+    expect(clicks).toEqual(['button "View"']);
   });
 
   test('U5: the refused row lands in the refused bucket and the tally still balances', async () => {
     // wrong: the new refusal is produced but counted nowhere, so `rowsRead` no
     // longer equals the buckets — and E2's arithmetic is the only thing that
     // would say so. A row missing from the tally is a row nobody reads.
+    // `selects`, not `attaches`: an ATTACH clause is now stopped by the WRITE gate
+    // first (see U2), so it lands in the `held` bucket and this test would be
+    // measuring that instead. `selects` is unperformable and is not a write word,
+    // so the row reaches the refused bucket — which is the bucket under test.
     const refusedRow = resolveAuthoredRow(
-      rowWith('User attaches "Attach"', 'AT_2'),
+      rowWith('User selects "View"', 'AT_2'),
       CAPTURE,
       'upload',
     );
-    const passingRow = resolveAuthoredRow(rowWith('clicks on "Attach"', 'OK_2'), CAPTURE, 'upload');
+    const passingRow = resolveAuthoredRow(rowWith('clicks on "View"', 'OK_2'), CAPTURE, 'upload');
 
     const { execute } = clickRecorder();
     const run = await executeAuthoredRows({
@@ -355,8 +378,14 @@ test.describe('triage and the run give the same answer @unit', () => {
     // wrong: agreement is achieved by refusing everything, which agrees
     // perfectly and automates nothing — the refuses-everything failure. This is
     // the case that must come out the OTHER way.
-    const triaged = triageOf('clicks on "Attach"', 'AG_3');
-    const { status, clicks } = await runOf('clicks on "Attach"', 'AG_4');
+    // THE ROLE IS NAMED, and that is the cost of rule B made visible.
+    //
+    // `clicks on "Attach"` came back `write-risk-unknown`: triage is not given a
+    // capture, so it cannot know whether "Attach" is a button or a checkbox, and a
+    // checkbox click is a write. Naming the role settles it from the text — which
+    // is the incentive the new reason creates, and it is a reasonable one.
+    const triaged = triageOf('clicks on the "Attach" button', 'AG_3');
+    const { status, clicks } = await runOf('clicks on the "Attach" button', 'AG_4');
 
     expect(triaged.reason).toBe('automatable');
     expect(status).toBe('passed');

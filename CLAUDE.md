@@ -213,6 +213,11 @@ exactly that. So each mutation declares what should catch it:
 > the one nobody ran, and it looked more correct than the clause it replaced
 > (§AG).
 
+> **A metric whose GROUND TRUTH shares the rule's intuition is circular** — it
+> scores their agreement, not the rule, and it is highest for whichever candidate
+> its author wrote last. Report the named cases closed, never "0 missed". The
+> circularity hides in a role set as easily as in a word list (§AH).
+
 **Measured here, because the failure mode is not the obvious guess:** Playwright
 transpiles without typechecking, so a _type_ error in a mutation is invisible
 and 203 tests still pass; a _syntax_ error aborts Babel before any test runs,

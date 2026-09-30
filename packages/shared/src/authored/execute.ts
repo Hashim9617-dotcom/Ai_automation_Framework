@@ -485,9 +485,12 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
         ...common,
         status: 'held',
         owner: OWNER_OF.held,
+        // NAMES WHICH RULE HELD IT. "would create, modify or delete data" is true of
+        // a checkbox held by its role and of a button held by the word in its label,
+        // and only the second is something a QA might rephrase.
         detail:
           'held: this row would create, modify or delete data, and ALLOW_WRITES is not set. ' +
-          'Nothing was run.',
+          `Nothing was run.${row.writeRiskWhy ? ` Why: ${row.writeRiskWhy}.` : ''}`,
       });
       continue;
     }

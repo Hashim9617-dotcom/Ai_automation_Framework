@@ -3472,3 +3472,73 @@ tested unless it tested it:
 
 Each is a sentence a reader will act on, and each is falsifiable. The one that was
 false was the one nobody thought to run.
+
+---
+
+## AH. A metric whose GROUND TRUTH shares the rule's intuition is circular (2026-09-30)
+
+The write gate was a denylist of 15 word stems over clause text. To choose a
+replacement, five candidate policies were measured against the 391 distinct
+controls in the local DMS captures, scoring each on how many state-changing
+controls it MISSED:
+
+| policy                               | held | writes missed |
+| ------------------------------------ | ---- | ------------- |
+| A today (15 stems)                   | 47   | 57            |
+| B + state-toggling roles             | 89   | 15            |
+| D widened denylist + roles + confirm | 106  | **0**         |
+
+`D` scoring **zero misses** is the number that looks like the answer, and it is
+close to meaningless. "Does this control change state?" was itself decided by a
+regex — written minutes earlier, from the same intuition, sharing most of its
+vocabulary with `D`'s list. **The list was agreeing with itself.**
+
+> **When a metric's ground truth is derived from the same intuition as the rule it
+> is scoring, the score is a measure of their agreement, not of the rule.** It will
+> be highest for whichever candidate resembles the ground truth most, which is
+> whichever candidate its author wrote last.
+
+This is the instrument rule pointed at a MEASUREMENT rather than at a test — the
+same shape as `CountingGateway` carrying its own cache, where the stand-in
+implemented the behaviour under test. Here the stand-in is the definition of
+correctness.
+
+### What survives, and it is not the flattering number
+
+Two statements from that table are non-circular, and they are the ones the decision
+rested on:
+
+- **`B`'s addition is STRUCTURAL.** It holds every control whose ARIA role is
+  `checkbox`, `radio`, `switch`, `option`, `menuitemcheckbox` or `menuitemradio` —
+  read off the capture, not off a word list. It cannot be defeated by an unfamiliar
+  label, and five separate fail-open findings that month were word lists.
+- **`E`'s 84% false-hold rate.** The allowlist-of-read-only-targets policy held 241
+  of 287 read-only controls, and `READ_ONLY_ALLOW` was written independently of
+  `WRITES_BY_NAME`. That number killed the allowlist option outright, and it is
+  believable precisely because the two lists do not share an author's intent.
+
+So the widened word list landed as well, and the claim made for it is
+**"23 named misses closed"** — a count of specific measured phrases — and never
+"0 missed". The first is a fact about phrases someone can check. The second is a
+fact about two regexes resembling each other.
+
+### The circularity can hide in a ROLE SET too, which is how it got me twice
+
+The pre-registration for this change predicted "all 42 state-toggling-role controls
+held". After the fix the number was **145 of 145**.
+
+Nothing regressed: the 42 was measured with a role set of five, and the policy that
+shipped has six — `option` was added on the approved list and there are ~103 option
+controls in those captures. So a pre-registered number was quoted under one
+assumption and checked under another, which is the welding rule broken by the person
+who wrote it down.
+
+> **A pre-registered number carries the definition it was measured under, not just
+> the value.** Change the definition and the prediction is void rather than wrong —
+> and "void" is the honest word, because nothing was falsified.
+
+The substantive finding that fell out of it is worth more than the arithmetic:
+**`option` is 26% of all addressable controls in this application**, so including it
+is the single largest effect of the change, and many of those options are filter
+dropdowns where selecting one is a read. That is a false-hold cost nobody would have
+seen from the five-role number.

@@ -1,6 +1,7 @@
 import { actionCapability, columnVerbConflict, type AuthoredRow } from './final-test-cases';
-import { unsupportedQualifier, unverifiableAssertion } from './resolve-authored';
-import { extractTarget } from './resolve-authored';
+import { extractRole } from './resolver';
+import { extractTarget, unsupportedQualifier, unverifiableAssertion } from './resolve-authored';
+import { assessAuthoredWriteRisk } from './write-risk';
 
 /**
  * Sheet triage: which rows can NEVER be automated, and why.
@@ -62,6 +63,25 @@ export type TriageReason =
    * read — and a QA reading either list should not have to sort them.
    */
   | 'qualifier-not-supported'
+  /**
+   * The row will run, and whether it is HELD depends on the CAPTURE.
+   *
+   * Measured before this existed: `triageSheet(rows, capturedModules)` is handed
+   * module NAMES only — `triage-sheet.ts` reads `state.url` out of every capture and
+   * never touches `state.nodes` — so triage cannot see a resolved ROLE, and rule B
+   * (hold every state-toggling role) is not a question it can answer.
+   *
+   * It is not the same as `automatable`, because the run may report `held`, and it
+   * is not an obstacle either. So it gets its own value rather than a promise
+   * neither side can keep.
+   *
+   * **The size of this bucket is why the widened word list had to land first.**
+   * Measured over 65 action clauses: 80% name no role at all, but only **18%** are
+   * undecidable once the write WORDS are checked too. Shipping rule B's triage
+   * label before rule D would have moved four fifths of the sheet into an
+   * unqualified maybe, which is a ceiling that says nothing.
+   */
+  | 'write-risk-unknown'
   /** Nothing stands in the way. */
   | 'automatable';
 
@@ -82,6 +102,9 @@ export const TRIAGE_OWNER = {
   // that runs today, which none of the other platform-owned reasons are.
   'column-verb-conflict': 'qa',
   'qualifier-not-supported': 'platform',
+  // The CAPTURE decides it, and pairing the module's capture is what resolves the
+  // uncertainty — so it is the capture's, not a fault of anybody's.
+  'write-risk-unknown': 'capture',
   automatable: 'none',
 } as const satisfies Record<TriageReason, string>;
 
@@ -232,6 +255,7 @@ export function triageSheet(
     'unverifiable-assertion': 0,
     'column-verb-conflict': 0,
     'qualifier-not-supported': 0,
+    'write-risk-unknown': 0,
     automatable: 0,
   };
   for (const row of triaged) counts[row.reason] += 1;
@@ -353,6 +377,27 @@ function classifyByClauses(clauses: AuthoredRow['clauses']): {
   const actionable = clauses.find((clause) => extractTarget(clause.text) !== undefined);
 
   if (checkable && actionable) {
+    // NOTHING STANDS IN THE WAY OF RUNNING IT — but will it be HELD?
+    //
+    // Rule B holds every state-toggling ROLE, and the role comes from the capture,
+    // which triage is not given. So there are two honest answers here, not one:
+    // `automatable` when the clause's own text settles the write question, and
+    // `write-risk-unknown` when only the capture can.
+    //
+    // A clause settles it by naming a role (`the "Admin" checkbox`) or by carrying
+    // a write word (`clicks "Approve"`). Measured: that covers 82% of action
+    // clauses, which is what makes the remaining label a qualifier rather than a
+    // shrug over the whole sheet.
+    const undecided = clauses.find(
+      (clause) =>
+        clause.kind === 'action' &&
+        clause.source !== 'given' &&
+        extractRole(clause.text) === undefined &&
+        assessAuthoredWriteRisk({ actionClauses: [clause.text], targets: [] }).risk === 'read-only',
+    );
+    if (undecided) {
+      return { reason: 'write-risk-unknown', evidence: undecided.text };
+    }
     return { reason: 'automatable', evidence: checkable.text };
   }
 
@@ -455,6 +500,11 @@ export function renderTriage(triage: TriageResult): string {
     'unverifiable-assertion',
     'A state the platform cannot read yet',
     'The sentence is correct and names a real property of a real element — `empty`, `read-only`, `expanded` — and this platform can only read present, enabled, selected and checked. They are REFUSED rather than turned into "the element exists", which would pass as soon as the element is there. Nothing for the QA to change.',
+  );
+  sample(
+    'write-risk-unknown',
+    'Runnable — and it may be HELD, depending on the capture',
+    'Nothing stands in the way of running these. Whether the platform HOLDS them is decided by the kind of control the clause lands on: a checkbox, radio, switch or option is a write when clicked, whatever it is called, and this list is computed from the sheet without a capture so it cannot know. **These are not blocked.** They are counted apart from `automatable` because the run may report them `held`, and a ceiling that promised otherwise would be promising something neither side can keep.',
   );
   sample(
     'qualifier-not-supported',
