@@ -65,6 +65,17 @@ import {
  * proposal: identity is the human's, because "same state" is a question about
  * the application's model that no fingerprint can answer.
  */
+/**
+ * The one application that has no customer in it.
+ *
+ * A literal slug, and it lives in `scripts/` deliberately: the app-agnostic guard
+ * scopes to `packages` and `apps` (`tests/unit/app-agnostic.spec.ts:28`), because
+ * those are the layers whose claim is that they know nothing about any application.
+ * A script is an operator tool and is allowed to know which target is a fixture —
+ * that is exactly what it needs to know to decide whether its output can be shared.
+ */
+const BUNDLED_DEMO_SLUG = 'bundled-demo';
+
 function proposeLabel(url: string, nodes: AccessibilityNode[]): string {
   const route =
     new URL(url).pathname
@@ -531,14 +542,47 @@ async function main(): Promise<void> {
       `Kept ${retained} capture(s) under artifacts/inspect/` +
         (pruned.length > 0 ? `; pruned ${pruned.length} beyond the newest ${MAX_CAPTURES}` : '') +
         '.',
-      'Captures are gitignored and stay on this machine: they contain real',
-      'workspace names, document titles and user names from a live system.',
-      '',
-      'Open report.md and paste it into the chat — that is enough to write real',
-      'page objects with accurate locators and fallback chains.',
+      ...closingAdvice(env.application),
       '',
     ].join('\n'),
   );
+}
+
+/**
+ * WHAT TO DO WITH THE REPORT — and it depends on whose data is in it.
+ *
+ * The old message said, unconditionally, *"Open report.md and paste it into the
+ * chat"*, two lines after saying the capture holds real workspace names, document
+ * titles and user names from a live system. Two instructions in one block, and the
+ * second one undoes the first.
+ *
+ * On the bundled demo app it is good advice — there is no real data, and pasting
+ * the report IS how a page object gets written. On any other application it is the
+ * exact thing this repo's handling rules forbid, printed by the repo itself.
+ *
+ * Keyed on `application`, not on the environment NAME: `local` is an environment,
+ * `bundled-demo` is the thing that has no customer in it, and a second environment
+ * pointed at the demo app should get the same advice.
+ *
+ * Exported so both branches have a falsifier without running the inspector.
+ */
+export function closingAdvice(application: string): string[] {
+  if (application === BUNDLED_DEMO_SLUG) {
+    return [
+      'This is the bundled demo app, so the capture holds no real data.',
+      '',
+      'Open report.md and paste it into the chat — that is enough to write real',
+      'page objects with accurate locators and fallback chains.',
+    ];
+  }
+  return [
+    'Captures are gitignored and STAY ON THIS MACHINE: they contain real',
+    'workspace names, document titles and user names from a live system.',
+    '',
+    'Do NOT paste report.md into a chat, a ticket or an email. Open it locally.',
+    'If someone else needs it, say which module you captured and let them read',
+    'the file on a machine that is allowed to have it.',
+  ];
 }
 
 main().catch((error: Error) => {

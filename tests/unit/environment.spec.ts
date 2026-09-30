@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
@@ -199,5 +199,101 @@ test.describe('loadEnvironment and an ambient BASE_URL @unit', () => {
     delete process.env.BASE_URL;
 
     expect(loadEnvironment('qa').baseUrl).toBe('http://127.0.0.1:4173');
+  });
+});
+
+/**
+ * A CREDENTIAL HAS NO DEFAULT, and this is asserted on the REAL file.
+ *
+ * `config/env/qa.json` shipped `"${QA_ADMIN_PASSWORD:-Passw0rd!}"` and
+ * `"${QA_ADMIN_USER:-hr.admin}"` — a committed username and password, in a file
+ * whose `application` is `dms`. With `BASE_URL` pointed at the customer system and
+ * the variables unset, a run would have tried that pair against it.
+ *
+ * The bad outcome is not the attempt, which fails: it is that the run gets as far
+ * as a login attempt at all, looking like a credential problem, when the real fault
+ * is that nobody said which credentials to use. A default turns "you did not
+ * configure this" into "your password is wrong".
+ *
+ * These load the REAL repository file rather than a fixture on purpose. A fixture
+ * would test `interpolate`, which is already covered above; the claim here is about
+ * what is committed, and only the committed file can carry it.
+ */
+test.describe('a committed environment file defaults no credential @unit', () => {
+  const originalEnv = { ...process.env };
+
+  test.beforeEach(() => {
+    // The REAL repo root: `AITP_REPO_ROOT` is deliberately not set.
+    delete process.env.AITP_REPO_ROOT;
+    resetEnvironmentCache();
+  });
+
+  test.afterEach(() => {
+    process.env = { ...originalEnv };
+    resetEnvironmentCache();
+  });
+
+  test('qa: with the variables SET, the values resolve', () => {
+    // wrong: the placeholders are wrong or misspelled, so this refuses too — and
+    // then the refusal below would prove nothing, because a file that can never
+    // resolve refuses for every input.
+    process.env.QA_ADMIN_USER = 'someone@example.invalid';
+    process.env.QA_ADMIN_PASSWORD = 'not-a-real-password';
+
+    const env = loadEnvironment('qa');
+    expect(env.users.admin!.username).toBe('someone@example.invalid');
+    expect(env.users.admin!.password).toBe('not-a-real-password');
+  });
+
+  test('qa: with the password UNSET it REFUSES, naming the variable', () => {
+    // wrong: it falls back to the committed `Passw0rd!` and the run proceeds to
+    // attempt a login — against the customer system, if BASE_URL points there.
+    process.env.QA_ADMIN_USER = 'someone@example.invalid';
+    delete process.env.QA_ADMIN_PASSWORD;
+
+    expect(() => loadEnvironment('qa')).toThrow(/QA_ADMIN_PASSWORD/);
+    expect(() => loadEnvironment('qa')).toThrow(/required but not set/);
+  });
+
+  test('qa: with the username UNSET it REFUSES too', () => {
+    // wrong: only the password default was removed, so `hr.admin` — also a real
+    // account name, also committed — is still handed to a live system. Half a fix
+    // reads exactly like a whole one.
+    delete process.env.QA_ADMIN_USER;
+    process.env.QA_ADMIN_PASSWORD = 'not-a-real-password';
+
+    expect(() => loadEnvironment('qa')).toThrow(/QA_ADMIN_USER/);
+  });
+
+  test('no committed environment file defaults a credential', () => {
+    // wrong: the two placeholders in `qa.json` are fixed and the next file to grow
+    // one is not noticed — which is how these arrived. This reads the files, so it
+    // covers the ones nobody has written yet.
+    //
+    // `${VAR:-}` — an EMPTY default — is treated as a default here, because it is
+    // one: it resolves to '' and the schema accepts it, so an unset credential
+    // becomes a blank rather than a refusal. `app.json` uses four of those, and
+    // this test records that as the allow-list below rather than silently passing.
+    const dir = path.join(process.cwd(), 'config', 'env');
+    const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
+    expect(
+      files.length,
+      'no environment files were read — this test had no subject',
+    ).toBeGreaterThan(2);
+
+    /** Known, and separate: an empty default is a blank credential, not a wrong one. */
+    const EMPTY_DEFAULT_ALLOWED = new Set(['app.json']);
+
+    const offenders: string[] = [];
+    for (const file of files) {
+      const raw = readFileSync(path.join(dir, file), 'utf8');
+      for (const [, key, fallback] of raw.matchAll(
+        /"(username|password|user|token|secret|apiKey)"\s*:\s*"\$\{[A-Z_0-9]+:-([^"}]*)\}"/g,
+      )) {
+        if (fallback === '' && EMPTY_DEFAULT_ALLOWED.has(file)) continue;
+        offenders.push(`${file}: "${key}" defaults to "${fallback}"`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

@@ -1,5 +1,23 @@
 # QA quickstart
 
+> ## This kit is for DMS only (for now)
+>
+> The Playwright specs under `tests/app/` were written against DmsSynergy — its
+> sidebar, its upload wizard, its admin screens. Point the platform at a different
+> application and `pnpm test` collects **no** specs for it and says so:
+>
+> ```
+> No specs for application "acme" — tests/app/** was written for "dms"
+> and is not collected here.
+> ```
+>
+> That is deliberate, and it is new. Before it, any non-DMS environment collected
+> all 47 DMS tests and would have run DMS's page objects against your application.
+>
+> `pnpm auth`, `pnpm inspect`, `pnpm triage` and `pnpm verify` are not
+> DMS-specific and work against any target. Adding a second application properly —
+> its own specs, its own captures — is separate work that has not been done.
+
 This is the short version for a QA joining the project on Windows. It gets you to
 four things you can run today:
 
@@ -140,11 +158,22 @@ It checks its own work: if the page it captured is the login page it prints
 re-run `pnpm auth`. Believe that warning — a capture of the login screen looks like
 a capture.
 
-**One thing in its output is wrong for the customer system.** The last line says to
-paste `report.md` into the chat. That is fine for the bundled demo app. For the
-customer system it is not: the same output block tells you the capture holds real
-workspace names, document titles and user names. For a real capture, do not paste it
-— say which module you captured and let someone with access read the file locally.
+**Its last message depends on what you captured**, so read it. On the bundled demo
+app it tells you to paste `report.md` into the chat, which is right — there is no
+real data in it and that is the fastest way to get a page object written. On any
+other application it says the opposite:
+
+```
+Captures are gitignored and STAY ON THIS MACHINE: they contain real
+workspace names, document titles and user names from a live system.
+
+Do NOT paste report.md into a chat, a ticket or an email. Open it locally.
+```
+
+It used to print the "paste it into the chat" line unconditionally, two lines after
+warning that the capture holds real data — two instructions in one block, the second
+undoing the first. Found by running the command on a fresh clone while writing this
+document.
 
 ### `pnpm triage "<path to workbook>"` — read the QA sheet
 
@@ -252,14 +281,23 @@ about:
 | `local.json`   | a **literal** username and password — the bundled demo app's own, which are also printed in its HTML. Nothing real. |
 | `app.json`     | placeholders only (`${APP_USERNAME}`, `${APP_PASSWORD}`) — your `.env` fills them                                   |
 | `staging.json` | placeholders only, including the database block                                                                     |
-| `qa.json`      | placeholders **with a fallback default**: `${QA_ADMIN_PASSWORD:-Passw0rd!}`                                         |
+| `qa.json`      | placeholders only (`${QA_ADMIN_USER}`, `${QA_ADMIN_PASSWORD}`)                                                      |
 
-That last row is worth your attention. `qa.json` points at the customer application
-(`"application": "dms"`), so if you run `TEST_ENV=qa` with `BASE_URL` set to the real
-system and `QA_ADMIN_PASSWORD` unset, it will try `hr.admin` / `Passw0rd!` against
-it. Its own `baseUrl` defaults to localhost, so the accident needs `BASE_URL` set as
-well — but **use `TEST_ENV=app` for the customer system**, not `qa`, and set every
-variable explicitly.
+`qa.json` used to carry `${QA_ADMIN_PASSWORD:-Passw0rd!}` and
+`${QA_ADMIN_USER:-hr.admin}` — a committed username and password in a file whose
+application is the customer system. Both defaults are gone. With either variable
+unset the run now REFUSES and names it:
+
+```
+Environment variable QA_ADMIN_PASSWORD is required but not set.
+```
+
+A default turned "you did not configure this" into "your password is wrong", which
+is the more expensive sentence to debug and the more dangerous one to act on.
+
+`app.json` uses `${APP_USERNAME:-}` — an EMPTY default, which resolves to a blank
+rather than refusing. That is a different shape and is left alone for now; use
+`TEST_ENV=app` for the customer system and set every variable explicitly.
 
 ---
 

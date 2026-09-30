@@ -1,4 +1,10 @@
-import { execFileSync, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import {
+  execFileSync,
+  spawn,
+  spawnSync,
+  type ChildProcess,
+  type SpawnOptions,
+} from 'node:child_process';
 
 /**
  * Spawning a child process in the environment the REAL process will have.
@@ -88,6 +94,37 @@ export function spawnClean(
 ): ChildProcess {
   const { env, ...rest } = options;
   return spawn(command, [...args], { ...rest, env: productionEnv(env) });
+}
+
+/**
+ * `spawnSync`, in the environment the real process will have.
+ *
+ * `execFileSyncClean` returns stdout and THROWS on a non-zero exit, so stderr is
+ * reachable only from the error object — which means a command that succeeds while
+ * writing something important to stderr loses it silently. That is not theoretical:
+ * `app-suite-scope.spec.ts` reads a notice `playwright.config.ts` writes to stderr,
+ * `--list` exits 0, and the first draft of that test concluded the notice was never
+ * printed.
+ *
+ * Use this when BOTH streams are part of the answer. Use `execFileSyncClean` when
+ * only stdout is, and a non-zero exit should throw.
+ */
+export function spawnSyncClean(
+  command: string,
+  args: readonly string[],
+  options: CleanSpawnOptions & { maxBuffer?: number } = {},
+): { status: number | null; stdout: string; stderr: string } {
+  const { env, ...rest } = options;
+  const result = spawnSync(command, [...args], {
+    ...rest,
+    encoding: 'utf8',
+    env: productionEnv(env),
+  });
+  return {
+    status: result.status,
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+  };
 }
 
 /** `execFileSync`, in the environment the real process will have. */

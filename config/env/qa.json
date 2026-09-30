@@ -13,8 +13,8 @@
   "workers": 4,
   "users": {
     "admin": {
-      "username": "${QA_ADMIN_USER:-hr.admin}",
-      "password": "${QA_ADMIN_PASSWORD:-Passw0rd!}",
+      "username": "${QA_ADMIN_USER}",
+      "password": "${QA_ADMIN_PASSWORD}",
       "role": "admin"
     }
   },

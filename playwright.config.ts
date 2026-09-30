@@ -54,6 +54,55 @@ const savedSession = liveEnv ? authStatePath(liveEnv.name) : undefined;
 const liveTestIgnore = ['**/api/**', '**/unit/**', '**/tests/demo/**'];
 
 /**
+ * The one application `tests/app/**` was written against.
+ *
+ * `tests/app/` holds six specs and seven page objects, and every one of them
+ * describes DmsSynergy — its sidebar, its upload wizard, its admin screens.
+ * Nothing said so. The split was demo-vs-live, so ANY non-local environment
+ * collected all of it: measured 2026-09-30 with a second application declared as
+ * `app2`, `--list` returned **47 tests in 8 files**, every one a DMS spec.
+ *
+ * A QA who adds their own application and runs `pnpm test` would therefore drive
+ * DMS's page objects against their app — and `@write` tests live in that same
+ * suite. This is the minimal version of the fix: collect them only for the
+ * application they were written for, and say plainly that nothing was collected
+ * for any other.
+ *
+ * The full answer is a `tests/apps/<application>/` layout so each application's
+ * specs are found by their own path rather than by a comparison here. That is
+ * multi-app item 2; this is the guard that makes the gap safe until then.
+ */
+const APP_SUITE_APPLICATION = 'dms';
+
+/**
+ * Do the DMS specs belong to the environment being run?
+ *
+ * Keyed on `application`, not on the environment NAME, because `app`, `qa` and
+ * `staging` are three environments of one application and all three should collect
+ * the same suite.
+ */
+const collectsAppSuite = liveEnv?.application === APP_SUITE_APPLICATION;
+
+if (liveEnv && !collectsAppSuite) {
+  // A SENTENCE, not silence. Zero collected tests and no explanation reads as a
+  // broken config, and the next thing someone does is start deleting ignores.
+  // The count it prints will not be zero, and saying so here is the difference
+  // between a message and a puzzle: every browser project depends on `live-setup`,
+  // whose own `testMatch` picks up the sign-in and the environment-name guard. Both
+  // are application-agnostic — a manual sign-in works anywhere — so they stay.
+  process.stderr.write(
+    `\nNo specs for application "${liveEnv.application}" — tests/app/** was written for ` +
+      `"${APP_SUITE_APPLICATION}" and is not collected here.\n` +
+      'The two tests still listed are the sign-in setup and the environment-name ' +
+      'guard, which are not application-specific.\n' +
+      'Unit and API tests are unaffected; run them with --project=unit or --project=api.\n\n',
+  );
+}
+
+/** `tests/app/**` as well, for any application those specs were not written for. */
+const appSuiteIgnore = collectsAppSuite ? liveTestIgnore : [...liveTestIgnore, '**/tests/app/**'];
+
+/**
  * One config, every environment. Environment-specific values (URLs, timeouts,
  * retries, workers, feature flags) come from config/env/<TEST_ENV>.json so this
  * file never needs to change when a new environment is added.
@@ -143,7 +192,7 @@ export default defineConfig<AitpProjectOptions>({
 
     {
       name: 'chromium',
-      testIgnore: liveTestIgnore,
+      testIgnore: appSuiteIgnore,
       dependencies: ['live-setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -152,7 +201,7 @@ export default defineConfig<AitpProjectOptions>({
     },
     {
       name: 'firefox',
-      testIgnore: liveTestIgnore,
+      testIgnore: appSuiteIgnore,
       dependencies: ['live-setup'],
       use: {
         ...devices['Desktop Firefox'],
@@ -161,7 +210,7 @@ export default defineConfig<AitpProjectOptions>({
     },
     {
       name: 'webkit',
-      testIgnore: liveTestIgnore,
+      testIgnore: appSuiteIgnore,
       dependencies: ['live-setup'],
       use: {
         ...devices['Desktop Safari'],
@@ -170,7 +219,7 @@ export default defineConfig<AitpProjectOptions>({
     },
     {
       name: 'mobile-chrome',
-      testIgnore: liveTestIgnore,
+      testIgnore: appSuiteIgnore,
       dependencies: ['live-setup'],
       use: { ...devices['Pixel 7'], ...(savedSession ? { storageState: savedSession } : {}) },
     },
