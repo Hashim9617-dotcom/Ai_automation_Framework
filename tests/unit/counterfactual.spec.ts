@@ -63,6 +63,9 @@ const COVERED = [
   // outcome would be, which is the whole point here — "zero directories" is a
   // verdict two opposite causes can produce.
   'tests/unit/inspect-session-dir.spec.ts',
+  // Added 2026-10-01 with the fix it describes, found by running the quickstart on a
+  // fresh clone rather than by reading it.
+  'tests/unit/triage-refusal.spec.ts',
 ];
 
 /**

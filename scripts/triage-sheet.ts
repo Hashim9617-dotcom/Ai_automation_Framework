@@ -304,4 +304,26 @@ function main(): void {
   }
 }
 
-main();
+/**
+ * A REFUSAL MUST READ AS A REFUSAL, NOT AS A CRASH.
+ *
+ * This was `main();` — a bare call to a SYNCHRONOUS function that throws, so Node
+ * printed the message under fifteen frames of `Module._compile` and
+ * `loadCJSModuleWithModuleLoad`. Measured 2026-10-01 by running what the quickstart
+ * tells a QA to run, on a fresh clone (§AG): the first command in the chain refuses,
+ * correctly, and a QA sees a stack trace and concludes the tool is broken rather than
+ * that they have a step to do first.
+ *
+ * The message was always right. Everything around it said "bug".
+ *
+ * `try`/`catch` and not `main().catch(…)`, which was the first attempt here: `main`
+ * returns `void`, so that form is a type error — invisible under tsx, which
+ * transpiles without typechecking, and it would have gone on printing the stack it
+ * was written to remove.
+ */
+try {
+  main();
+} catch (error) {
+  process.stderr.write(`\n${(error as Error).message}\n\n`);
+  process.exitCode = 1;
+}
