@@ -22,7 +22,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { chromium, type Browser } from '@playwright/test';
-import { authStatePath, loadEnvironment } from '@aitp/execution-engine';
+import { authStatePath, describeTargetBanner, loadEnvironment } from '@aitp/execution-engine';
 import { rootLogger } from '@aitp/shared';
 
 const log = rootLogger.child('auth');
@@ -39,6 +39,10 @@ function waitForEnter(prompt: string): Promise<void> {
 
 async function main(): Promise<void> {
   const env = loadEnvironment();
+  // THE TARGET, FIRST, BEFORE A BROWSER OPENS. A human is about to sign in to a real
+  // system; the one check they can make is which one, and the one they cannot make
+  // afterwards is where the saved session came from.
+  process.stdout.write(`\nSigning in to:\n${describeTargetBanner(env)}\n\n`);
   const url = process.argv[2] ?? env.baseUrl;
   const statePath = authStatePath(env);
   mkdirSync(path.dirname(statePath), { recursive: true });

@@ -38,6 +38,7 @@ import { chromium, type Browser, type Page } from '@playwright/test';
 import {
   authStatePath,
   capturesDir,
+  describeTargetBanner,
   captureAccessibilityTree,
   captureDomSnapshot,
   crossCheckTransition,
@@ -310,6 +311,9 @@ async function main(): Promise<void> {
   // No argument: fall back to the configured application, so switching targets
   // is a .env edit rather than a command you have to remember.
   const env = loadEnvironment();
+  // THE TARGET, FIRST. The capture about to be written is labelled with all of this,
+  // and a label is the one thing nothing downstream can check.
+  process.stdout.write(`\nCapturing from:\n${describeTargetBanner(env)}\n\n`);
   const url = process.argv[2] ?? env.baseUrl;
   if (!url) {
     log.error('No URL. Pass one (`pnpm inspect <url>`) or set BASE_URL in .env.');

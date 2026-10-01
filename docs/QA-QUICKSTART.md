@@ -20,13 +20,13 @@
 This is the short version for a QA joining the project on Windows. It gets you to
 four things you can run today:
 
-| you can                                      | command                            |
-| -------------------------------------------- | ---------------------------------- |
-| sign in once and save the session            | `pnpm auth`                        |
-| walk the screens and record them             | `pnpm inspect`                     |
-| ask which sheet rows could ever be automated | `pnpm triage "<path to workbook>"` |
-| check the whole repo is healthy              | `pnpm verify`                      |
-| run the existing Playwright tests            | `pnpm test:demo`, `pnpm test`      |
+| you can                                      | command                          |
+| -------------------------------------------- | -------------------------------- |
+| sign in once and save the session            | `pnpm auth`                      |
+| walk the screens and record them             | `pnpm inspect`                   |
+| ask which sheet rows could ever be automated | `pnpm triage "<path>" --app dms` |
+| check the whole repo is healthy              | `pnpm verify`                    |
+| run the existing Playwright tests            | `pnpm test:demo`, `pnpm test`    |
 
 Everything in this document was run on a fresh clone before it was written. Where a
 command needs the customer system's credentials it is marked so, because those runs
@@ -176,18 +176,21 @@ warning that the capture holds real data — two instructions in one block, the 
 undoing the first. Found by running the command on a fresh clone while writing this
 document.
 
-### `pnpm triage "<path to workbook>"` — read the QA sheet
+### `pnpm triage "<path>" --app <application>` — read the QA sheet
 
 Reads a test-case workbook and prints, row by row, which rows could be automated and
 which never can — with a reason for each, and who can act on it.
 
 ```bash
-pnpm triage "C:/Users/you/Documents/Test case Sheet.xlsx"
-pnpm triage "C:/Users/you/Documents/Test case Sheet.xlsx" --out artifacts/triage
+pnpm triage "C:/Users/you/Documents/Test case Sheet.xlsx" --app dms
+pnpm triage "C:/Users/you/Documents/Test case Sheet.xlsx" --app dms --out artifacts/triage
 ```
 
 - **Needs no network, no credentials and no browser.** It reads the file and nothing
   else.
+- **`--app` is required.** Triage pairs one application’s sheet against that
+  application’s captures, and nothing ambient should decide which. If `TEST_ENV` is
+  also set and names a different application, it refuses and prints both.
 - **It does need at least one capture for THIS application**, or it stops with
   `no captures found under artifacts/<application>/inspect`. That
   refusal is deliberate: the answer depends on which screens have been recorded, so

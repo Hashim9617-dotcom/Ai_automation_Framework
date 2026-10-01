@@ -1,0 +1,29 @@
+{
+  "//": "Module (sheet column 1) -> the captured route that IS that screen. DATA, not code: this moved out of scripts/triage-sheet.ts so no application name lives in a script. A wrong pairing manufactures a false ceiling in whichever direction it errs, so triage PRINTS this on every run and a human checks it by eye. Add a route when a module is captured; `skipped` records a module deliberately left unpaired, with the reason, because a blank and a decision are different answers.",
+  "routes": {
+    "Dashboard": "dashboard",
+    "File Explorer": "files",
+    "Document": "files",
+    "Global search": "search",
+    "User": "admin/users",
+    "User Role": "admin/user-roles",
+    "user role": "admin/user-roles",
+    "Bulk upload": "bulk-upload",
+    "Permissions": "admin/user-roles"
+  },
+  "notes": {
+    "Bulk upload": "Was 'upload-files'. /upload-files is a DIFFERENT screen and is being removed from the application; the wizard the sheet means is at /bulk-upload (heading 'Synergy DMS Bulk Upload Wizard'). Decided 2026-09-28 by the user — both paths are on disk and nothing automatic could tell which one the sheet's 'Bulk upload' names.",
+    "Permissions": "A TAB on the User Role screen, not a screen with its own URL, so it shares one capture with 'User Role'. A real pairing, not a duplicate: the capture at /admin/user-roles reached a 'Permissions saved' state, which is what these rows start from."
+  },
+  "skipped": {
+    "Workflow": "Captures exist at /workflow/requests and below, deliberately NOT paired: dev update in progress (2026-09-28). A pairing written now would be against a screen that is changing, and leaving it unpaired is the honest state — it shows in triage's 'captured but unpaired' line until a route is filled in.",
+    "Login": "A capture exists at /login, deliberately not paired for the same reason."
+  },
+  "notCaptured": [
+    "Document Template Categories",
+    "User Group",
+    "Policy agent",
+    "Notification",
+    "Audit Logs"
+  ]
+}

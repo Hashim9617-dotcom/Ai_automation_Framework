@@ -31,53 +31,45 @@ import {
   renderTriage,
   findRepoRoot,
 } from '@aitp/shared';
-import { loadEnvironment } from '@aitp/execution-engine';
+import { ambientEnvName, loadEnvironment } from '@aitp/execution-engine';
 
 /**
  * Module (sheet column 1) -> the captured route that IS that screen.
  *
- * Explicit rather than inferred, and PRINTED on every run. A wrong pairing
- * manufactures a false ceiling in whichever direction it errs, so this is the
- * one thing here that a human should check by eye rather than trust.
+ * DATA, in `config/apps/<application>/module-routes.json`, beside `module-map.json`
+ * and loaded the same way. It was a `Record` in this file with nine DMS module names
+ * in it — so a script that is otherwise application-agnostic knew one application by
+ * name, and a second application could not be triaged at all without editing code.
  *
- * Add a line when a module is captured. Nothing else needs to change — the
- * capture set itself is read from `artifacts/inspect/`, so a pairing that names
- * a route nobody has captured is reported rather than silently believed.
+ * Explicit rather than inferred, and PRINTED on every run: a wrong pairing
+ * manufactures a false ceiling in whichever direction it errs, so this is the one
+ * thing here a human should check by eye rather than trust.
  */
-const MODULE_ROUTES: Record<string, string> = {
-  Dashboard: 'dashboard',
-  'File Explorer': 'files',
-  Document: 'files',
-  'Global search': 'search',
-  User: 'admin/users',
-  'User Role': 'admin/user-roles',
-  'user role': 'admin/user-roles',
-  // Was 'upload-files'. `/upload-files` is a DIFFERENT screen and is being
-  // removed from the application; the wizard the sheet means is at
-  // `/bulk-upload` (heading "Synergy DMS Bulk Upload Wizard"). Decided
-  // 2026-09-28 by the user — both paths are on disk, and nothing here could
-  // tell which one the sheet's "Bulk upload" names.
-  'Bulk upload': 'bulk-upload',
-  // Permissions is a TAB on the User Role screen, not a screen with its own
-  // URL, so it shares one capture with `User Role`. That is a real pairing,
-  // not a duplicate: the capture at `/admin/user-roles` reached a
-  // "Permissions saved" state, which is what these rows start from.
-  Permissions: 'admin/user-roles',
-  // Not yet captured — uncomment as each screen is walked:
-  // 'Document Template Categories': '…',
-  // 'User Group': '…',
-  // 'Policy agent': '…',
-  // Notification: '…',
-  // 'Audit Logs': '…',
-  //
-  // CAPTURED but deliberately NOT paired — skipped: dev update in progress
-  // (2026-09-28). Both have captures on disk, so they will show in the
-  // "captured but unpaired" line until a route is filled in here. Leaving the
-  // route blank is the honest state: a pairing written now would be against a
-  // screen that is changing.
-  // Workflow: '…',   // captures exist at /workflow/requests and below
-  // Login: '…',      // a capture exists at /login
-};
+interface ModuleRoutes {
+  routes: Record<string, string>;
+  /** Why a pairing is what it is. Read by nothing; kept where the pairing is. */
+  notes?: Record<string, string>;
+  /** Captured and deliberately NOT paired, with the reason. Printed. */
+  skipped?: Record<string, string>;
+  /** Modules with no capture yet. Printed, so the gap is visible. */
+  notCaptured?: string[];
+}
+
+function loadModuleRoutes(application: string): ModuleRoutes {
+  const file = path.join(findRepoRoot(), 'config', 'apps', application, 'module-routes.json');
+  if (!existsSync(file)) {
+    throw new Error(
+      `no module routes for application "${application}": ${path.relative(findRepoRoot(), file)} ` +
+        'does not exist. Triage pairs each sheet module against a captured screen, and that ' +
+        'pairing is per application — see docs/ADD-AN-APPLICATION.md.',
+    );
+  }
+  const parsed = JSON.parse(readFileSync(file, 'utf8')) as ModuleRoutes;
+  if (!parsed.routes || Object.keys(parsed.routes).length === 0) {
+    throw new Error(`${file}: no "routes" — refusing to report a ceiling against nothing.`);
+  }
+  return parsed;
+}
 
 /** Path segments, with the origin and any leading/trailing slashes gone. */
 function segmentsOf(value: string): string[] {
@@ -174,10 +166,44 @@ function main(): void {
   const outDir = outIndex > 0 ? process.argv[outIndex + 1] : undefined;
 
   const root = findRepoRoot();
-  // The application comes from the resolved environment, never from an argument.
-  // A second source for it is a second thing that can disagree with the run.
-  const env = loadEnvironment();
-  const { paths, unparseable, unlabelled } = capturedPaths(root, env.application);
+
+  // `--app` IS REQUIRED, and a disagreement with the environment is REFUSED.
+  //
+  // `triage` is non-interactive: nobody is watching it resolve a target, and its
+  // output — a ceiling that gets quoted — is about one application's sheet paired
+  // against one application's captures. An ambient `TEST_ENV` deciding that silently
+  // is SEC-2's shape: the thing that chooses where the work points must not come
+  // from the layer that can redirect it without anyone looking.
+  //
+  // So the application is an argument. If an environment is ALSO set and names a
+  // different application, both are printed and the run refuses — the two sources
+  // disagree and there is no safe tie-break, which is the same reasoning as the
+  // clause-kind column.
+  const appIndex = process.argv.indexOf('--app');
+  const application = appIndex > 0 ? process.argv[appIndex + 1] : undefined;
+  if (!application) {
+    throw new Error(
+      'usage: pnpm triage <workbook.xlsx> --app <application> [--out <dir>]\n' +
+        '  --app is required: triage pairs one application\x27s sheet against that ' +
+        'application\x27s captures, and nothing else should decide which.',
+    );
+  }
+  const ambient = ambientEnvName();
+  if (ambient) {
+    const ambientApplication = loadEnvironment(ambient).application;
+    if (ambientApplication !== application) {
+      throw new Error(
+        `refusing to run: --app says "${application}" and TEST_ENV="${ambient}" is configured ` +
+          `for application "${ambientApplication}". Two sources disagree about which ` +
+          'application this is, and there is no safe tie-break.\n' +
+          `  Pass --app ${ambientApplication}, or unset TEST_ENV.`,
+      );
+    }
+  }
+
+  const routes = loadModuleRoutes(application);
+  const MODULE_ROUTES = routes.routes;
+  const { paths, unparseable, unlabelled } = capturedPaths(root, application);
 
   // COUNTED AND SAID, never pooled. A pre-move session has no application on it,
   // so nothing here knows whether it belongs to this one.
@@ -186,14 +212,14 @@ function main(): void {
       `WARNING: ${unlabelled} capture session(s) under artifacts/inspect/ carry no ` +
         'application and are NOT counted below. They were written before captures ' +
         'recorded which system they came from.\n' +
-        `  Run the migration, or re-capture with TEST_ENV=${env.name}.`,
+        '  Run `pnpm migrate:captures`, or capture again.',
     );
   }
 
   if (paths.size === 0)
     throw new Error(
-      `no captures found under artifacts/${env.application}/inspect — refusing to report a ` +
-        `ceiling. Run \`pnpm inspect\` with TEST_ENV=${env.name} first` +
+      `no captures found under artifacts/${application}/inspect — refusing to report a ` +
+        'ceiling. Run `pnpm inspect` against that application first' +
         (unlabelled > 0 ? `; ${unlabelled} unlabelled session(s) exist but cannot be used.` : '.'),
     );
 
@@ -213,10 +239,25 @@ function main(): void {
     );
   }
 
-  console.log('\nmodule -> capture pairing used (check this by eye):');
+  console.log(`\napplication: ${application}`);
+  console.log('module -> capture pairing used (check this by eye):');
   for (const [module, route] of Object.entries(MODULE_ROUTES)) {
     const hit = matchFor(route);
     console.log(`  ${module.padEnd(30)} -> ${route.padEnd(18)} ${hit ?? '** NOT ON DISK **'}`);
+  }
+
+  // SKIPPED AND NOT-CAPTURED ARE PRINTED, because a module missing from the pairing
+  // above is invisible otherwise — and the two are different answers. "Captured and
+  // deliberately unpaired" is a decision somebody made with a reason; "no capture
+  // yet" is work nobody has done. Collapsing them loses which.
+  for (const [module, why] of Object.entries(routes.skipped ?? {})) {
+    console.log(`  ${module.padEnd(30)} -> SKIPPED: ${why}`);
+  }
+  if ((routes.notCaptured ?? []).length > 0) {
+    console.log(
+      `  ${(routes.notCaptured ?? []).length} module(s) with no capture yet: ` +
+        `${(routes.notCaptured ?? []).join(', ')}`,
+    );
   }
 
   // Captured but unpaired: a screen someone walked that no module names. This

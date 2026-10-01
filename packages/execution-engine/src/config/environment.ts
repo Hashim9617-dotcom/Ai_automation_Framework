@@ -172,6 +172,64 @@ export function authStatePath(env: Pick<EnvironmentConfig, 'name' | 'application
  * is how two applications' captures came to be pooled in one flat directory.
  */
 /**
+ * The target, in one line, for a tool a human is WATCHING.
+ *
+ * `auth` and `inspect` are interactive: somebody is at the keyboard, about to sign in
+ * to a real system or record real screens. The one thing they must be able to check
+ * before pressing Enter is which system this is — and the one thing that cannot be
+ * checked afterwards is a capture's label, because the label IS the only record.
+ *
+ * So all four facts, together, and **where each came from**: a value is only as
+ * trustworthy as its source, and `TEST_ENV` exported in a shell beats `.env` silently
+ * (SEC-2). An operator who sees `from .env` when they edited the shell has been told
+ * something they can act on; `environment: app` alone tells them nothing.
+ *
+ * `BASE_URL` is reported as overriding when it is set, because it is the variable
+ * that redirected every environment — `local` included — to the live customer system
+ * in SEC-2. A banner that printed the resolved URL without saying an override
+ * produced it would launder exactly that.
+ */
+export function describeTargetBanner(env: EnvironmentConfig): string {
+  const host = (() => {
+    try {
+      return new URL(env.baseUrl).host;
+    } catch {
+      return env.baseUrl;
+    }
+  })();
+  // DID the override produce this host, not merely IS the variable set.
+  //
+  // The first version printed the note whenever `BASE_URL` existed. On `local` —
+  // whose file pins `http://127.0.0.1:4173` as a LITERAL — it claimed the host came
+  // from an ambient variable that had not touched it. That is SEC-2's own mistake
+  // committed by the banner written to prevent it: a provenance claim derived from
+  // the wrong fact reads exactly like a measured one.
+  //
+  // So the RAW file is read and the question asked properly: a literal `baseUrl`
+  // cannot have been overridden; a placeholder one was.
+  const raw = (() => {
+    try {
+      const parsed = JSON.parse(
+        readFileSync(path.join(repoRoot(), 'config', 'env', `${env.name}.json`), 'utf8'),
+      ) as { baseUrl?: unknown };
+      return typeof parsed.baseUrl === 'string' ? parsed.baseUrl : '';
+    } catch {
+      return '';
+    }
+  })();
+  const override =
+    process.env.BASE_URL && raw.includes('${')
+      ? ' (from an ambient BASE_URL, not from the environment file)'
+      : '';
+  return [
+    `  application : ${env.application}`,
+    `  environment : ${env.name}   <- ${describeEnvNameSource()}`,
+    `  host        : ${host}${override}`,
+    `  session file: ${path.relative(repoRoot(), authStatePath(env))}`,
+  ].join('\n');
+}
+
+/**
  * A configured user, or a refusal that NAMES THE VARIABLE.
  *
  * Three ways a role can be unusable, and they are one sentence apart for a reader
