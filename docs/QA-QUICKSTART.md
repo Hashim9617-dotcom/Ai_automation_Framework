@@ -272,7 +272,15 @@ pnpm test:trace artifacts/…/trace.zip  # step through a failed test
 | `pnpm triage … --out <dir>` | that directory (terminal only without `--out`)                     |
 | any test run                | `artifacts/test-results/`, `artifacts/reports/`, `artifacts/runs/` |
 
-All of `artifacts/` is gitignored. `pnpm clean` deletes it.
+All of `artifacts/` is gitignored, so none of it can reach the repository by
+accident. Delete the folder whenever you want the disk back.
+
+> **`pnpm clean` does not work on Windows today.** Measured on a fresh clone,
+> 2026-10-01: it exits 1 with `EINVAL … path: '…\**\dist'` and deletes **nothing**
+> — the `**/dist` patterns in that script are passed to `rimraf` literally, because
+> no Windows shell expands them. Deleting `artifacts/` yourself is safe and is all
+> this command was for. Recorded rather than patched in passing: it removes
+> directories, so it is worth fixing deliberately.
 
 ---
 
