@@ -44,10 +44,28 @@ function list(args: readonly string[], extra: Record<string, string> = {}): List
     {
       cwd: ROOT,
       maxBuffer: 20 * 1024 * 1024,
-      // LOG_LEVEL so this repo's own logger does not interleave with the listing, and
-      // TEST_ENV pinned so the answer does not depend on the developer's `.env` — the
-      // live half needs a NON-local name or no live environment resolves at all.
-      env: { LOG_LEVEL: 'error', TEST_ENV: 'app', ...extra },
+      // THE WHOLE ENVIRONMENT IS SUPPLIED HERE, not inherited.
+      //
+      // `LOG_LEVEL` so this repo's own logger does not interleave with the listing.
+      // `TEST_ENV` pinned, because the live half needs a NON-local name or no live
+      // environment resolves at all and the partition is not the thing being
+      // measured.
+      //
+      // And the three values `app.json` interpolates, because without them the
+      // config REFUSES — `ConfigError: Environment variable BASE_URL is required but
+      // not set` — and every count below is zero for a reason that has nothing to do
+      // with the partition. Measured on a fresh clone, where the first version of
+      // this file failed 3 of 4: it was green here and red for everyone else, which
+      // is the same defect `no-real-env.spec.ts` and R4 were corrected for TODAY.
+      // Nothing connects during `--list`; these only have to parse.
+      env: {
+        LOG_LEVEL: 'error',
+        TEST_ENV: 'app',
+        BASE_URL: 'https://example.invalid',
+        APP_USERNAME: 'listing-only',
+        APP_PASSWORD: 'listing-only',
+        ...extra,
+      },
     },
   );
   const counts = new Map<string, number>();
