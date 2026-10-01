@@ -3542,3 +3542,54 @@ The substantive finding that fell out of it is worth more than the arithmetic:
 is the single largest effect of the change, and many of those options are filter
 dropdowns where selecting one is a read. That is a false-hold cost nobody would have
 seen from the five-role number.
+
+---
+
+## AI. Blast radius has TWO directions, and I checked one three times running
+
+A change's blast radius is not one list. It is two, and they are found by different
+questions:
+
+- **INBOUND** — _who reads what I am changing?_ Callers, importers, fixtures that
+  assert on its output, docs that quote it.
+- **OUTBOUND** — _what does the thing I am changing itself depend on?_ Its own
+  imports, the paths it resolves, the environment it needs, the format it assumes.
+
+> **Before changing anything, write both lists. Predicting only inbound is the
+> commonest way a "fully predicted" change still breaks something** — and the
+> outbound break always arrives as a surprise, because the list that was written down
+> looked complete.
+
+### Three turns, three misses, each the outbound half
+
+| turn     | I predicted (inbound)                                                                                                             | what broke (outbound)                                                                                                                                                                                                                         |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **3a-7** | every clause literal in the suites that the new refusals would newly refuse — grepped all 65, predicted 0 breaks, got 0           | `run-sheet.spec.ts` asserts on the executor's `observed` WORDING. The absence-assertion fix changed `present=true, expected false` to `1 heading(s) … expected none`. The row's STATUS never moved; a test depending on the message text did. |
+| **3a-9** | the same corpus, for the write-gate words                                                                                         | five tests in `upload-not-supported.spec.ts`, because `attach` became a write word and that file's read-only CONTROL was named `Attach`. Its fixture depended on a classification I was changing.                                             |
+| **M1**   | every READER of `artifacts/inspect`, `artifacts/auth` and `tests/app` — twelve sites, all twelve broke, nothing else in that list | `tests/apps/dms/admin.spec.ts` imports `../support/employee-data`, and moving the file one level deeper made that path wrong. The moved files' OWN imports were never on the list.                                                            |
+
+The pattern is exact. Each time the inbound list was complete and correct — 65
+literals grepped, twelve readers found, all of them broke. Each time the thing that
+broke was something the changed code DEPENDED ON, or something that depended on a
+property of it I had not thought of as an interface: a message's wording, a fixture's
+chosen name, a file's depth in the tree.
+
+### The three outbound questions worth asking every time
+
+A checklist, because "think about it harder" has now failed three times:
+
+1. **What does it import, and does my change move it or change its shape?** A moved
+   file's relative imports. A renamed export. A signature.
+2. **What does it PRODUCE that something asserts on, beyond its return value?** Log
+   lines, error messages, printed paths, file layouts, counts in output. These are
+   interfaces nobody declared.
+3. **What does it ASSUME about its inputs that my change invalidates?** A fixture's
+   control being read-only, a file format having one shape, an environment variable
+   being set.
+
+M2 was planned with both lists written first, and the measurement is worth recording:
+the inbound predictions held, and the outbound column caught two things the inbound
+column could not have — `interpolate()` reading a `${...}` placeholder out of a JSON
+**comment** I had just written, and `ensureDotenv()` putting back a variable a test
+had deliberately deleted. Both are outbound: the changed thing depended on a layer
+that rewrites its input.

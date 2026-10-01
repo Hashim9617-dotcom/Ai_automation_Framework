@@ -218,6 +218,13 @@ exactly that. So each mutation declares what should catch it:
 > its author wrote last. Report the named cases closed, never "0 missed". The
 > circularity hides in a role set as easily as in a word list (§AH).
 
+> **Blast radius has TWO directions: INBOUND (who reads this) and OUTBOUND (what
+> this itself depends on). Write both lists before changing anything.** Three turns
+> running, the inbound list was complete and correct and the break came from
+> outbound — a message's wording, a fixture's chosen name, a moved file's own
+> imports. A log line, an error string and a printed path are interfaces nobody
+> declared (§AI).
+
 **Measured here, because the failure mode is not the obvious guess:** Playwright
 transpiles without typechecking, so a _type_ error in a mutation is invisible
 and 203 tests still pass; a _syntax_ error aborts Babel before any test runs,
