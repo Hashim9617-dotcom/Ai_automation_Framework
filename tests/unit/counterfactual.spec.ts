@@ -59,6 +59,10 @@ const COVERED = [
   'tests/unit/upload-not-supported.spec.ts',
   'tests/unit/automation-sheet.spec.ts',
   'tests/unit/authored-credentials.spec.ts',
+  // Added 2026-10-01 with the suite (M3): each of the three says what the OTHER
+  // outcome would be, which is the whole point here — "zero directories" is a
+  // verdict two opposite causes can produce.
+  'tests/unit/inspect-session-dir.spec.ts',
 ];
 
 /**

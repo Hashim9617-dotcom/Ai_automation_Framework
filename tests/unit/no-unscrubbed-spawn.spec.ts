@@ -32,7 +32,7 @@ const ROOT = findRepoRoot();
 const SPAWN_CALL = /\b(spawn|spawnSync|exec|execSync|execFile|execFileSync|fork)\s*\(/;
 
 /** The helper's own exports, which ARE the sanctioned way. */
-const SANCTIONED = /\b(spawnClean|execFileSyncClean|productionEnv)\s*\(/;
+const SANCTIONED = /\b(spawnClean|spawnSyncClean|execFileSyncClean|productionEnv)\s*\(/;
 
 /**
  * Commands that cannot be affected by the runner-only variables.
@@ -64,6 +64,11 @@ function scan(): { findings: Finding[]; filesScanned: number } {
     'tests/unit/no-workbooks.spec.ts',
     'tests/unit/no-unscrubbed-spawn.spec.ts',
     'tests/unit/no-shell-spawn.spec.ts',
+    // Both spawn Playwright or a repo script to measure what it does. Added by hand,
+    // which is the defect the NOTE above records: a spawner nobody adds here is
+    // ungoverned, and that changes a VERDICT rather than degrading a message (§AE).
+    'tests/unit/app-suite-scope.spec.ts',
+    'tests/unit/inspect-session-dir.spec.ts',
     'tests/support/spawn-clean.ts',
   ];
 
@@ -81,19 +86,50 @@ function scan(): { findings: Finding[]; filesScanned: number } {
     filesScanned += 1;
     // The helper itself is where the raw calls belong.
     if (relative === 'tests/support/spawn-clean.ts') continue;
-
-    for (const [index, line] of source.split(/\r?\n/).entries()) {
-      const code = line.replace(/\/\/.*$/, '');
-      if (!SPAWN_CALL.test(code)) continue;
-      if (SANCTIONED.test(code)) continue;
-      if (ENV_INSENSITIVE.test(code)) continue;
-      // An import statement is not a call site.
-      if (/^\s*import\b/.test(code)) continue;
-      findings.push({ file: relative, line: index + 1, text: line.trim() });
-    }
+    findings.push(...violationsIn(relative, source));
   }
 
   return { findings, filesScanned };
+}
+
+/**
+ * The per-source check, separated so a PLANTED violation can be handed to it.
+ *
+ * §W: the scan over the real files can only report what the real files contain, so a
+ * gate that skipped everything would read as a clean repo. The two synthetic inputs
+ * below are the half that fixes that — one it must catch, one it must stay silent
+ * about.
+ */
+function violationsIn(relative: string, source: string): Finding[] {
+  const findings: Finding[] = [];
+
+  // A FILE THAT CANNOT REACH `child_process` CANNOT SPAWN.
+  //
+  // Measured 2026-10-01, by adding two real spawners to the list above:
+  // `app-suite-scope.spec.ts` was reported as a violation for
+  // `/(\d+) files/.exec(listed)` — `RegExp.prototype.exec`, which the pattern
+  // cannot tell from `child_process.exec`, because both are a word followed by a
+  // parenthesis.
+  //
+  // The gate is the structural version of the question the line pattern is asking
+  // (the same move as the invisible-character detector's Unicode categories
+  // replacing a list of bad characters): a spawn needs the module, so a file that
+  // never mentions it has nothing to find. Deliberately a substring of the whole
+  // source rather than an import-statement match, so `require('child_process')` in
+  // any form still brings the file into scope.
+  if (!source.includes('child_process')) return findings;
+
+  for (const [index, line] of source.split(/\r?\n/).entries()) {
+    const code = line.replace(/\/\/.*$/, '');
+    if (!SPAWN_CALL.test(code)) continue;
+    if (SANCTIONED.test(code)) continue;
+    if (ENV_INSENSITIVE.test(code)) continue;
+    // An import statement is not a call site.
+    if (/^\s*import\b/.test(code)) continue;
+    findings.push({ file: relative, line: index + 1, text: line.trim() });
+  }
+
+  return findings;
 }
 
 test.describe('no test spawns in the runner environment @unit', () => {
@@ -113,6 +149,41 @@ test.describe('no test spawns in the runner environment @unit', () => {
         '`spawnClean` / `execFileSyncClean` from tests/support/spawn-clean.ts:\n' +
         findings.map((f) => `  ${f.file}:${f.line}  ${f.text}`).join('\n'),
     ).toEqual([]);
+  });
+
+  test('§W: a planted unscrubbed spawn IS caught, and a regex `.exec` is not', () => {
+    // wrong: the `child_process` gate added on 2026-10-01 is what keeps a
+    // `RegExp.prototype.exec` out of the findings, and a gate that skipped
+    // EVERYTHING would satisfy the scan above just as well — a clean repo and a
+    // blindfolded detector produce the same output. These two inputs separate them.
+    // ASSEMBLED, not written out: this file is itself in the scanned list, so a
+    // planted call site spelled literally here is a real finding in a real file and
+    // the scan above duly reported both of these as violations. The names are joined
+    // at runtime, which is enough — the scan reads SOURCE lines.
+    const SPAWN = 'spawn' + 'Sync';
+    const EXEC = 'ex' + 'ec';
+
+    const caught = violationsIn(
+      'planted.ts',
+      [
+        `import { ${SPAWN} } from 'node:child_process';`,
+        `${SPAWN}('node', ['-e', '1'], { env: { ...process.env } });`,
+      ].join('\n'),
+    );
+    expect(caught.map((f) => f.line)).toEqual([2]);
+
+    // The silent half, and the one the assertion is written against: a file with no
+    // access to `child_process` whose only `exec(` is a regular expression's. This is
+    // `app-suite-scope.spec.ts:186` verbatim, the line that produced the false
+    // positive.
+    const silent = violationsIn(
+      'planted-regex.ts',
+      [
+        'const listed = runIt();',
+        `const files = Number(/(\\d+) files/.${EXEC}(listed)?.[1] ?? 0);`,
+      ].join('\n'),
+    );
+    expect(silent).toEqual([]);
   });
 
   test('the scrub DELETES the variables rather than blanking them', () => {

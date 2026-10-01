@@ -362,8 +362,20 @@ async function main(): Promise<void> {
   // applications' captures landed in one flat directory and `triage` pooled them,
   // measured 2026-09-30 with a second application declared.
   const inspectRoot = capturesDir(env.application);
+  // THE DIRECTORY IS NOT CREATED YET.
+  //
+  // It used to be `mkdirSync(outDir)` right here, before the browser launched — so
+  // every abandoned run left an empty timestamped directory behind. Counted
+  // 2026-10-01, not estimated: all 16 sessions in the legacy `artifacts/inspect/` root
+  // are completely empty, against 10 real ones under `artifacts/dms/inspect/`. The
+  // leak also has a second source — `tests/unit/inspect-advice.spec.ts` imported this
+  // file while `main()` ran at module scope, producing three empty directories per
+  // unit run (see that spec).
+  //
+  // The name is computed now, because it is the session id and must be fixed at the
+  // start; the directory arrives with the first thing written into it. A path is not a
+  // side effect — `mkdirSync` is.
   const outDir = path.join(inspectRoot, new Date().toISOString().replace(/[:.]/g, '-'));
-  mkdirSync(outDir, { recursive: true });
 
   const headless = process.env.INSPECT_HEADLESS === 'true';
   let browser: Browser | undefined;
@@ -541,6 +553,9 @@ async function main(): Promise<void> {
 
   const reportPath = path.join(outDir, 'report.md');
   const jsonPath = path.join(outDir, 'capture.json');
+  // CREATED HERE, immediately before the first write. A run aborted before this point
+  // leaves nothing at all.
+  mkdirSync(outDir, { recursive: true });
   writeFileSync(reportPath, report, 'utf8');
   // State-keyed throughout, and deliberately offering NO flattened,
   // all-states node list: a grounding check cannot match against the wrong
