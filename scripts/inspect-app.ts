@@ -652,7 +652,32 @@ export function closingAdvice(application: string): string[] {
   ];
 }
 
-main().catch((error: Error) => {
-  log.error('Inspector failed', { error: error.message });
-  process.exitCode = 1;
-});
+/**
+ * ONLY WHEN THIS FILE IS THE PROCESS'S ENTRY POINT.
+ *
+ * It used to call `main()` unconditionally at module scope, and
+ * `tests/unit/inspect-advice.spec.ts` imports `closingAdvice` from here — so every
+ * worker that loaded the spec RAN THE INSPECTOR. Measured: three tests, three
+ * workers, three empty timestamped directories under
+ * `artifacts/<application>/inspect/` per unit run, plus
+ *
+ *     ERROR [aitp:inspect] Could not open test … navigating to "test"
+ *
+ * in the verify log, because `process.argv[2]` under Playwright is `"test"`. That
+ * line had been in the output for a day and read as noise.
+ *
+ * It is also the answer to where the stray directories came from, which three
+ * guesses had not reached: the migration script was blamed, and the only code that
+ * creates a timestamp-named directory under `artifacts/` is this file.
+ */
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  path.resolve(process.argv[1]).replace(/\.ts$|\.js$/, '') ===
+    path.resolve(__filename).replace(/\.ts$|\.js$/, '');
+
+if (invokedDirectly) {
+  main().catch((error: Error) => {
+    log.error('Inspector failed', { error: error.message });
+    process.exitCode = 1;
+  });
+}

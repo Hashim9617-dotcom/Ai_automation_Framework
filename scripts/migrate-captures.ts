@@ -216,14 +216,19 @@ for (const session of sessions) {
     continue;
   }
 
+  // REFUSE FIRST, CREATE SECOND. This had `mkdirSync(destRoot)` above the check, so
+  // a session that was then left behind still created the destination directory — a
+  // side effect from a path that decided to do nothing. It is the same shape as the
+  // bug that left empty capture directories all over `artifacts/`, which is how it
+  // came to be looked for here.
   const destRoot = path.join(root, 'artifacts', application, 'inspect');
-  mkdirSync(destRoot, { recursive: true });
   const dest = path.join(destRoot, session.name);
   if (existsSync(dest)) {
     left += 1;
     note(leftBecause, 'destination already exists');
     continue;
   }
+  mkdirSync(destRoot, { recursive: true });
 
   // THE LABEL FIRST, THEN THE MOVE. A session that arrives unlabelled because the
   // process died between the two reads exactly like one the inspector wrote.

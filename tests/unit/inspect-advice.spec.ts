@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { test, expect } from '@playwright/test';
+import { findRepoRoot } from '@aitp/shared';
 import { closingAdvice } from '../../scripts/inspect-app';
 
 /**
@@ -21,6 +24,21 @@ import { closingAdvice } from '../../scripts/inspect-app';
  * the handling rules forbid, printed by the repo itself.
  */
 test.describe('the inspector tells you what you may do with the report @unit', () => {
+  test('importing the inspector does NOT run it', () => {
+    // wrong: `scripts/inspect-app.ts` called `main()` at module scope, so this very
+    // spec launched the inspector in every worker — three empty timestamped
+    // directories under `artifacts/<application>/inspect/` per unit run, and an
+    // `ERROR … navigating to "test"` line in the output that read as noise for a day.
+    //
+    // Asserted as a FACT ABOUT THE FILE, because the side effect is invisible from
+    // inside the module that caused it: by the time this test body runs, the import
+    // has already happened. A guard is the only thing that can be checked here.
+    const source = readFileSync(path.join(findRepoRoot(), 'scripts', 'inspect-app.ts'), 'utf8');
+    expect(source).toContain('if (invokedDirectly)');
+    // Discriminating: the bare call must be gone, not merely wrapped somewhere.
+    expect(source).not.toMatch(/^main\(\)\.catch/m);
+  });
+
   test('a real application: do NOT paste it anywhere', () => {
     // wrong: it prints "paste it into the chat" for a capture holding real
     // workspace names, document titles and user names — which is what it did.
