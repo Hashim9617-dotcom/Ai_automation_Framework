@@ -55,6 +55,54 @@ export function describeEnvNameSource(): string {
   return 'TEST_ENV is set in neither the shell nor .env';
 }
 
+/**
+ * FIXTURE-ONLY MODE: the unit and demo surfaces must never see the real `.env`.
+ *
+ * SEC-3e. Measured 2026-10-01, with a probe spec inside the unit project:
+ *
+ *     PROBE added-by-ensureDotenv: (none)
+ *     PROBE real-keys-present: APP_PASSWORD,APP_USERNAME,BASE_URL,ANTHROPIC_API_KEY
+ *
+ * `(none)` added, and the keys already there — because `playwright.config.ts` itself
+ * calls `ambientEnvName()` and `loadEnvironment('local')` while the config loads, in
+ * the PARENT process, and every worker inherits that environment. So no amount of
+ * care inside a test could have avoided it, and in M2 a test that deliberately
+ * deleted `APP_PASSWORD` got the real one straight back.
+ *
+ * `globalSetup` cannot decide this: measured 2026-09-21 (SEC-3a), Playwright runs it
+ * for every invocation and hands it every project whichever was selected, so it
+ * cannot tell a fixture surface from a live one. The signal has to come from the way
+ * the suite was INVOKED, which is why `test:unit` and `test:demo` set the flag and no
+ * test has to remember anything.
+ *
+ * ## An allowlist, because the alternative is fail-open
+ *
+ * Not "strip the secrets" — a name-shaped denylist is one unfamiliar variable away
+ * from leaking (§AC). These are the operational keys the fixture surface legitimately
+ * uses, and everything else in `.env` is neither merged NOR kept in a private view,
+ * so a unit test cannot reach a real credential by any route. A test that needs
+ * `loadEnvironment('app')` sets the variables itself, which is what they already do.
+ *
+ * The gap this leaves, stated: `npx playwright test --project=unit` run by hand does
+ * not set the flag. `tests/unit/no-real-env.spec.ts` is the vigilance that closes it —
+ * it fails when a real credential key is present, so an unflagged run is loud rather
+ * than silently merged.
+ */
+const FIXTURE_SAFE_ENV_KEYS = new Set([
+  'TEST_ENV',
+  'LOG_LEVEL',
+  'LOG_FORMAT',
+  'TEST_DATA_SEED',
+  'TEST_WORKERS',
+  'TEST_RETRIES',
+  'TEST_ID_ATTRIBUTE',
+  'CLEAN_ARTIFACTS',
+  'INSPECT_HEADLESS',
+]);
+
+/** Is this a fixture-only invocation (`pnpm test:unit` / `pnpm test:demo`)? */
+export const fixtureOnlyRun = (): boolean => process.env.AITP_FIXTURE_ONLY === '1';
+
 function ensureDotenv(): void {
   if (dotenvLoaded) return;
   dotenvLoaded = true;
@@ -67,7 +115,22 @@ function ensureDotenv(): void {
   // lives here, so it must be readable before anything downstream (including
   // resolveEnvName, below) asks what environment this run targets.
   const baseFile = path.join(repoRoot(), '.env');
-  if (existsSync(baseFile)) dotenvTestEnv = loadDotenv({ path: baseFile }).parsed?.TEST_ENV;
+  if (existsSync(baseFile)) {
+    if (fixtureOnlyRun()) {
+      // PARSED, NOT MERGED. `processEnv: {}` sends dotenv's output to a throwaway
+      // object, so `process.env` is untouched; only the allowlisted keys are copied
+      // across, and only when the shell has not already set them.
+      const parsed = loadDotenv({ path: baseFile, processEnv: {} }).parsed ?? {};
+      dotenvTestEnv = parsed.TEST_ENV;
+      for (const [key, value] of Object.entries(parsed)) {
+        if (FIXTURE_SAFE_ENV_KEYS.has(key) && process.env[key] === undefined) {
+          process.env[key] = value;
+        }
+      }
+    } else {
+      dotenvTestEnv = loadDotenv({ path: baseFile }).parsed?.TEST_ENV;
+    }
+  }
 
   // Only now do we know which env-specific override file (if any) to layer
   // on top. override:true so a value here beats what the base .env set for
@@ -76,7 +139,18 @@ function ensureDotenv(): void {
   if (!envName) return;
   for (const file of [`.env.${envName}.local`, '.env.local']) {
     const full = path.join(repoRoot(), file);
-    if (existsSync(full)) loadDotenv({ path: full, override: true });
+    if (!existsSync(full)) continue;
+    // The override files get the same treatment, or the scrub above is a rule with a
+    // second door: `.env.local` is exactly where a developer puts the credential
+    // they did not want in `.env`.
+    if (fixtureOnlyRun()) {
+      const parsed = loadDotenv({ path: full, processEnv: {} }).parsed ?? {};
+      for (const [key, value] of Object.entries(parsed)) {
+        if (FIXTURE_SAFE_ENV_KEYS.has(key)) process.env[key] = value;
+      }
+    } else {
+      loadDotenv({ path: full, override: true });
+    }
   }
 }
 

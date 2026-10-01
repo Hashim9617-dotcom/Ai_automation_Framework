@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
 import type { FullConfig, FullResult, Suite } from '@playwright/test/reporter';
 import { describeTarget, type Run, type RunTarget } from '@aitp/shared';
 import { AitpReporter } from '@aitp/reporting-engine';
-import { resolveEnvName } from '@aitp/execution-engine';
+import { resolveEnvName, fixtureOnlyRun } from '@aitp/execution-engine';
 import config from '../../playwright.config';
 
 /**
@@ -105,6 +105,18 @@ test.describe('run.json records where a run went, not only what it was called @u
 
     expect(options?.target, 'aitp-reporter is configured without a target').toBeDefined();
     expect(options?.target?.baseUrl).toBe(config.use?.baseURL);
-    expect(options?.target?.environment).toBe(resolveEnvName());
+
+    // THE LABEL IS THE ENVIRONMENT THE CONFIG USED, not the ambient name.
+    //
+    // Those are the same thing for a live run and deliberately differ in a
+    // fixture-only one (SEC-3e): `pnpm test:unit` resolves no live environment, so
+    // the config pins the demo one while `TEST_ENV` may still say `app`. This test
+    // asserted `resolveEnvName()` and failed the moment that became true — and the
+    // reporter was the honest party: the run really was against the fixture surface.
+    //
+    // Asserting against the ambient name was itself the SEC-2 shape, one layer up: a
+    // label checked against a DIFFERENT source than the one that produced it.
+    const expectedLabel = fixtureOnlyRun() ? 'local' : resolveEnvName();
+    expect(options?.target?.environment).toBe(expectedLabel);
   });
 });

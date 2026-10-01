@@ -41,7 +41,11 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
-const env = { ...process.env, TEST_ENV: 'local' };
+// `AITP_FIXTURE_ONLY` is the flag `ensureDotenv` reads to parse `.env` instead of
+// merging it (SEC-3e). It is set HERE, at the invocation, because that is the only
+// layer that knows this is a fixture-only run: `globalSetup` is handed every project
+// whichever was selected (SEC-3a), and a worker cannot see its own project name.
+const env = { ...process.env, TEST_ENV: 'local', AITP_FIXTURE_ONLY: '1' };
 
 // Playwright's own CLI entry, run by this Node — not `npx`, whose Windows shim
 // is a `.cmd` that Node 24 refuses to spawn without a shell, and not a shell,

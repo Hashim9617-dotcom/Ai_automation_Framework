@@ -271,3 +271,94 @@ the config's reporters entirely**, so any run invoked that way writes no
   surfaced it; this is its requirement-5 hazard inverted, and the more dangerous
   direction.
 - SEC-1 above — same week, same source: a field nobody had classified as input.
+
+---
+
+## SEC-3e — the real `.env` was merged into every unit and demo worker
+
+### What was reachable
+
+`ensureDotenv()` loaded `.env` with `dotenv`'s default behaviour, which writes
+into `process.env`. `playwright.config.ts` calls it while the config loads, in
+the PARENT process, and every worker inherits that environment. So a run of
+`--project=unit` — no browser, no app, no network in its own description —
+carried this machine's live DMS password, its API key and the customer `BASE_URL`
+in the environment of all 573 tests.
+
+Measured with a probe spec inside the unit project, 2026-10-01:
+
+    PROBE added-by-ensureDotenv: (none)
+    PROBE real-keys-present: APP_PASSWORD,APP_USERNAME,BASE_URL,ANTHROPIC_API_KEY
+
+**Nothing was added by the time a test ran.** That is the finding: the keys were
+already there, so no fixture, no `beforeEach` and no amount of care inside a test
+could have removed them.
+
+### How it surfaced, which is the part worth keeping
+
+Not by audit. In M2 a test was written to prove that an unconfigured credential
+produces a named refusal — it deleted `APP_PASSWORD` and expected a throw. It did
+not throw, because `ensureDotenv()` put the real password straight back. The only
+reason this became visible is that the test's own expectation was the refusal: a
+test asserting anything else would have passed, quietly, against real
+credentials.
+
+> A convenience that fills in a missing value defeats every test whose subject is
+> the value being missing — and it defeats them in the direction that passes.
+
+### What changed
+
+- `pnpm test:unit` and `pnpm test:demo` set `AITP_FIXTURE_ONLY=1`. Both are
+  scripts (`scripts/test-unit.mjs`, `scripts/test-demo.mjs`) because
+  `VAR=1 playwright test` is a syntax error on Windows, which is where this repo
+  is developed.
+- In that mode `ensureDotenv()` PARSES `.env` into a throwaway object
+  (`loadDotenv({ path, processEnv: {} })`) and copies across only
+  `FIXTURE_SAFE_ENV_KEYS` — `TEST_ENV`, log and timeout settings, nothing that
+  names a credential or a host.
+- `playwright.config.ts` resolves no live environment in that mode. This was not
+  optional: with `.env` no longer merged, `loadEnvironment('app')` refused on
+  `${BASE_URL}` and took the whole unit suite down with `CONFIG_ERROR` before a
+  test ran. The refusal was right and the question was wrong — a fixture run has
+  no use for a live environment, and demanding one meant the unit suite could not
+  run on a machine with no customer credentials at all.
+- `AITP_FIXTURE_ONLY` joined `RUNNER_ONLY_VARS`, so a child spawned BY a fixture
+  run does not inherit it. `app-suite-scope.spec.ts` spawns Playwright to measure
+  what a LIVE project collects; with the flag inherited the child resolved no live
+  environment and collected nothing.
+
+### The layer that could fix it, and the three that could not
+
+| layer              | why not                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------ |
+| inside a test      | the environment is already set when the worker starts                                                  |
+| a fixture          | same                                                                                                   |
+| `globalSetup`      | SEC-3a: Playwright hands it every project whichever was selected, so it cannot tell the surfaces apart |
+| **the invocation** | knows what was asked for before anything loads                                                         |
+
+### How it is held
+
+`tests/unit/no-real-env.spec.ts`, three tests, both halves (§W):
+
+- ten named credential keys are absent from the worker's environment;
+- the fixture-safe keys still ARRIVE — a scrub that emptied everything would
+  satisfy the first test perfectly and break the suite, which is the
+  rule-that-refuses-everything check applied to an environment;
+- a SENTINEL defined only in a temporary root's `.env` does not reach
+  `process.env`. A key that exists nowhere else is the discriminating input: the
+  ten named ones above could be absent because this machine never set them.
+
+Both known-positives were demonstrated rather than assumed. Without the flag the
+first test says _"this run did not set AITP_FIXTURE_ONLY — use `pnpm test:unit`"_
+and the sentinel test says _"the sentinel from .env reached process.env — it was
+MERGED, not parsed"_.
+
+**Not structural against `npx playwright test --project=unit` typed by hand**,
+which sets no flag. That residue is named rather than left implied, and the guard
+closes it the only way vigilance works: by failing rather than by being read.
+
+### Related
+
+- SEC-2 above — the same shape with the target instead of the credentials: an
+  ambient value reaching a surface that had no business resolving it.
+- SEC-3a — why `globalSetup` is not the layer.

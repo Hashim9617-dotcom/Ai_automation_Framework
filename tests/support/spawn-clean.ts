@@ -66,6 +66,17 @@ export const RUNNER_ONLY_VARS = [
    * which can make a TypeScript source importable where only JS exists.
    */
   'NODE_OPTIONS',
+  /**
+   * Set by `test:unit` / `test:demo` so `.env` is parsed instead of merged (SEC-3e).
+   *
+   * It belongs here for exactly the reason the other two do: it describes HOW THIS
+   * RUN WAS INVOKED, and a child spawned for a different purpose must not inherit
+   * that. `app-suite-scope.spec.ts` spawns Playwright to check what a LIVE project
+   * collects; inheriting this flag put the child in fixture-only mode, so it resolved
+   * no live environment and collected nothing — a test about live collection, passing
+   * or failing on a fixture-mode child.
+   */
+  'AITP_FIXTURE_ONLY',
 ] as const;
 
 /**
@@ -112,7 +123,7 @@ export function spawnClean(
 export function spawnSyncClean(
   command: string,
   args: readonly string[],
-  options: CleanSpawnOptions & { maxBuffer?: number } = {},
+  options: CleanSpawnOptions & { maxBuffer?: number; input?: string } = {},
 ): { status: number | null; stdout: string; stderr: string } {
   const { env, ...rest } = options;
   const result = spawnSync(command, [...args], {

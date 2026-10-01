@@ -5,6 +5,7 @@ import type { AitpProjectOptions } from './packages/execution-engine/src/fixture
 import {
   ambientEnvName,
   authStatePath,
+  fixtureOnlyRun,
   loadEnvironment,
 } from './packages/execution-engine/src/config/environment';
 import { describeTarget } from './packages/shared/src/command/target';
@@ -33,7 +34,23 @@ const demoEnv = loadEnvironment('local');
  * live projects depend on.
  */
 const ambientName = ambientEnvName();
-const liveEnv = ambientName && ambientName !== 'local' ? loadEnvironment(ambientName) : undefined;
+/**
+ * A FIXTURE-ONLY RUN RESOLVES NO LIVE ENVIRONMENT.
+ *
+ * SEC-3e, and it is the half the flag could not fix on its own: with `.env` no longer
+ * merged, `loadEnvironment('app')` here refused on `${BASE_URL}` and took the whole
+ * unit suite with it — `CONFIG_ERROR: BASE_URL` before a single test ran.
+ *
+ * The refusal was correct and the question was wrong. A unit or demo run never uses
+ * `liveEnv`: it exists to give the live projects their `testMatch` and `storageState`,
+ * and `liveTestMatch` already handles `undefined` by matching nothing. So resolving it
+ * was work a fixture run had no reason to do — and doing it meant a unit suite could
+ * not run on a machine with no customer credentials at all.
+ */
+const liveEnv =
+  !fixtureOnlyRun() && ambientName && ambientName !== 'local'
+    ? loadEnvironment(ambientName)
+    : undefined;
 
 /** Values the config needs before any project is chosen. Fixture-safe. */
 const base = liveEnv ?? demoEnv;
