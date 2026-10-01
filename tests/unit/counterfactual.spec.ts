@@ -66,6 +66,9 @@ const COVERED = [
   // Added 2026-10-01 with the fix it describes, found by running the quickstart on a
   // fresh clone rather than by reading it.
   'tests/unit/triage-refusal.spec.ts',
+  // Added 2026-10-01 with the surface partition (K3), mutation-checked: removing the
+  // partition fails 2 of its 4, and the other 2 are the halves that must stay green.
+  'tests/unit/surface-partition.spec.ts',
 ];
 
 /**

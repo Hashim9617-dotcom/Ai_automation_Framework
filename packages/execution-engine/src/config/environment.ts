@@ -103,6 +103,20 @@ const FIXTURE_SAFE_ENV_KEYS = new Set([
 /** Is this a fixture-only invocation (`pnpm test:unit` / `pnpm test:demo`)? */
 export const fixtureOnlyRun = (): boolean => process.env.AITP_FIXTURE_ONLY === '1';
 
+/**
+ * The one environment name served by the bundled demo app rather than a real system.
+ *
+ * Exported because THREE places decide from it and they must not drift: the config
+ * pins the demo project to it, the config declines to resolve a live environment for
+ * it, and the Command Box lists its inventory on the fixture surface for it. A
+ * fourth place spelling `'local'` by hand is a verdict decided by a literal nobody
+ * can grep for (§AE).
+ */
+export const FIXTURE_ENV_NAME = 'local';
+
+/** Is this environment name the fixture one? */
+export const isFixtureEnv = (name: string | undefined): boolean => name === FIXTURE_ENV_NAME;
+
 function ensureDotenv(): void {
   if (dotenvLoaded) return;
   dotenvLoaded = true;

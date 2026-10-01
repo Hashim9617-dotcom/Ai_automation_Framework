@@ -59,11 +59,15 @@ APP_PASSWORD=<your DMS password>
 ## 4. Prove the install works — no app needed
 
 ```powershell
-pnpm.cmd test --project=unit
+pnpm.cmd test:unit
 ```
 
 This runs the bundled unit tests with no browser and no network. Green here means
 the monorepo, TypeScript paths and workspace links are all correct.
+
+Use `test:unit`, not `test --project=unit`: the unit project only exists in a
+fixture run, which is the one that keeps `.env` out of the workers (SEC-3e). The
+other form refuses and says so.
 
 ## 5. Run against DMS
 

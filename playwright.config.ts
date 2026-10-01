@@ -5,7 +5,9 @@ import type { AitpProjectOptions } from './packages/execution-engine/src/fixture
 import {
   ambientEnvName,
   authStatePath,
+  FIXTURE_ENV_NAME,
   fixtureOnlyRun,
+  isFixtureEnv,
   loadEnvironment,
 } from './packages/execution-engine/src/config/environment';
 import { describeTarget } from './packages/shared/src/command/target';
@@ -21,7 +23,7 @@ const isCI = Boolean(process.env.CI);
  * environment happened to be, and with `.env` holding `TEST_ENV=app` that was
  * the customer system.
  */
-const demoEnv = loadEnvironment('local');
+const demoEnv = loadEnvironment(FIXTURE_ENV_NAME);
 
 /**
  * The ambient environment, or `undefined` — deliberately NOT demanded here.
@@ -48,7 +50,7 @@ const ambientName = ambientEnvName();
  * not run on a machine with no customer credentials at all.
  */
 const liveEnv =
-  !fixtureOnlyRun() && ambientName && ambientName !== 'local'
+  !fixtureOnlyRun() && ambientName && !isFixtureEnv(ambientName)
     ? loadEnvironment(ambientName)
     : undefined;
 
@@ -115,6 +117,130 @@ if (liveEnv && !existsSync(path.join(__dirname, 'tests', 'apps', liveEnv.applica
 }
 
 /**
+ * THE FIXTURE SURFACE. No credential, no customer system, nothing beyond 4173.
+ *
+ * `demo` is pinned to `local`: its target is a literal in this file, so no ambient
+ * value can redirect it, and it does not depend on `live-setup` — so selecting it
+ * never runs the live sign-in. That absence is the point of SEC-3a, and it is
+ * checked by looking for the marker `live-setup` writes rather than by looking for
+ * nothing.
+ */
+const fixtureProjects = [
+  {
+    name: 'demo',
+    testMatch: '**/tests/demo/**/*.spec.ts',
+    use: {
+      ...devices['Desktop Chrome'],
+      // The pin, carried all the way to the tests: this is what the `env`
+      // fixture resolves, not whatever TEST_ENV says.
+      environmentName: FIXTURE_ENV_NAME,
+      baseURL: demoEnv.baseUrl,
+      actionTimeout: demoEnv.timeouts.action,
+      navigationTimeout: demoEnv.timeouts.navigation,
+      // The bundled app tests the login flow itself; a saved session would
+      // skip the thing under test.
+      storageState: undefined,
+    },
+  },
+  {
+    // Pure logic tests for the framework and platform code — no browser, no app.
+    name: 'unit',
+    testMatch: '**/unit/**/*.spec.ts',
+    use: {},
+  },
+];
+
+/** The live surface. Every one of these resolves the real environment. */
+const liveProjects = [
+  /**
+   * Every LIVE project depends on this, and only live projects do. It is where
+   * "no environment was named" becomes a refusal, because it is the first point in
+   * a run that knows a live surface was asked for.
+   */
+  {
+    name: 'live-setup',
+    testMatch: /live-setup.ts|auth.setup.ts/,
+    use: { storageState: undefined },
+  },
+
+  {
+    name: 'chromium',
+    testMatch: liveTestMatch,
+    dependencies: ['live-setup'],
+    use: {
+      ...devices['Desktop Chrome'],
+      ...(savedSession ? { storageState: savedSession } : {}),
+    },
+  },
+  {
+    name: 'firefox',
+    testMatch: liveTestMatch,
+    dependencies: ['live-setup'],
+    use: {
+      ...devices['Desktop Firefox'],
+      ...(savedSession ? { storageState: savedSession } : {}),
+    },
+  },
+  {
+    name: 'webkit',
+    testMatch: liveTestMatch,
+    dependencies: ['live-setup'],
+    use: {
+      ...devices['Desktop Safari'],
+      ...(savedSession ? { storageState: savedSession } : {}),
+    },
+  },
+  {
+    name: 'mobile-chrome',
+    testMatch: liveTestMatch,
+    dependencies: ['live-setup'],
+    use: { ...devices['Pixel 7'], ...(savedSession ? { storageState: savedSession } : {}) },
+  },
+  {
+    // API-only project: no browser is launched, tests use the `api` fixture.
+    //
+    // LIVE deliberately: `app-health.spec.ts` asks the application under test
+    // whether it is up, so this project reads the real environment. Its browserless
+    // half is reached by `test:api:internal`, which is what `pnpm verify` runs.
+    name: 'api',
+    testMatch: '**/api/**/*.spec.ts',
+    use: {},
+  },
+];
+
+/**
+ * A SENTENCE WHEN A FIXTURE PROJECT IS ASKED FOR BY THE WRONG COMMAND.
+ *
+ * Playwright already refuses — `Project(s) "unit" not found. Available projects:
+ * "live-setup", "chromium", …` — which is fail-closed and loud, and says nothing
+ * about what to type instead. Three commands in `docs/WHERE-WE-ARE.md` are exactly
+ * this, and so is habit.
+ *
+ * The decision is NOT taken here: this only prints. A name this misses still gets
+ * Playwright's refusal, so the hand-written list below can only degrade a message,
+ * never open a gate (§AE).
+ */
+if (!fixtureOnlyRun()) {
+  const requested = new Set<string>();
+  for (const [index, arg] of process.argv.entries()) {
+    if (arg.startsWith('--project=')) requested.add(arg.slice('--project='.length));
+    else if (arg === '--project') requested.add(process.argv[index + 1] ?? '');
+  }
+  for (const [name, command] of [
+    ['unit', 'pnpm test:unit'],
+    ['demo', 'pnpm test:demo'],
+  ] as const) {
+    if (!requested.has(name)) continue;
+    process.stderr.write(
+      `\nThe "${name}" project is not part of a live run, by design: a run that resolves the\n` +
+        `real environment merges .env into every worker, and the fixture surface has no use\n` +
+        `for a live credential (SEC-3e).\n` +
+        `  Run \`${command}\` instead — same tests, with .env parsed rather than merged.\n\n`,
+    );
+  }
+}
+
+/**
  * One config, every environment. Environment-specific values (URLs, timeouts,
  * retries, workers, feature flags) come from config/env/<TEST_ENV>.json so this
  * file never needs to change when a new environment is added.
@@ -164,97 +290,47 @@ export default defineConfig<AitpProjectOptions>({
     timezoneId: 'Asia/Dubai',
   },
 
-  projects: [
-    /**
-     * THE FIXTURE PROJECT. Pinned to `local`, and depends on nothing.
-     *
-     * Its target is a literal in this file, so no ambient value can redirect
-     * it, and it does not depend on `live-setup` — so selecting it never runs
-     * the live sign-in. That absence is the point of SEC-3a, and it is checked
-     * by looking for the marker `live-setup` writes rather than by looking for
-     * nothing.
-     */
-    {
-      name: 'demo',
-      testMatch: '**/tests/demo/**/*.spec.ts',
-      use: {
-        ...devices['Desktop Chrome'],
-        // The pin, carried all the way to the tests: this is what the `env`
-        // fixture resolves, not whatever TEST_ENV says.
-        environmentName: 'local',
-        baseURL: demoEnv.baseUrl,
-        actionTimeout: demoEnv.timeouts.action,
-        navigationTimeout: demoEnv.timeouts.navigation,
-        // The bundled app tests the login flow itself; a saved session would
-        // skip the thing under test.
-        storageState: undefined,
-      },
-    },
-
-    /**
-     * Every LIVE project depends on this, and only live projects do. It is
-     * where "no environment was named" becomes a refusal, because it is the
-     * first point in a run that knows a live surface was asked for.
-     */
-    {
-      name: 'live-setup',
-      testMatch: /live-setup.ts|auth.setup.ts/,
-      use: { storageState: undefined },
-    },
-
-    {
-      name: 'chromium',
-      testMatch: liveTestMatch,
-      dependencies: ['live-setup'],
-      use: {
-        ...devices['Desktop Chrome'],
-        ...(savedSession ? { storageState: savedSession } : {}),
-      },
-    },
-    {
-      name: 'firefox',
-      testMatch: liveTestMatch,
-      dependencies: ['live-setup'],
-      use: {
-        ...devices['Desktop Firefox'],
-        ...(savedSession ? { storageState: savedSession } : {}),
-      },
-    },
-    {
-      name: 'webkit',
-      testMatch: liveTestMatch,
-      dependencies: ['live-setup'],
-      use: {
-        ...devices['Desktop Safari'],
-        ...(savedSession ? { storageState: savedSession } : {}),
-      },
-    },
-    {
-      name: 'mobile-chrome',
-      testMatch: liveTestMatch,
-      dependencies: ['live-setup'],
-      use: { ...devices['Pixel 7'], ...(savedSession ? { storageState: savedSession } : {}) },
-    },
-    {
-      // API-only project: no browser is launched, tests use the `api` fixture.
-      name: 'api',
-      testMatch: '**/api/**/*.spec.ts',
-      use: {},
-    },
-    {
-      // Pure logic tests for the framework and platform code — no browser, no app.
-      name: 'unit',
-      testMatch: '**/unit/**/*.spec.ts',
-      use: {},
-    },
-  ],
+  /**
+   * THE TWO SURFACES ARE NEVER IN THE SAME RUN (SEC-3e, second half).
+   *
+   * A bare `pnpm test` collected 575 unit and 24 demo tests alongside the live ones.
+   * It HAS to resolve the real environment for the live projects, so it merges
+   * `.env` into every worker — and the fixture projects were in that run, carrying
+   * the live DMS password and API key into tests that have no use for either. The
+   * invocation flag fixed `pnpm test:unit`; it could not fix an invocation that
+   * legitimately needs the live surface.
+   *
+   * So the flag partitions the PROJECT LIST, and the two sets are disjoint by
+   * construction. No invocation can mix them, including one typed by hand — which
+   * is the residue named when the flag was added, now closed.
+   *
+   * ## Why here and not in `package.json`
+   *
+   * The obvious fix is `playwright test --project=chromium --project=firefox …` in
+   * the `test` script. Measured before writing it, and it is wrong: Playwright
+   * ACCUMULATES repeated `--project` flags, so `pnpm test --project=chromium` —
+   * four commands in `docs/dms-suite.md` and five in `WHERE-WE-ARE.md` — would have
+   * run every live project instead of chromium. Negation would have expressed it,
+   * and 1.62.1 does not have it:
+   *
+   *     Error: Project(s) "!unit", "!demo" not found.
+   *
+   * Partitioning here costs those nine commands nothing.
+   */
+  projects: fixtureOnlyRun() ? fixtureProjects : liveProjects,
 
   // Serves the bundled demo app for the pinned `demo` project. Started from the
   // pinned URL, not from whatever the ambient environment resolved to.
-  webServer: {
-    command: 'node scripts/serve-demo.mjs',
-    url: `${demoEnv.baseUrl}/login`,
-    reuseExistingServer: !isCI,
-    timeout: 30_000,
-  },
+  //
+  // ONLY for a fixture run, now that a live run cannot contain the demo project:
+  // starting a server for a project that is not in the list is work nobody asked
+  // for, and it binds port 4173 on a machine running a live suite.
+  webServer: fixtureOnlyRun()
+    ? {
+        command: 'node scripts/serve-demo.mjs',
+        url: `${demoEnv.baseUrl}/login`,
+        reuseExistingServer: !isCI,
+        timeout: 30_000,
+      }
+    : undefined,
 });

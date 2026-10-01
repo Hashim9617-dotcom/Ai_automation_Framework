@@ -567,7 +567,7 @@ prompt, `TestCaseProposal`, and `pnpm generate:review`).
 To confirm the rest of the platform too:
 
 ```powershell
-pnpm.cmd test --project=unit      # 46 tests, no browser, no network
+pnpm.cmd test:unit                # 580 tests, no browser, no network
 pnpm.cmd eval:healing             # 7/7, needs ANTHROPIC_API_KEY
 pnpm.cmd test --project=chromium  # 42/0/0/4, needs a session + the real app
 ```
@@ -588,7 +588,7 @@ pnpm.cmd exec playwright install --with-deps chromium
 copy .env.example .env
 notepad .env       # fill in the variables below, then save
 
-pnpm.cmd test --project=unit      # sanity check — no browser, no network
+pnpm.cmd test:unit                # sanity check — no browser, no network
 pnpm.cmd auth                     # interactive login, saves a session
 pnpm.cmd test --project=chromium --grep @smoke
 ```
@@ -604,7 +604,7 @@ skip its "there is no git remote" section, that part's done).
 | To run                                                           | Needs                                                                                       |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `pnpm eval:generation` (the four-mistake fixture)                | **nothing** — offline, deterministic, no key, no session                                    |
-| `pnpm test --project=unit`                                       | **nothing**                                                                                 |
+| `pnpm test:unit`                                                 | **nothing**                                                                                 |
 | `pnpm inspect` against the real app (P2 captures)                | `TEST_ENV`, `BASE_URL`, `APP_USERNAME`, `APP_PASSWORD`                                      |
 | `pnpm eval:healing`, `pnpm heal`, `pnpm rca`, and P3's generator | the above plus `LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `LLM_MODEL_REASONING`, `LLM_MODEL_FAST` |
 

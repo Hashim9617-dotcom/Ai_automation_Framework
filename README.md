@@ -71,13 +71,20 @@ pnpm install
 pnpm exec playwright install --with-deps chromium   # add firefox/webkit when you need them
 cp .env.example .env
 
-pnpm test                # runs the sample suite against the bundled demo app
+pnpm test:demo           # runs the sample suite against the bundled demo app
+pnpm test:unit           # the platform's own logic tests
 pnpm test:report         # open the Playwright HTML report
 ```
 
-`pnpm test` works on a fresh clone with no VPN and no credentials: the repo ships
-a tiny demo HR app (`tests/demo-app/`) that Playwright starts automatically. Point
-`config/env/qa.json` at your real application when you are ready.
+`pnpm test:demo` works on a fresh clone with no VPN and no credentials: the repo
+ships a tiny demo HR app (`tests/demo-app/`) that Playwright starts automatically.
+Point `config/env/qa.json` at your real application when you are ready.
+
+**`pnpm test` is the LIVE suite** and needs a configured environment and
+credentials — it collects no demo or unit test. The two surfaces are separate
+invocations on purpose: a live run has to resolve the real environment, which
+merges `.env` into every worker it starts, and the fixture surface has no use for
+a live credential (SEC-3e in [`docs/security-findings.md`](docs/security-findings.md)).
 
 Run the orchestration API:
 
@@ -185,7 +192,7 @@ page. All of it lands inside `run.json`.
 Analysis is a **separate pass**, so a failing run never waits on a model:
 
 ```bash
-pnpm test          # run the suite
+pnpm test          # run the live suite
 pnpm rca           # analyze the failures, update run.json + summary.html
 ```
 

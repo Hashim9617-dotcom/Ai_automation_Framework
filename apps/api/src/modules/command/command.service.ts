@@ -288,34 +288,33 @@ export class CommandService {
     if (cached) return cached;
 
     try {
-      const { stdout } = await execFileAsync(
-        process.execPath,
-        [require.resolve('@playwright/test/cli'), 'test', '--list', '--reporter=json'],
-        {
-          cwd: this.repoRoot,
-          maxBuffer: 20 * 1024 * 1024,
-          // LIST FOR THE ENVIRONMENT THE CALLER ASKED FOR.
-          //
-          // `playwright.config.ts` chooses which tests exist from TEST_ENV:
-          // `local` ignores `tests/app/**`, anything else ignores
-          // `tests/demo/**`. Inheriting the API's own TEST_ENV therefore
-          // answered a request for `local` with the DMS suite — and had a
-          // match been found, a test written for a customer system would have
-          // been run against the demo app.
-          //
-          // The inventory is a function of the environment, so it is cached per
-          // environment rather than once per process.
-          env: { ...process.env, TEST_ENV: environment },
-        },
-      );
+      // BOTH SURFACES, OR NEITHER.
+      //
+      // `playwright.config.ts` partitions its projects on `AITP_FIXTURE_ONLY`
+      // (SEC-3e): a live listing holds no unit or demo test, and a fixture listing
+      // holds nothing else. Listing once would silently drop 599 tests from the
+      // corpus — and a smaller corpus does not fail, it answers "no existing test
+      // matched" more often and less truthfully, which is this service's one job
+      // not to do.
+      //
+      // Measured when the partition landed: `CB4` went from `existing` to `none`,
+      // because a request for `local` was answered from the live surface where the
+      // demo project no longer exists.
+      const listings = await Promise.all([
+        this.listOnSurface(environment, false),
+        this.listOnSurface(environment, true),
+      ]);
 
-      const parsed = JSON.parse(extractJsonObject(stdout)) as {
-        suites?: Array<Record<string, unknown>>;
-      };
-      // --list emits one entry per project, so the same test appears N times.
+      // --list emits one entry per project, so the same test appears N times, and
+      // across the two surfaces as well.
       const deduped = new Map<string, InventoryEntry>();
-      for (const entry of flattenSuites(parsed.suites ?? [])) {
-        deduped.set(`${entry.file}::${entry.title}`, entry);
+      for (const stdout of listings) {
+        const parsed = JSON.parse(extractJsonObject(stdout)) as {
+          suites?: Array<Record<string, unknown>>;
+        };
+        for (const entry of flattenSuites(parsed.suites ?? [])) {
+          deduped.set(`${entry.file}::${entry.title}`, entry);
+        }
       }
       const inventory = [...deduped.values()];
 
@@ -328,6 +327,35 @@ export class CommandService {
       this.logger.error(`Could not list tests: ${(error as Error).message}`);
       return null;
     }
+  }
+
+  /**
+   * One `--list`, on one surface, for the environment the caller asked for.
+   *
+   * Two things are passed rather than inherited, and both were findings:
+   *
+   * - `TEST_ENV`, because `playwright.config.ts` chooses which tests EXIST from it.
+   *   Inheriting the API's own answered a request for `local` with the DMS suite,
+   *   and a match would have run a customer system's test against the demo app.
+   * - `AITP_FIXTURE_ONLY`, which now decides the same question one level up — the
+   *   projects themselves. It is set or DELETED here, never left to whatever
+   *   started the API: an inherited `1` would make every live listing empty.
+   *
+   * A rejection propagates. Half a corpus reported as a whole one is the empty-result
+   * failure in a costume — the caller cannot tell a narrowed search from a complete
+   * one, so the caller is told nothing at all instead.
+   */
+  private async listOnSurface(environment: string, fixtureSurface: boolean): Promise<string> {
+    const env: NodeJS.ProcessEnv = { ...process.env, TEST_ENV: environment };
+    if (fixtureSurface) env.AITP_FIXTURE_ONLY = '1';
+    else delete env.AITP_FIXTURE_ONLY;
+
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [require.resolve('@playwright/test/cli'), 'test', '--list', '--reporter=json'],
+      { cwd: this.repoRoot, maxBuffer: 20 * 1024 * 1024, env },
+    );
+    return stdout;
   }
 }
 

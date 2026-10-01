@@ -137,6 +137,41 @@ ${output.slice(-2000)}`);
     expect(matched.every((entry) => entry.title.includes('demo'))).toBe(true);
   });
 
+  test('CB4b: the inventory spans BOTH surfaces, or it is a smaller corpus in silence', async () => {
+    // wrong: the corpus holds only the fixture surface — every DMS spec missing —
+    // and nothing says so. A narrowed corpus does not fail: it answers "no existing
+    // test matched" more often and less truthfully, which is the empty-result
+    // failure this service exists to avoid, wearing a costume.
+    //
+    // Measured, which is why this test exists: `playwright.config.ts` now partitions
+    // its projects on AITP_FIXTURE_ONLY (SEC-3e), so ONE listing can never see both.
+    // With the live listing dropped, all 8 api tests still passed — CB3 and CB4 both
+    // ask about `local`, where the fixture half answers everything.
+    const local = await post({
+      command: 'test the notification preferences drawer',
+      environment: 'local',
+      dryRun: true,
+    });
+    const live = await post({
+      command: 'test the notification preferences drawer',
+      environment: 'app',
+      dryRun: true,
+    });
+
+    const countFor = (body: Record<string, unknown>): number =>
+      (body.searched as { existingTests: number }).existingTests;
+
+    // The unit and demo projects alone are ~600 tests; the live surface adds the DMS
+    // specs on top. A threshold rather than an equality, because both suites grow —
+    // but high enough that a single-surface corpus cannot reach it: a live-only
+    // listing is ~192 and a fixture-only one has no DMS spec at all.
+    expect(countFor(local)).toBeGreaterThan(0);
+    expect(
+      countFor(live),
+      'the corpus for a live environment is missing a surface',
+    ).toBeGreaterThan(countFor(local));
+  });
+
   test('CB5: no request body can turn ALLOW_WRITES on', async () => {
     // wrong: a field that reaches the runner lets an HTTP caller create records
     // in a live customer system — the one flag this project has never set, and
