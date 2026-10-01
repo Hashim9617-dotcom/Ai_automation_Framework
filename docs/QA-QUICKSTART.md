@@ -1,21 +1,29 @@
 # QA quickstart
 
-> ## This kit is for DMS only (for now)
+> ## This kit is for DMS + new applications (see [ADD-AN-APPLICATION.md](ADD-AN-APPLICATION.md))
 >
-> The Playwright specs under `tests/apps/dms/` were written against DmsSynergy — its
-> sidebar, its upload wizard, its admin screens. Point the platform at a different
-> application and `pnpm test` collects **no** specs for it and says so:
+> **DMS works out of the box.** The Playwright specs under `tests/apps/dms/` were
+> written against DmsSynergy — its sidebar, its upload wizard, its admin screens —
+> and they stay there. Point the platform at a different application and `pnpm test`
+> collects **no** specs for it and says so:
 >
 > ```
 > No specs for application "acme": tests/apps/acme/ does not exist.
 > ```
 >
-> That is deliberate, and it is new. Before it, any non-DMS environment collected
-> all 47 DMS tests and would have run DMS's page objects against your application.
+> That is the protection, not a limitation. Before it, any non-DMS environment
+> collected all 47 DMS tests and would have run DMS's page objects — `@write` tests
+> included — against your application.
 >
-> `pnpm auth`, `pnpm inspect`, `pnpm triage` and `pnpm verify` are not
-> DMS-specific and work against any target. Adding a second application means creating `tests/apps/<name>/` and `config/apps/<name>/` —
-> its own specs, its own captures — is separate work that has not been done.
+> **A second application is now a supported thing to add**, and it is data, not code:
+> an environment file, `config/apps/<name>/`, `tests/apps/<name>/`, and its own
+> captures under `artifacts/<name>/`. Every tool takes an explicit `--app`, every
+> interactive tool prints the application, environment and host it resolved before it
+> does anything. [ADD-AN-APPLICATION.md](ADD-AN-APPLICATION.md) is the page for that;
+> follow this one first.
+>
+> `pnpm auth`, `pnpm inspect`, `pnpm triage` and `pnpm verify` are not DMS-specific
+> and work against any target.
 
 This is the short version for a QA joining the project on Windows. It gets you to
 four things you can run today:
