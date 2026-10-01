@@ -236,6 +236,22 @@ pnpm test:ui         # Playwright's interactive runner
 `pnpm test` and everything below it obey `TEST_ENV`. With `TEST_ENV=app` they run
 against the customer system and need your credentials.
 
+**A bare `pnpm test` on a machine with no `.env` is EXPECTED to fail**, and it is
+worth knowing which failures are the expected ones, because they look alarming.
+Measured on a fresh clone with no environment configured — 6 failed, 605 passed:
+
+| what fails                                            | why                                                                                                                                 |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `live-setup` × 2 (`authenticate`, "named explicitly") | no environment was named and no credentials exist. This is the refusal working.                                                     |
+| `app-health` × 2                                      | there is no live application to answer.                                                                                             |
+| `no-real-env` × 2                                     | `pnpm test` includes the live projects, so it resolves the real environment and merges `.env` into **every** worker, unit included. |
+
+The last row is the thing to understand rather than work around: the logic tests
+are kept clear of real credentials by the INVOCATION (`pnpm test:unit`), and a run
+that also has to serve live projects cannot be. **Run `pnpm test:unit` for the logic
+tests and `pnpm test` when you mean the application.** Four of the six failed the
+same way before any of this existed.
+
 Tests that would CREATE data are tagged `@write` and are **skipped** unless an
 environment variable is set deliberately. A normal run never creates a record. Leave
 it that way.

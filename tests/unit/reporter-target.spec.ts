@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
 import type { FullConfig, FullResult, Suite } from '@playwright/test/reporter';
 import { describeTarget, type Run, type RunTarget } from '@aitp/shared';
 import { AitpReporter } from '@aitp/reporting-engine';
-import { resolveEnvName, fixtureOnlyRun } from '@aitp/execution-engine';
+import { ambientEnvName, fixtureOnlyRun } from '@aitp/execution-engine';
 import config from '../../playwright.config';
 
 /**
@@ -116,7 +116,21 @@ test.describe('run.json records where a run went, not only what it was called @u
     //
     // Asserting against the ambient name was itself the SEC-2 shape, one layer up: a
     // label checked against a DIFFERENT source than the one that produced it.
-    const expectedLabel = fixtureOnlyRun() ? 'local' : resolveEnvName();
+    // `ambientEnvName()` and not `resolveEnvName()`, which REFUSES when no environment
+    // is named. Measured on a fresh clone with no `.env`, where that refusal made this
+    // test red for a reason with nothing to do with its property:
+    //
+    //     ConfigError: refusing to run: no environment was named.
+    //
+    // The refusal is right and the question was wrong — the same mistake as
+    // `no-real-env.spec.ts`'s second half, in a test that predates it. A guard must not
+    // require the machine to be configured to say what the config did.
+    //
+    // The three cases the config itself distinguishes, in its own order: fixture-only
+    // pins the demo environment; no ambient name, or `local`, resolves no live
+    // environment and so also lands on the demo one; anything else IS the live name.
+    const ambient = ambientEnvName();
+    const expectedLabel = fixtureOnlyRun() || !ambient || ambient === 'local' ? 'local' : ambient;
     expect(options?.target?.environment).toBe(expectedLabel);
   });
 });
