@@ -1,0 +1,41 @@
+{
+  "//": "DERIVED from the captures on disk, not written by hand. Each route is a path a capture actually recorded, and each provenBy is a heading that capture actually holds — computed by scratch/derive-module-map.ts over 98 captured states in 10 sessions under artifacts/dms/inspect/ on 2026-10-01. Only modules with a capture are here: a map entry nobody can prove fails row by row later, and assertProvenByInCapture refuses the whole run for one. The modules NOT here are listed in //notMapped below, by name, because a missing entry is otherwise indistinguishable from an oversight.",
+  "//checkByEye": "Two entries need a human's judgement and are flagged rather than trusted. 'File Explorer' and 'Document' both resolve to /files, whose first captured heading is 'Shared with me' — that is a TAB within the screen, not the screen's own title, and the derivation took the first heading it found. If /files can be reached with a different tab active, this provenBy will fail there and report given-not-reached. The same question applies to 'Permissions', which shares /admin/user-roles with 'User Role' deliberately (it is a tab) and therefore shares its heading.",
+  "//notMapped": "Seven modules are absent, for two different reasons. SKIPPED BY DECISION (captures exist, deliberately unpaired — dev update in progress, 2026-09-28): Workflow, Login. NO CAPTURE YET (somebody has to walk the screen): Document Template Categories, User Group, Policy agent, Notification, Audit Logs. The reasons live in module-routes.json beside the pairings; this note exists so a reader of the MAP can see the gap without opening another file.",
+  "Dashboard": {
+    "route": "/dashboard",
+    "provenBy": { "role": "heading", "name": "Dashboard" }
+  },
+  "File Explorer": {
+    "route": "/files",
+    "provenBy": { "role": "heading", "name": "Shared with me" }
+  },
+  "Document": {
+    "route": "/files",
+    "provenBy": { "role": "heading", "name": "Shared with me" }
+  },
+  "Global search": {
+    "route": "/search",
+    "provenBy": { "role": "heading", "name": "Global search" }
+  },
+  "User": {
+    "route": "/admin/users",
+    "provenBy": { "role": "heading", "name": "Users" }
+  },
+  "User Role": {
+    "route": "/admin/user-roles",
+    "provenBy": { "role": "heading", "name": "User role" }
+  },
+  "user role": {
+    "route": "/admin/user-roles",
+    "provenBy": { "role": "heading", "name": "User role" }
+  },
+  "Bulk upload": {
+    "route": "/bulk-upload",
+    "provenBy": { "role": "heading", "name": "Synergy DMS Bulk Upload Wizard" }
+  },
+  "Permissions": {
+    "route": "/admin/user-roles",
+    "provenBy": { "role": "heading", "name": "User role" }
+  }
+}

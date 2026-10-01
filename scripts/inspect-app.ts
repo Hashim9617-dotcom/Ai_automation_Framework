@@ -610,7 +610,10 @@ async function main(): Promise<void> {
       `Report:    ${path.relative(process.cwd(), reportPath)}`,
       `Raw data:  ${path.relative(process.cwd(), jsonPath)}`,
       '',
-      `Kept ${retained} capture(s) under artifacts/inspect/` +
+      // The REAL path, not the old one. This said `artifacts/inspect/` while writing
+      // to `artifacts/<application>/inspect/` — a message that contradicts the file
+      // it just produced, and the kind of thing nobody re-reads after a rename.
+      `Kept ${retained} capture(s) under ${path.relative(process.cwd(), inspectRoot)}` +
         (pruned.length > 0 ? `; pruned ${pruned.length} beyond the newest ${MAX_CAPTURES}` : '') +
         '.',
       ...closingAdvice(env.application),

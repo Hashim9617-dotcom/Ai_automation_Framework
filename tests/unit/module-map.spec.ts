@@ -80,6 +80,56 @@ test.describe('the module map loads, or says what to fix (MM1) @unit', () => {
     for (const entry of Object.values(map)) expect(entry.route.startsWith('/')).toBe(true);
   });
 
+  test('MM1: the DERIVED map for the customer application loads too', () => {
+    // wrong: the derived file is invalid and nobody finds out until a run needs it —
+    // and `runSheet` has no production caller yet, so "nobody" could be months.
+    //
+    // It is a separate test from the demo map above because the two are different
+    // claims: that one is an example a QA copies, this one is computed from real
+    // captures and is the file a DMS run would actually load.
+    const map = loadModuleMap(
+      path.join(findRepoRoot(), 'config', 'apps', 'dms', 'module-map.json'),
+    );
+
+    expect(Object.keys(map).length).toBeGreaterThan(5);
+    for (const [module, entry] of Object.entries(map)) {
+      expect(entry.route.startsWith('/'), `${module} route`).toBe(true);
+      expect(entry.provenBy.name.trim().length, `${module} provenBy`).toBeGreaterThan(0);
+    }
+    // The comment keys that record the derivation are NOT modules.
+    expect(Object.keys(map).filter((k) => k.startsWith('//'))).toEqual([]);
+  });
+
+  test('MM1: a `//` key is a comment, and a malformed entry still refuses', () => {
+    // wrong: the skip rule is written as "ignore anything that fails validation", so
+    // a genuinely broken entry is swallowed and the module silently goes unmapped —
+    // which `assertEveryModuleMapped` then reports as a sheet problem.
+    //
+    // Both halves, in one fixture: the comment is skipped and the bad entry is not.
+    const withComment = write({
+      '//': 'why this map looks the way it does',
+      '//checkByEye': 'another note',
+      Dashboard: { route: '/dashboard', provenBy: { role: 'heading', name: 'Dashboard' } },
+    });
+    const map = loadModuleMap(withComment);
+    expect(Object.keys(map)).toEqual(['Dashboard']);
+
+    const withBadEntry = write({
+      '//': 'a note',
+      Dashboard: 'not an object',
+    });
+    expect(() => loadModuleMap(withBadEntry)).toThrow(/module "Dashboard"/);
+  });
+
+  test('MM1: a map of ONLY comments is refused, not read as empty', () => {
+    // wrong: the filter drops every key and the emptiness check passes a map with
+    // nothing in it — the `catch`-returns-empty shape, where a file that explains
+    // itself and defines nothing reads as a valid map.
+    expect(() => loadModuleMap(write({ '//': 'all notes, no modules' }))).toThrow(
+      /has no modules in it/,
+    );
+  });
+
   test('MM1: a map with no modules in it is refused', () => {
     // wrong: an empty map validates perfectly, and then every module in the
     // sheet is unmapped — a file that says nothing reads as a file that agrees.

@@ -88,7 +88,25 @@ export function loadModuleMap(file: string): ModuleMap {
     );
   }
 
-  const entries = Object.entries(raw as Record<string, unknown>);
+  /**
+   * A key starting `//` is a COMMENT, not a module, and is skipped.
+   *
+   * The convention already exists in `config/env/local.json` and `app.json`, and a
+   * map needs it more than they do: the derived DMS map has to record which captures
+   * it was computed from, which two entries a human should check by eye, and — most
+   * importantly — WHICH MODULES ARE ABSENT AND WHY. A missing entry is otherwise
+   * indistinguishable from an oversight, and `assertEveryModuleMapped` refuses the
+   * whole run for one, so the reason belongs beside the map rather than in a doc
+   * somebody has to know to open.
+   *
+   * No module in the sheet's Module column starts with a slash, so nothing real is
+   * excluded. A malformed entry under any other key still refuses, which the test
+   * for this asserts as its other half — a skip rule that swallowed bad entries
+   * would be worse than no comments.
+   */
+  const entries = Object.entries(raw as Record<string, unknown>).filter(
+    ([key]) => !key.startsWith('//'),
+  );
   // Asserts its own effect: an empty map would otherwise validate perfectly and
   // then leave every module unmapped at the next step.
   if (entries.length === 0) {
