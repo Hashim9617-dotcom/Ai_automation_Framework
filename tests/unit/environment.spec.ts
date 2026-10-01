@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
@@ -7,6 +15,7 @@ import {
   describeEnvNameSource,
   loadEnvironment,
   resolveEnvName,
+  requireUser,
   resetEnvironmentCache,
 } from '@aitp/execution-engine';
 
@@ -265,6 +274,87 @@ test.describe('a committed environment file defaults no credential @unit', () =>
     expect(() => loadEnvironment('qa')).toThrow(/QA_ADMIN_USER/);
   });
 
+  test('app: with the variables SET, the primary user resolves', () => {
+    // wrong: the placeholders are misspelled, so this refuses too — and then the
+    // refusal below proves nothing, because a file that can never resolve refuses
+    // for every input.
+    process.env.APP_USERNAME = 'someone@example.invalid';
+    process.env.APP_PASSWORD = 'not-a-real-password';
+    process.env.BASE_URL = 'https://example.invalid';
+
+    const env = loadEnvironment('app');
+    expect(requireUser(env, 'admin').username).toBe('someone@example.invalid');
+  });
+
+  test('app: with the primary password UNSET it REFUSES, naming the variable', () => {
+    // wrong: `${APP_PASSWORD:-}` resolves to a blank the schema accepts, so the run
+    // reaches a login attempt and fails on the login page — which reads as a wrong
+    // password when the truth is that nobody said what the password was.
+    //
+    // THE COMMITTED FILE, COPIED INTO A ROOT WITH NO `.env`. A first draft deleted
+    // `process.env.APP_PASSWORD` and the test did not throw: `ensureDotenv()` merges
+    // this machine's `.env` — which holds the real DMS credentials — so the variable
+    // came straight back. "The environment is part of the test" exactly; a developer
+    // with the variable set could never have seen this refusal.
+    const isolated = mkdtempSync(path.join(tmpdir(), 'aitp-app-unset-'));
+    try {
+      writeFileSync(path.join(isolated, 'pnpm-workspace.yaml'), '');
+      mkdirSync(path.join(isolated, 'config', 'env'), { recursive: true });
+      copyFileSync(
+        path.join(process.cwd(), 'config', 'env', 'app.json'),
+        path.join(isolated, 'config', 'env', 'app.json'),
+      );
+      process.env.AITP_REPO_ROOT = isolated;
+      process.env.BASE_URL = 'https://example.invalid';
+      process.env.APP_USERNAME = 'someone@example.invalid';
+      delete process.env.APP_PASSWORD;
+      resetEnvironmentCache();
+
+      expect(() => loadEnvironment('app')).toThrow(/APP_PASSWORD/);
+      expect(() => loadEnvironment('app')).toThrow(/required but not set/);
+    } finally {
+      rmSync(isolated, { recursive: true, force: true });
+    }
+  });
+
+  test('app: a SECOND role is absent, and asking for it names the variables', () => {
+    // wrong: `user` is defined as `${APP_USER2_USERNAME:-}`, so it exists with blank
+    // credentials and a test that wants it gets `''` — then signs in with nothing.
+    //
+    // The two refusals are different sentences on purpose: "the role is absent from
+    // the file" and "the role is there and its password is blank" send a reader to
+    // two different places, and one message for both sends half of them to the
+    // wrong one.
+    process.env.APP_USERNAME = 'someone@example.invalid';
+    process.env.APP_PASSWORD = 'not-a-real-password';
+    process.env.BASE_URL = 'https://example.invalid';
+    const env = loadEnvironment('app');
+
+    expect(env.users.user, 'app.json must not define a blank second role').toBeUndefined();
+    expect(() => requireUser(env, 'user')).toThrow(/defines no "user" user/);
+    expect(() => requireUser(env, 'user')).toThrow(/APP_USER_USERNAME/);
+    // The other half: the role that IS configured comes back.
+    expect(requireUser(env, 'admin').role).toBe('admin');
+  });
+
+  test('a BLANK credential is refused even when the role exists', () => {
+    // wrong: only the absent case is checked, so a QA who adds the role and leaves
+    // one variable unset is back to signing in with a blank — the exact failure the
+    // empty defaults caused, re-entered through the fix for them.
+    //
+    // A synthetic environment, because no committed file defines a blank any more —
+    // which is the point, and is why this case needs a fixture to exist at all.
+    const blank = {
+      name: 'fixture',
+      application: 'fixture',
+      baseUrl: 'https://example.invalid',
+      users: { tester: { username: 'someone', password: '   ', role: 'user' } },
+    } as unknown as Parameters<typeof requireUser>[0];
+
+    expect(() => requireUser(blank, 'tester')).toThrow(/password is BLANK/);
+    expect(() => requireUser(blank, 'tester')).toThrow(/APP_TESTER_PASSWORD/);
+  });
+
   test('no committed environment file defaults a credential', () => {
     // wrong: the two placeholders in `qa.json` are fixed and the next file to grow
     // one is not noticed — which is how these arrived. This reads the files, so it
@@ -282,7 +372,10 @@ test.describe('a committed environment file defaults no credential @unit', () =>
     ).toBeGreaterThan(2);
 
     /** Known, and separate: an empty default is a blank credential, not a wrong one. */
-    const EMPTY_DEFAULT_ALLOWED = new Set(['app.json']);
+    // EMPTY for the first time: app.json's four  defaults are gone, so no
+    // committed file defaults a credential in either shape. An allow-list that
+    // outlives its reason silently widens the hole.
+    const EMPTY_DEFAULT_ALLOWED = new Set<string>();
 
     const offenders: string[] = [];
     for (const file of files) {

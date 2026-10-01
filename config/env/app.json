@@ -12,16 +12,12 @@
   },
   "retries": 1,
   "workers": 4,
+  "//users": "The primary user is REQUIRED and has no default, so an unset variable refuses by name. It was an EMPTY default, which resolved to a blank the schema accepts — an unconfigured run then reached a login attempt and failed as though the password were wrong. A second role is OPTIONAL and is therefore ABSENT rather than blank: add a \"user\" entry here naming APP_USER2_USERNAME and APP_USER2_PASSWORD when you have one. Nothing reads it today (measured 2026-10-01: only users.admin is read anywhere), and a test that asks for a role this file does not define is refused by name via requireUser(). NOTE: this comment must not spell a placeholder in ${...} form — interpolate() walks every string value in this file, including this one, and would try to resolve it.",
   "users": {
     "admin": {
-      "username": "${APP_USERNAME:-}",
-      "password": "${APP_PASSWORD:-}",
+      "username": "${APP_USERNAME}",
+      "password": "${APP_PASSWORD}",
       "role": "admin"
-    },
-    "user": {
-      "username": "${APP_USER2_USERNAME:-}",
-      "password": "${APP_USER2_PASSWORD:-}",
-      "role": "user"
     }
   },
   "features": {

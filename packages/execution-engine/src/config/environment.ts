@@ -171,6 +171,56 @@ export function authStatePath(env: Pick<EnvironmentConfig, 'name' | 'application
  * `command.service.ts` and `generation-smoke.ts` — and a fourth path built by hand
  * is how two applications' captures came to be pooled in one flat directory.
  */
+/**
+ * A configured user, or a refusal that NAMES THE VARIABLE.
+ *
+ * Three ways a role can be unusable, and they are one sentence apart for a reader
+ * but very different to debug:
+ *
+ * - the environment file has no entry for the role at all;
+ * - it has one, and the username resolved to a blank;
+ * - it has one, and the password resolved to a blank.
+ *
+ * All three used to be the same thing: `${APP_USER2_USERNAME:-}` resolved to `''`,
+ * the schema accepts an empty string, and a test took it and tried to sign in. The
+ * run then failed on the login page, which reads as a credential problem when the
+ * truth is that nobody said what the credentials were.
+ *
+ * **A blank is never handed to a login.** The convention is spelled out so the
+ * refusal can name the exact variable to set, which is the only thing that makes it
+ * actionable — `APP_USER2_PASSWORD is not set` tells a QA what to do;
+ * `login failed` does not.
+ */
+export function requireUser(
+  env: EnvironmentConfig,
+  role: string,
+): { username: string; password: string; role: string } {
+  const user = env.users[role];
+  const naming =
+    role === 'admin'
+      ? 'APP_USERNAME and APP_PASSWORD'
+      : `APP_${role.toUpperCase()}_USERNAME and APP_${role.toUpperCase()}_PASSWORD`;
+
+  if (!user) {
+    throw new ConfigError(
+      `environment "${env.name}" defines no "${role}" user. This is not a missing ` +
+        `password — the role is absent from config/env/${env.name}.json. Add it with ` +
+        `\${${naming.split(' and ')[0]}} / \${${naming.split(' and ')[1]}} and set both in .env.`,
+      { name: role },
+    );
+  }
+  if (!user.username.trim() || !user.password.trim()) {
+    const blank = !user.username.trim() ? 'username' : 'password';
+    throw new ConfigError(
+      `environment "${env.name}": the "${role}" user's ${blank} is BLANK. Set ${naming} ` +
+        'in .env. A blank is never handed to a login — a run that tries one fails on the ' +
+        'login page and reads as a wrong password rather than as missing configuration.',
+      { name: role },
+    );
+  }
+  return user;
+}
+
 export function capturesDir(application: string): string {
   return artifactsDir(application, 'inspect');
 }
