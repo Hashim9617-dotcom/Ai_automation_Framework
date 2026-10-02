@@ -28,13 +28,13 @@
 This is the short version for a QA joining the project on Windows. It gets you to
 four things you can run today:
 
-| you can                                      | command                          |
-| -------------------------------------------- | -------------------------------- |
-| sign in once and save the session            | `pnpm auth`                      |
-| walk the screens and record them             | `pnpm inspect`                   |
-| ask which sheet rows could ever be automated | `pnpm triage "<path>" --app dms` |
-| check the whole repo is healthy              | `pnpm verify`                    |
-| run the existing Playwright tests            | `pnpm test:demo`, `pnpm test`    |
+| you can                                      | command                                               |
+| -------------------------------------------- | ----------------------------------------------------- |
+| sign in once and save the session            | `pnpm auth`                                           |
+| walk the screens and record them             | `pnpm inspect`                                        |
+| ask which sheet rows could ever be automated | `pnpm triage "<path>" --app dms`                      |
+| check the whole repo is healthy              | `pnpm verify`                                         |
+| run the existing Playwright tests            | `pnpm test:demo` (no credentials), `pnpm test` (live) |
 
 Everything in this document was run on a fresh clone before it was written. Where a
 command needs the customer system's credentials it is marked so, because those runs
@@ -225,32 +225,43 @@ internal tests.
 ### Running the existing Playwright tests
 
 ```bash
-pnpm test:unit      # logic tests, no browser
+pnpm test:unit      # logic tests, no browser, no credentials
 pnpm test:demo      # the bundled demo app, a real browser, no credentials
-pnpm test           # every project for the current TEST_ENV
+pnpm test           # the LIVE suite, for the current TEST_ENV
 pnpm test:regression   # only tests tagged @regression
 pnpm test:headed    # same, with the browser visible
 pnpm test:ui         # Playwright's interactive runner
 ```
 
-`pnpm test` and everything below it obey `TEST_ENV`. With `TEST_ENV=app` they run
-against the customer system and need your credentials.
+**There are two surfaces and they are two different commands.** `pnpm test` and
+everything below it is the live suite: it obeys `TEST_ENV`, needs your credentials,
+and collects **no** unit or demo test. `pnpm test:unit` and `pnpm test:demo` are the
+fixture surface and need nothing.
+
+That split is not a convention — the project list itself is partitioned, so no
+invocation can mix them. A live run has to resolve the real environment, which puts
+`.env` into every worker it starts, and the fixture surface has no use for a live
+credential (SEC-3e). Asking the wrong way says so:
+
+```
+The "unit" project is not part of a live run, by design: …
+  Run `pnpm test:unit` instead — same tests, with .env parsed rather than merged.
+Error: Project(s) "unit" not found. Available projects: "live-setup", "chromium", …
+```
 
 **A bare `pnpm test` on a machine with no `.env` is EXPECTED to fail**, and it is
 worth knowing which failures are the expected ones, because they look alarming.
-Measured on a fresh clone with no environment configured — 6 failed, 605 passed:
+Measured on a fresh clone with no environment configured — 4 failed, 9 passed:
 
-| what fails                                            | why                                                                                                                                 |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `live-setup` × 2 (`authenticate`, "named explicitly") | no environment was named and no credentials exist. This is the refusal working.                                                     |
-| `app-health` × 2                                      | there is no live application to answer.                                                                                             |
-| `no-real-env` × 2                                     | `pnpm test` includes the live projects, so it resolves the real environment and merges `.env` into **every** worker, unit included. |
+| what fails                                            | why                                                                             |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `live-setup` × 2 (`authenticate`, "named explicitly") | no environment was named and no credentials exist. This is the refusal working. |
+| `app-health` × 2                                      | there is no live application to answer.                                         |
 
-The last row is the thing to understand rather than work around: the logic tests
-are kept clear of real credentials by the INVOCATION (`pnpm test:unit`), and a run
-that also has to serve live projects cannot be. **Run `pnpm test:unit` for the logic
-tests and `pnpm test` when you mean the application.** Four of the six failed the
-same way before any of this existed.
+All four are the live surface refusing for want of a live system, which is correct
+on a machine that has none. It was 6 failed before the partition: the other two were
+the fixture guard reporting, accurately, that a live invocation had put the real
+`.env` into the unit workers.
 
 Tests that would CREATE data are tagged `@write` and are **skipped** unless an
 environment variable is set deliberately. A normal run never creates a record. Leave
