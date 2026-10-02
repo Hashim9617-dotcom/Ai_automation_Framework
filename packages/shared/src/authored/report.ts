@@ -63,6 +63,17 @@ export interface ReportOptions {
    * wrote once goes stale silently.
    */
   triage?: TriageResult;
+  /**
+   * Map entries that cannot prove their screen — ALL of them, not only the ones
+   * this sheet named.
+   *
+   * The whole map is validated on every run, so an entry no row depends on is still
+   * checked. Refusing the run for one would cost 400 rows over a screen nobody
+   * asked about, and skipping the check would let it rot until the first sheet that
+   * does name it. A visible warning is the third answer: the run proceeds, and the
+   * next person to write a row for that module already knows.
+   */
+  mapWarnings?: Array<{ module: string; why: string }>;
 }
 
 export interface WrittenReport {
@@ -226,6 +237,7 @@ export function renderAuthoredReport(
   sheetName: string,
   provenance?: RunProvenance,
   triage?: TriageResult,
+  mapWarnings?: Array<{ module: string; why: string }>,
 ): string {
   const { results, tally } = run;
   // Re-checked here as well as at execution: the numbers in this document are
@@ -277,6 +289,32 @@ export function renderAuthoredReport(
     );
   }
 
+  /**
+   * THE MAP'S OWN HEALTH, above the results.
+   *
+   * An entry that cannot prove its screen is a fault in the map, not in a row, and
+   * it is reported for EVERY entry — including modules this sheet never named. The
+   * run did not refuse for them, so nothing else in this document would mention
+   * them, and the next person to write a row for that screen would discover it
+   * themselves. Here the discovery costs them one paragraph.
+   *
+   * Above the sections rather than in an appendix, for the reason the provenance
+   * block sits where it does: a qualification nobody scrolls to is not a
+   * qualification.
+   */
+  if (mapWarnings && mapWarnings.length > 0) {
+    lines.push(
+      `## Module map — ${mapWarnings.length} entr${mapWarnings.length === 1 ? 'y' : 'ies'} cannot prove their screen`,
+      '',
+      'These are faults in the map, not in any row. An entry listed here cannot be used',
+      'to prove a run reached its screen, so rows for that module are refused — and an',
+      'entry no row in this sheet named is still listed, because the next sheet will.',
+      '',
+    );
+    for (const warning of mapWarnings) lines.push(`- **${warning.module}** — ${warning.why}`);
+    lines.push('');
+  }
+
   lines.push(
     ...DETAILED_SECTIONS.flatMap(({ key, title, blurb }) =>
       // `environment` groups by module; every other section lists rows.
@@ -314,7 +352,13 @@ export function renderAuthoredReport(
  *      since 470 lines with one row written twice still counts to 470.
  */
 export function writeAuthoredReport(run: AuthoredRunResult, options: ReportOptions): WrittenReport {
-  const markdown = renderAuthoredReport(run, options.sheetName, options.provenance, options.triage);
+  const markdown = renderAuthoredReport(
+    run,
+    options.sheetName,
+    options.provenance,
+    options.triage,
+    options.mapWarnings,
+  );
   mkdirSync(options.outputDir, { recursive: true });
   const file = path.join(options.outputDir, options.fileName ?? 'authored-run.md');
   writeFileSync(file, markdown, 'utf8');

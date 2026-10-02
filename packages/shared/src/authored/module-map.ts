@@ -176,15 +176,44 @@ export function loadModuleMap(file: string): ModuleMap {
  * Never a silent skip. With seven to nine people sharing these files, a skipped
  * module is a screen nobody knows went untested, and the run still reads green.
  */
+export function partitionMappedModules(
+  modules: Iterable<string>,
+  map: ModuleMap,
+  file: string,
+): { mapped: string[]; unmapped: UnprovableModule[] } {
+  const named = [...new Set(modules)].sort();
+  const mapped = named.filter((module) => module in map);
+  const unmapped = named
+    .filter((module) => !(module in map))
+    .map((module) => ({
+      module,
+      why:
+        `module "${module}" has no entry in ${file}. Add one — ` +
+        '{ "route": "/…", "provenBy": { "role": "…", "name": "…" } } — or correct the ' +
+        "spelling in the sheet's Module column.",
+    }));
+  return { mapped, unmapped };
+}
+
+/**
+ * The same falsifier, as a REFUSAL for the whole run.
+ *
+ * Kept for a caller that has no way to report per-module — there is none today, so
+ * this exists to keep the old guarantee expressible rather than to be used. The
+ * per-module path is `partitionMappedModules` above, which is what `runSheet` uses:
+ * one unmapped module refuses ITS rows and the rest of the sheet still runs, because
+ * refusing 400 rows over one misspelt Module cell is a worse answer than refusing 3.
+ */
 export function assertEveryModuleMapped(
   modules: Iterable<string>,
   map: ModuleMap,
   file: string,
 ): void {
-  const unmapped = [...new Set(modules)].filter((module) => !(module in map)).sort();
+  const { unmapped } = partitionMappedModules(modules, map, file);
   if (unmapped.length === 0) return;
   throw new Error(
-    `${unmapped.length} module(s) in the sheet have no entry in ${file}: ${quoted(unmapped)}. ` +
+    `${unmapped.length} module(s) in the sheet have no entry in ${file}: ` +
+      `${quoted(unmapped.map((entry) => entry.module))}. ` +
       'Add one for each — { "route": "/…", "provenBy": { "role": "…", "name": "…" } } — or ' +
       "correct the spelling in the sheet's Module column. Nothing runs for an unmapped " +
       'module: it is refused here rather than skipped quietly.',
@@ -202,62 +231,194 @@ export function assertEveryModuleMapped(
  * capture rather than declared in config, so nobody has to write a state id by
  * hand and no entry can name one that does not exist.
  */
-export function assertProvenByInCapture(
+export interface ProvenModule {
+  /** The one route every state proving this module was captured at. */
+  route: string;
+  /** How many captured states hold it. Context for the report, never a verdict. */
+  states: number;
+}
+
+export interface UnprovableModule {
+  module: string;
+  /** A sentence a human can act on, naming the file and the fix. */
+  why: string;
+}
+
+export interface MapValidation {
+  provable: Record<string, ProvenModule>;
+  /** Every entry that cannot prove its screen, whether the sheet names it or not. */
+  unprovable: UnprovableModule[];
+}
+
+/** A captured state's route. The host varies between environments; the path does not. */
+function routeOf(url: string): string {
+  let pathname: string;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return url;
+  }
+  return pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+}
+
+const normaliseRoute = (route: string): string =>
+  route.length > 1 ? route.replace(/\/+$/, '') : route;
+
+/**
+ * FALSIFIER 2, per module and grouped BY ROUTE.
+ *
+ * The capture is PASSED IN, never looked up from disk by this function: it is in
+ * `@aitp/shared`, which the API compiles, and a loader here would make every caller
+ * depend on `artifacts/` existing. `loadCaptureFromDisk` is the loader, and 3b's CLI
+ * is what hands the result in.
+ *
+ * ## Why ROUTE and not STATE, measured
+ *
+ * This required a provenBy to match in exactly ONE STATE, which is a rule about one
+ * capture session. Merging sessions — what a CLI must do, because a QA walks the app
+ * over weeks — makes the same screen several states, and the rule then refuses
+ * everything. Measured 2026-10-02 against the 10 DMS sessions on disk, 98 non-empty
+ * states, all nine mapped modules:
+ *
+ *     Dashboard       0 clean hits (+4 ambiguous)   refused
+ *     File Explorer   58 states                     refused — "in 58 states"
+ *     Document        58 states                     refused — "in 58 states"
+ *     Global search   0                             refused — not in the capture
+ *     User            3                             refused
+ *     User Role       10                            refused
+ *     user role       10                            refused
+ *     Bulk upload     12                            refused
+ *     Permissions     10                            refused
+ *
+ * Nine of nine, which would have stopped every run. The property the rule is for —
+ * **the element must say WHICH SCREEN the run reached** — is about the screen, and
+ * fifty-eight captures of one screen are still one screen. So hits are grouped by
+ * route, and a provenBy found at two different routes is what cannot say anything.
+ *
+ * This had never been noticed because the validator had never had the DMS map as a
+ * subject: its only caller was handed a capture built from the bundled demo app,
+ * whose map has one state per route (§T — a check that ran on nothing).
+ *
+ * ## And the route must be the module's OWN
+ *
+ * Free, once hits carry a route: an anchor proving `/admin/users` cannot prove a
+ * module the map sends to `/files`. The old rule could not ask this.
+ *
+ * ## An ambiguous state is not a hit, rather than an immediate refusal
+ *
+ * A state where the name matches twice proves nothing THERE, so it is excluded from
+ * the hits instead of disqualifying the module outright. With one session that is
+ * the same answer; with 58 it is the difference between a usable anchor and a
+ * refusal caused by one bad capture. When nothing is left, the message says
+ * ambiguity was the reason — which is exactly `Dashboard` above, 0 clean and 4
+ * ambiguous.
+ */
+export function validateModuleMap(
   map: ModuleMap,
   capture: BoundedCapture,
   file: string,
-): Record<string, string> {
-  const stateIds = capture.states.map((state) => state.id);
-  if (stateIds.length === 0) {
+): MapValidation {
+  if (capture.states.length === 0) {
     throw new Error(
       `${file}: the capture handed in has no states, so no provenBy can be checked against it. ` +
-        'Capture the application first (`pnpm inspect`).',
+        'Capture the application first (`pnpm inspect`). This is a refusal and not an empty ' +
+        'result: nothing was searched.',
     );
   }
 
-  const provedIn: Record<string, string> = {};
+  const provable: Record<string, ProvenModule> = {};
+  const unprovable: UnprovableModule[] = [];
+
   for (const [module, entry] of Object.entries(map)) {
     const { role, name } = entry.provenBy;
-    const found = entry.provenBy;
     const matches = capture.states.map((state) => ({
       state,
       nodes: collapseTextDuplicates(findCandidates(state, name, [role])),
     }));
 
-    const ambiguous = matches.find((match) => match.nodes.length > 1);
-    if (ambiguous) {
-      throw new Error(
-        `${file}, module "${module}": provenBy ${found.role} "${found.name}" matches ` +
-          `${ambiguous.nodes.length} elements in state "${ambiguous.state.id}", so it cannot ` +
-          'prove anything. Pick an element that appears on that screen exactly once.',
-      );
-    }
-
+    const ambiguous = matches.filter((match) => match.nodes.length > 1);
     const hits = matches.filter((match) => match.nodes.length === 1);
+
     if (hits.length === 0) {
-      const named = capture.states
-        .flatMap((state) => state.nodes.filter((node) => node.role === role))
-        .map((node) => node.name)
-        .filter(Boolean)
-        .slice(0, 5);
-      throw new Error(
-        `${file}, module "${module}": provenBy ${found.role} "${found.name}" is not in the ` +
-          `capture. Its states are ${quoted(stateIds)}. ` +
+      if (ambiguous.length > 0) {
+        unprovable.push({
+          module,
+          why:
+            `${file}, module "${module}": provenBy ${role} "${name}" matches ` +
+            `${ambiguous[0]!.nodes.length} elements in every state that has it ` +
+            `(${ambiguous.length} state(s)), so it cannot prove anything. Pick an element ` +
+            'that appears on that screen exactly once.',
+        });
+        continue;
+      }
+      const named = [
+        ...new Set(
+          capture.states
+            .flatMap((state) => state.nodes.filter((node) => node.role === role))
+            .map((node) => node.name)
+            .filter(Boolean),
+        ),
+      ].slice(0, 5);
+      unprovable.push({
+        module,
+        why:
+          `${file}, module "${module}": provenBy ${role} "${name}" is not in the capture. ` +
           (named.length > 0
-            ? `${found.role}s the capture does have: ${quoted(named)}. `
-            : `The capture has no ${found.role} at all. `) +
-          'Copy a name from the capture for this screen, exactly as it appears.',
-      );
-    }
-    if (hits.length > 1) {
-      throw new Error(
-        `${file}, module "${module}": provenBy ${found.role} "${found.name}" is in ` +
-          `${hits.length} states (${quoted(hits.map((hit) => hit.state.id))}), so it cannot say ` +
-          'which screen a run reached. Pick an element that only this screen has.',
-      );
+            ? `${role}s the capture does have: ${quoted(named)}. `
+            : `The capture has no ${role} at all. `) +
+          'Copy a name from the capture for this screen, exactly as it appears, or capture ' +
+          'the screen again if the application has changed.',
+      });
+      continue;
     }
 
-    provedIn[module] = hits[0]!.state.id;
+    const routes = [...new Set(hits.map((hit) => routeOf(hit.state.url)))].sort();
+    if (routes.length > 1) {
+      unprovable.push({
+        module,
+        why:
+          `${file}, module "${module}": provenBy ${role} "${name}" is at ${routes.length} ` +
+          `different routes (${quoted(routes)}), so it cannot say which screen a run ` +
+          'reached. Pick an element that only this screen has.',
+      });
+      continue;
+    }
+
+    const route = routes[0]!;
+    const declared = normaliseRoute(entry.route);
+    if (route !== declared) {
+      unprovable.push({
+        module,
+        why:
+          `${file}, module "${module}": the map sends this module to "${entry.route}" but ` +
+          `provenBy ${role} "${name}" was captured at "${route}". One of the two is wrong — ` +
+          'the route it opens, or the element that proves it opened.',
+      });
+      continue;
+    }
+
+    provable[module] = { route, states: hits.length };
   }
-  return provedIn;
+
+  return { provable, unprovable };
+}
+
+/**
+ * The same falsifier as a whole-map REFUSAL, for a caller that cannot report per
+ * module.
+ *
+ * Kept so the old guarantee stays expressible; `validateModuleMap` is what the run
+ * path uses, because an unprovable entry for a module the sheet never names should
+ * not stop a sheet that does not depend on it.
+ */
+export function assertProvenByInCapture(
+  map: ModuleMap,
+  capture: BoundedCapture,
+  file: string,
+): Record<string, ProvenModule> {
+  const { provable, unprovable } = validateModuleMap(map, capture, file);
+  if (unprovable.length > 0) {
+    throw new Error(unprovable.map((entry) => entry.why).join('\n'));
+  }
+  return provable;
 }

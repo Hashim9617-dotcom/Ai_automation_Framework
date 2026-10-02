@@ -148,7 +148,7 @@ test.describe('the entry verifier against the real demo app @demo', () => {
     const login = makePage(LoginPage);
     // The username is the environment's; only the wrong password is the test's,
     // and it is a literal here rather than anything read from a sheet.
-    const verify = createEntryVerifier({
+    const { verify } = createEntryVerifier({
       map: MAP,
       capture,
       mapFile: MAP_FILE,
@@ -172,7 +172,7 @@ test.describe('the entry verifier against the real demo app @demo', () => {
     // capture and tells whoever captured the screen to re-run `pnpm inspect` —
     // about a capture that is current. That is §11.4's correction exactly.
     const login = makePage(LoginPage);
-    const verify = createEntryVerifier({
+    const { verify } = createEntryVerifier({
       map: MAP,
       capture,
       mapFile: MAP_FILE,
@@ -214,7 +214,7 @@ test.describe('the entry verifier against the real demo app @demo', () => {
         mapFile: MAP_FILE,
         page,
         signIn: signInOrThrow(login, env.users.admin!.username, env.users.admin!.password),
-      }),
+      }).verify,
     };
 
     let stepsRun = 0;

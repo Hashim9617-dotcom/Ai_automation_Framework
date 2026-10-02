@@ -53,8 +53,16 @@ const stubPage = (found: number, onGoto?: () => void): EntryPage =>
     getByText: () => ({ count: async () => found }),
   }) as unknown as EntryPage;
 
+/**
+ * `.verify`, because the builder now returns the VALIDATION alongside it.
+ *
+ * It used to return the function alone and throw on an unprovable `provenBy`. 3b
+ * makes that per-module — the whole map is still validated, and the caller decides
+ * which modules to refuse — so the result is a pair. These tests are about the
+ * stages, which is `verify`; `MAP_VALIDATION` below covers the other half.
+ */
 const verifierFor = (page: EntryPage, signIn: () => Promise<void> = async () => {}) =>
-  createEntryVerifier({ map: MAP, capture, mapFile: 'm.json', page, signIn });
+  createEntryVerifier({ map: MAP, capture, mapFile: 'm.json', page, signIn }).verify;
 
 test.describe('the reason is the stage that failed (V1) @unit', () => {
   test('V1: a sign-in failure is `auth`, and nothing after it is attempted', async () => {
@@ -118,7 +126,7 @@ test.describe('the reason is the stage that failed (V1) @unit', () => {
     // wrong: each module signs in again, so one broken login is reported as
     // seven problems and a real run logs in seven times.
     let signIns = 0;
-    const verify = createEntryVerifier({
+    const { verify } = createEntryVerifier({
       map: { ...MAP, Second: MAP['Employee registration']! },
       capture,
       mapFile: 'm.json',

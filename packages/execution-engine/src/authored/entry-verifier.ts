@@ -1,8 +1,9 @@
 import {
   TEXT_ROLES,
-  assertProvenByInCapture,
+  validateModuleMap,
   type BoundedCapture,
   type EntryVerification,
+  type MapValidation,
   type ModuleMap,
 } from '@aitp/shared';
 import type { Page } from '@playwright/test';
@@ -65,18 +66,25 @@ export interface EntryVerifierOptions {
 /**
  * Builds the per-module verifier.
  *
- * The map is checked against the capture at CONSTRUCTION — before a browser is
- * touched — so an entry that could never be proven is a refusal at the start of
- * a run rather than a row-by-row failure in the middle of one.
+ * The map is still checked against the capture at CONSTRUCTION — before a browser
+ * is touched — so an entry that could never be proven is settled at the start of a
+ * run rather than row by row in the middle of one. What changed in 3b is the
+ * CONSEQUENCE: the whole map is validated and every unprovable entry is returned,
+ * and only the modules the SHEET NAMES have their rows refused. A `provenBy` nobody
+ * depends on is a visible warning in the report, not a reason to refuse 400 rows.
+ *
+ * `validation` is returned rather than thrown so the caller can do that triage. A
+ * caller that cannot — there is none today — has `assertProvenByInCapture`.
  */
-export function createEntryVerifier(
-  options: EntryVerifierOptions,
-): (module: string) => Promise<EntryVerification> {
-  assertProvenByInCapture(options.map, options.capture, options.mapFile);
+export function createEntryVerifier(options: EntryVerifierOptions): {
+  verify: (module: string) => Promise<EntryVerification>;
+  validation: MapValidation;
+} {
+  const validation = validateModuleMap(options.map, options.capture, options.mapFile);
 
   let signedIn: 'no' | 'yes' | { failed: string } = 'no';
 
-  return async (module: string): Promise<EntryVerification> => {
+  const verify = async (module: string): Promise<EntryVerification> => {
     const entry = options.map[module];
     if (!entry) {
       // Not an outcome: rows are grouped by module and every module is checked
@@ -144,4 +152,6 @@ export function createEntryVerifier(
 
     return { verified: true };
   };
+
+  return { verify, validation };
 }

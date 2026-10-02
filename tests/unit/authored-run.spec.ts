@@ -901,3 +901,75 @@ test.describe('a written report carries its own provenance (E11) @unit', () => {
     expect(() => assertProvenanceLanded('r.md', withIt, provenance)).not.toThrow();
   });
 });
+
+test.describe('a map fault refuses its own rows, and the tally still balances (E12) @unit', () => {
+  test('E12: a row refused upfront is counted, refused, and owned by the QA', async () => {
+    // wrong: the rows of an unmapped module never become results, so `rowsRead`
+    // counts them and no bucket does — which `assertTallyBalances` turns into a
+    // throw, and before that channel existed the whole run refused instead, costing
+    // 400 rows over one misspelt Module cell.
+    const outcome = await executeAuthoredRows({
+      resolved: [resolved({ rowId: 'OK_1 / TC_1' })],
+      unreadable: [],
+      refusedUpfront: [
+        {
+          rowId: 'UM_1 / TC_1',
+          scenarioId: 'UM_1',
+          testCaseId: 'TC_1',
+          sheetRow: 9,
+          module: 'Audit Logs',
+          title: 'a module nobody mapped',
+          why: 'module "Audit Logs" has no entry in m.json.',
+        },
+      ],
+      execute: alwaysOk,
+      entry: entryVerified,
+    });
+
+    // DISCRIMINATING: one runnable row beside one refused one, so a channel that
+    // dropped its input would show up as 2 read and 1 counted rather than as a
+    // consistent-looking run of one row.
+    expect(outcome.tally.rowsRead).toBe(2);
+    expect(outcome.tally.refused).toBe(1);
+    expect(outcome.tally.passed).toBe(1);
+
+    const refused = outcome.results.find((r) => r.rowId === 'UM_1 / TC_1')!;
+    expect(refused.status).toBe('refused');
+    // NEVER `given-not-reached`: nothing was attempted, no route was opened, and
+    // telling the environment owner to look at a session is the wrong instruction.
+    expect(refused.owner).toBe('qa');
+    expect(refused.stepsRun).toBe(0);
+    expect(refused.detail).toContain('has no entry in m.json');
+  });
+
+  test('E12: every unprovable map entry is a VISIBLE warning in the report', async () => {
+    // wrong: the warning is only rendered for modules this sheet named, so an
+    // unprovable entry for a screen nobody wrote rows for sits in the file until the
+    // first sheet that does name it — which is the silence the whole-map validation
+    // exists to break. `Nobody` below is exactly that case: no row mentions it.
+    const outcome = await run([resolved({ rowId: 'OK_1 / TC_1' })]);
+    const markdown = renderAuthoredReport(outcome, 'x', undefined, undefined, [
+      {
+        module: 'Nobody',
+        why: 'm.json, module "Nobody": provenBy heading "X" is not in the capture.',
+      },
+    ]);
+
+    expect(markdown).toContain('Module map — 1 entry cannot prove their screen');
+    expect(markdown).toContain('**Nobody**');
+    expect(markdown).toContain('is not in the capture');
+  });
+
+  test('E12: with a healthy map the section is ABSENT, not empty', async () => {
+    // wrong: the heading is always rendered, so every report carries a "cannot prove
+    // their screen" section and a reader learns to skip it — at which point the one
+    // that matters is invisible too. A rule that fires on everything is as empty as
+    // one that fires on nothing.
+    const outcome = await run([resolved({ rowId: 'OK_1 / TC_1' })]);
+
+    expect(renderAuthoredReport(outcome, 'x', undefined, undefined, [])).not.toContain(
+      'cannot prove their screen',
+    );
+    expect(renderAuthoredReport(outcome, 'x')).not.toContain('cannot prove their screen');
+  });
+});

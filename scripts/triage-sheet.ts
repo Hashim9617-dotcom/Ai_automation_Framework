@@ -22,7 +22,7 @@
  */
 /* eslint-disable no-console -- triage summary for a human to check by eye
    (capture pairing, row counts) — not a machine-consumable log line. */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   readSheetGrid,
@@ -31,7 +31,7 @@ import {
   renderTriage,
   findRepoRoot,
 } from '@aitp/shared';
-import { ambientEnvName, loadEnvironment } from '@aitp/execution-engine';
+import { ambientEnvName, loadCaptureFromDisk, loadEnvironment } from '@aitp/execution-engine';
 
 /**
  * Module (sheet column 1) -> the captured route that IS that screen.
@@ -95,77 +95,11 @@ function pathMatchesRoute(capturedPath: string, route: string): boolean {
   return want.every((segment, index) => got[index] === segment);
 }
 
-/**
- * The PATHS actually captured, from the URL each capture recorded.
- *
- * Pairing used to compare the NAME a human typed at capture time — `page.label`
- * or `slugify(label)`. That name is free text: `inspect-app.ts` proposes
- * `<route>.<heading>` and slugifies it, so accepting the proposal on
- * `/dashboard` produces `dashboard-dashboard`, which paired with nothing. Two
- * of the nine sessions on disk were orphaned that way while their URLs said
- * exactly which screen they were.
- *
- * Both capture formats carry the address, so both pair the same way here:
- * `pages.json` entries have `url`, and `capture.json` states have `url`.
- *
- * A URL that cannot be parsed is COLLECTED, never dropped — a capture silently
- * missing from this set understates the coverage, which understates a ceiling
- * that gets quoted.
- */
-function capturedPaths(
-  root: string,
-  application: string,
-): { paths: Set<string>; unparseable: string[]; unlabelled: number } {
-  // PER APPLICATION, and the legacy root is COUNTED rather than read.
-  //
-  // This used to read `artifacts/inspect/` — every session, whatever application it
-  // came from. Measured 2026-09-30 with a second application declared: both sets
-  // pooled into one, and a module was paired against a screen from a different
-  // system. A ceiling computed from that is a claim about the pairing, not the sheet.
-  //
-  // Sessions written before captures carried an application stay where they are and
-  // are counted. Silently folding them into this application's set would be exactly
-  // the guess the label exists to remove; silently ignoring them would understate
-  // the coverage, which understates a ceiling that gets quoted.
-  const dir = path.join(root, 'artifacts', application, 'inspect');
-  const paths = new Set<string>();
-  const unparseable: string[] = [];
-  const legacy = path.join(root, 'artifacts', 'inspect');
-  const unlabelled = existsSync(legacy)
-    ? readdirSync(legacy, { withFileTypes: true }).filter((e) => e.isDirectory()).length
-    : 0;
-  if (!existsSync(dir)) return { paths, unparseable, unlabelled };
-
-  const add = (url: unknown, where: string): void => {
-    if (typeof url !== 'string') return void unparseable.push(`${where}: no url`);
-    try {
-      paths.add(new URL(url).pathname);
-    } catch {
-      unparseable.push(`${where}: ${url}`);
-    }
-  };
-
-  for (const session of readdirSync(dir)) {
-    const pages = path.join(dir, session, 'pages.json');
-    if (existsSync(pages)) {
-      for (const page of JSON.parse(readFileSync(pages, 'utf8'))) add(page.url, session);
-    }
-    const capture = path.join(dir, session, 'capture.json');
-    if (existsSync(capture)) {
-      for (const state of JSON.parse(readFileSync(capture, 'utf8')).states ?? [])
-        add(state.url, session);
-    }
-  }
-  return { paths, unparseable, unlabelled };
-}
-
 function main(): void {
   const workbook = process.argv[2];
   if (!workbook) throw new Error('usage: pnpm triage <workbook.xlsx> [--out <dir>]');
   const outIndex = process.argv.indexOf('--out');
   const outDir = outIndex > 0 ? process.argv[outIndex + 1] : undefined;
-
-  const root = findRepoRoot();
 
   // `--app` IS REQUIRED, and a disagreement with the environment is REFUSED.
   //
@@ -203,7 +137,25 @@ function main(): void {
 
   const routes = loadModuleRoutes(application);
   const MODULE_ROUTES = routes.routes;
-  const { paths, unparseable, unlabelled } = capturedPaths(root, application);
+
+  // ONE LOADER for the capture directory, shared with the Command Box and (in 3b)
+  // the run. This read the directory itself and so did `command.service.ts`, with
+  // different rules about labels, formats and empty states — three readers of one
+  // directory is where a drift becomes a wrong ceiling nobody can see.
+  //
+  // `coverage` rather than the merged capture, because triage needs an ADDRESS and
+  // not a node: the older `pages.json` sessions have no accessibility tree and still
+  // prove somebody walked that screen. Measured before the migration: pages.json
+  // contributes 0 routes capture.json does not already have, so this loses nothing
+  // today — and the two views stay separate because that is a fact about today's
+  // disk, not a property of the formats.
+  // No `targetHost`: triage drives nothing. A session captured against a staging
+  // host is still a screen somebody walked, and dropping it would understate the
+  // ceiling this script exists to report.
+  const source = loadCaptureFromDisk(application, {});
+  const paths = source.coverage.routes;
+  const unparseable = source.coverage.unparseable;
+  const unlabelled = source.unlabelled;
 
   // COUNTED AND SAID, never pooled. A pre-move session has no application on it,
   // so nothing here knows whether it belongs to this one.

@@ -383,9 +383,42 @@ export interface EntryControl {
   verify: (module: string) => Promise<EntryVerification>;
 }
 
+/**
+ * A row refused BEFORE the run, for a fault in the map rather than in the row.
+ *
+ * ## Why this is a channel and not an outcome
+ *
+ * An unmapped module, or one whose `provenBy` the capture cannot prove, used to
+ * refuse the WHOLE run (`assertEveryModuleMapped` threw). One misspelt Module cell
+ * therefore cost 400 rows. Per-module refusal needs those rows to arrive as
+ * results — and they cannot be invented after the fact, because `rowsRead` is taken
+ * from the INPUTS and the tally is asserted to balance. So they come in here,
+ * beside `unreadable`, which is the same shape of problem: a row that exists and
+ * cannot be run, for a reason settled before any browser opened.
+ *
+ * ## It is never `given-not-reached`
+ *
+ * `EntryFailure` had a fourth value `mapping`, removed before anything emitted it
+ * (see above). A map fault is not an entry failure: nothing was attempted, no route
+ * was opened, and telling the environment owner to look at a session is the wrong
+ * instruction. These are `refused`, owner QA, with the map file named.
+ */
+export interface RefusedUpfrontRow {
+  rowId: string;
+  scenarioId: string;
+  testCaseId: string;
+  sheetRow: number;
+  module: string;
+  title: string;
+  /** Names the file and the fix. Written by the map validator, not here. */
+  why: string;
+}
+
 export interface ExecuteOptions {
   resolved: ResolvedAuthoredRow[];
   unreadable: UnreadableSheetRow[];
+  /** Rows whose module could not be mapped or proven. Defaults to none. */
+  refusedUpfront?: RefusedUpfrontRow[];
   execute: StepExecutor;
   entry: EntryControl;
   /**
@@ -445,6 +478,24 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       detail: described.message,
       recoverable: described.actionable,
       ...(row.orphanedContent ? { orphanedContent: row.orphanedContent } : {}),
+    });
+  }
+
+  for (const row of options.refusedUpfront ?? []) {
+    results.push({
+      rowId: row.rowId,
+      scenarioId: row.scenarioId,
+      testCaseId: row.testCaseId,
+      module: row.module,
+      sheetRow: row.sheetRow,
+      title: row.title,
+      // No step ran, and the gate was never reached. `stepsRun` is the direct
+      // claim about execution, so it is 0 here for the same reason it is 0 for a
+      // held row.
+      stepsRun: 0,
+      status: 'refused',
+      owner: OWNER_OF.refused,
+      detail: row.why,
     });
   }
 
@@ -638,7 +689,8 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
     ]),
   ) as Record<TallyBucket, number>;
   const tally: RunTally = {
-    rowsRead: options.resolved.length + options.unreadable.length,
+    rowsRead:
+      options.resolved.length + options.unreadable.length + (options.refusedUpfront?.length ?? 0),
     ...counts,
   };
 

@@ -1,10 +1,9 @@
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import path from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
-import { loadEnvironment } from '@aitp/execution-engine';
+import { loadCaptureFromDisk, loadEnvironment } from '@aitp/execution-engine';
 import {
   describeTarget,
   escapeRegex,
@@ -208,43 +207,33 @@ export class CommandService {
   }
 
   /**
-   * The newest capture on disk, or `null` when there is none.
+   * What is captured on disk for this environment's application, or `null`.
    *
-   * `null` and "a capture with no states" are different answers with different
-   * next steps, so they are kept distinct all the way to the response.
+   * `null` and "a capture with no states" are different answers with different next
+   * steps, so they are kept distinct all the way to the response.
+   *
+   * ## ONE LOADER, shared with `triage` and the run path
+   *
+   * This read the directory itself and picked the session with the MOST states —
+   * which was its own rule, different from triage's and different again from what a
+   * run needs. Three readers of one directory is where a drift becomes a wrong
+   * answer nobody can see, so `loadCaptureFromDisk` is the only one now and it
+   * MERGES every labelled session. The newest `capturedAt` replaces "the biggest
+   * session", which was a proxy for recency that could pick a six-week-old walk over
+   * yesterday's.
+   *
+   * No `targetHost` is passed: this answers "what do we know about this
+   * application", not "what is this run about to drive".
    */
   private loadCaptureStates(
     environment: string,
   ): { states: string[]; capturedAt: string | null } | null {
-    // PER APPLICATION. This read `artifacts/inspect/` — every session on disk,
-    // whatever system it came from — so a command about one application could be
-    // answered with another's screens.
-    const dir = path.join(
-      this.repoRoot,
-      'artifacts',
-      loadEnvironment(environment).application,
-      'inspect',
-    );
-    if (!existsSync(dir)) return null;
-
-    let best: { states: string[]; capturedAt: string | null } | null = null;
-    for (const session of readdirSync(dir)) {
-      const file = path.join(dir, session, 'capture.json');
-      if (!existsSync(file)) continue;
-      try {
-        const capture = JSON.parse(readFileSync(file, 'utf8')) as {
-          states?: Array<{ id: string }>;
-          capturedAt?: string;
-        };
-        const states = (capture.states ?? []).map((state) => state.id);
-        if (!best || states.length > best.states.length) {
-          best = { states, capturedAt: capture.capturedAt ?? null };
-        }
-      } catch {
-        // A malformed capture is not a configured one.
-      }
-    }
-    return best;
+    const source = loadCaptureFromDisk(loadEnvironment(environment).application, {});
+    if (source.kind === 'none') return null;
+    return {
+      states: source.capture.states.map((state) => state.id),
+      capturedAt: source.newest,
+    };
   }
 
   /**

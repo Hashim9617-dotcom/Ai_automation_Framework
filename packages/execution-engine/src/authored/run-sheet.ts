@@ -2,11 +2,11 @@ import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import {
-  assertEveryModuleMapped,
   executeAuthoredRows,
   findRepoRoot,
   loadModuleMap,
   newId,
+  partitionMappedModules,
   readFinalTestCases,
   readSheetGrid,
   resolveAuthoredRow,
@@ -18,6 +18,7 @@ import {
   type AuthoredRunResult,
   type BoundedCapture,
   type EntryControl,
+  type RefusedUpfrontRow,
   type RunIdentity,
   type RunProvenance,
 } from '@aitp/shared';
@@ -130,9 +131,61 @@ export async function runSheet(options: RunSheetOptions): Promise<RunSheetResult
   );
   const map = loadModuleMap(mapFile);
   const moduleOfRow = new Map(sheet.rows.map((row) => [row.rowId, row.module]));
-  assertEveryModuleMapped([...moduleOfRow.values()], map, mapFile);
 
-  const resolved = sheet.rows.map((row) =>
+  /**
+   * PER MODULE, not per run.
+   *
+   * An unmapped module used to refuse the whole sheet, so one misspelt Module cell
+   * cost 400 rows. Now its own rows are refused with the reason, and the rest runs.
+   * The whole run stops only when NO module the sheet names is runnable — because
+   * then there is nothing to report but the map, and saying so once is clearer than
+   * saying it four hundred times.
+   */
+  const { unmapped } = partitionMappedModules([...moduleOfRow.values()], map, mapFile);
+
+  // The whole map is validated, so an entry no row depends on is still CHECKED —
+  // that breadth is what caught `Login`'s unprovable anchor in the demo fixture. The
+  // consequence is what differs: an unprovable entry the sheet does not name is a
+  // visible warning in the report, never a refusal.
+  const { verify, validation } = createEntryVerifier({
+    map,
+    capture: options.capture,
+    mapFile,
+    page: options.page,
+    signIn: options.signIn,
+  });
+
+  const blocked = new Map<string, string>();
+  for (const entry of unmapped) blocked.set(entry.module, entry.why);
+  for (const entry of validation.unprovable) {
+    // Only the modules this sheet names. The rest are warnings below.
+    if (moduleOfRow.size > 0 && [...moduleOfRow.values()].includes(entry.module)) {
+      blocked.set(entry.module, entry.why);
+    }
+  }
+
+  const runnableRows = sheet.rows.filter((row) => !blocked.has(row.module));
+  if (runnableRows.length === 0) {
+    throw new Error(
+      `no module the sheet names can be run, so there is nothing to report but ${mapFile}:\n` +
+        [...blocked.values()].map((why) => `  - ${why}`).join('\n') +
+        '\nEvery row would be refused for the same reason, and saying it once is the answer.',
+    );
+  }
+
+  const refusedUpfront: RefusedUpfrontRow[] = sheet.rows
+    .filter((row) => blocked.has(row.module))
+    .map((row) => ({
+      rowId: row.rowId,
+      scenarioId: row.scenarioId,
+      testCaseId: row.testCaseId,
+      sheetRow: row.sheetRow,
+      module: row.module,
+      title: row.scenarioName,
+      why: blocked.get(row.module)!,
+    }));
+
+  const resolved = runnableRows.map((row) =>
     // The entry state is the module's route, named by the map rather than
     // guessed from the row.
     resolveAuthoredRow(row, options.capture, map[row.module]!.route.replace(/^\//, '') || 'root'),
@@ -140,13 +193,7 @@ export async function runSheet(options: RunSheetOptions): Promise<RunSheetResult
 
   const entry: EntryControl = {
     moduleOf: (row) => moduleOfRow.get(row.rowId) ?? '(unknown module)',
-    verify: createEntryVerifier({
-      map,
-      capture: options.capture,
-      mapFile,
-      page: options.page,
-      signIn: options.signIn,
-    }),
+    verify,
   };
 
   const runId = options.runId ?? newId('run');
@@ -154,6 +201,7 @@ export async function runSheet(options: RunSheetOptions): Promise<RunSheetResult
     runId,
     resolved,
     unreadable: sheet.unreadable,
+    refusedUpfront,
     entry,
     execute: createPlaywrightStepExecutor(options.page, { artifactDir: options.outDir }),
     // `allowWrites` is deliberately absent: the default is `false` and there is
@@ -165,6 +213,10 @@ export async function runSheet(options: RunSheetOptions): Promise<RunSheetResult
     sheetName: options.sheet,
     provenance: options.provenance,
     triage: triageSheet(sheet.rows, new Set(Object.keys(map))),
+    // EVERY unprovable entry, not only the ones that refused rows here. The two
+    // sets differ on purpose: `blocked` decides what runs, this tells the reader
+    // what is wrong with the map.
+    mapWarnings: validation.unprovable,
   });
 
   const automationSheet = writeAutomationSheet(run, {

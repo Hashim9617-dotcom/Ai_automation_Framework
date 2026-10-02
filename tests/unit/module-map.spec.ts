@@ -7,6 +7,8 @@ import {
   assertProvenByInCapture,
   findRepoRoot,
   loadModuleMap,
+  partitionMappedModules,
+  validateModuleMap,
   type AccessibilityNode,
   type BoundedCapture,
   type CapturedState,
@@ -170,84 +172,211 @@ test.describe('the module map loads, or says what to fix (MM1) @unit', () => {
 });
 
 test.describe('an unmapped module is refused, never skipped (MM2) @unit', () => {
-  test('MM2: every unmapped module is named', () => {
+  test('MM2: every unmapped module is named, and its rows are the only ones refused', () => {
     // wrong: unmapped modules are skipped, the run reports only what it mapped,
     // and nobody learns their screen was never tested — with seven to nine
     // people sharing one file that is a silence nobody is looking for.
-    expect(() =>
-      assertEveryModuleMapped(['Login', 'Workflow', 'Audit Logs'], MAP, 'm.json'),
-    ).toThrow(/2 module\(s\).*"Audit Logs", "Workflow"/s);
+    //
+    // 3b changed the CONSEQUENCE, not the detection: the partition returns both
+    // halves so a caller refuses those modules' rows and runs the rest. One
+    // misspelt Module cell used to cost 400 rows.
+    const { mapped, unmapped } = partitionMappedModules(
+      ['Login', 'Workflow', 'Audit Logs'],
+      MAP,
+      'm.json',
+    );
+
+    expect(mapped).toEqual(['Login']);
+    expect(unmapped.map((entry) => entry.module)).toEqual(['Audit Logs', 'Workflow']);
+    // The reason travels with the module, because it becomes a row's `detail` and
+    // a QA reading the report has to know which file to edit.
+    expect(unmapped[0]!.why).toMatch(/no entry in m\.json/);
+    expect(unmapped[0]!.why).toMatch(/Module column/);
   });
 
-  test('MM2: a fully mapped sheet passes', () => {
-    // wrong: a check that threw for every input would pass the test above while
-    // making any correct map unusable — the refuses-everything failure.
-    expect(() => assertEveryModuleMapped(['Login', 'Login'], MAP, 'm.json')).not.toThrow();
+  test('MM2: a fully mapped sheet leaves nothing unmapped', () => {
+    // wrong: a partition that reported everything unmapped would pass the test
+    // above while refusing every correct map — the refuses-everything failure.
+    const { mapped, unmapped } = partitionMappedModules(['Login', 'Login'], MAP, 'm.json');
+
+    expect(unmapped).toEqual([]);
+    // Deduplicated: 400 rows of one module are one module.
+    expect(mapped).toEqual(['Login']);
+  });
+
+  test('MM2: the whole-run refusal is still expressible', () => {
+    // wrong: `assertEveryModuleMapped` is kept for a caller that cannot report per
+    // module, and nothing exercises it — so the guarantee it names could rot while
+    // reading as present. It is a thin wrapper now, which is exactly the kind of
+    // code that stops matching its wrapper without anybody noticing.
+    expect(() => assertEveryModuleMapped(['Login', 'Workflow'], MAP, 'm.json')).toThrow(
+      /1 module\(s\).*"Workflow"/s,
+    );
+    expect(() => assertEveryModuleMapped(['Login'], MAP, 'm.json')).not.toThrow();
   });
 });
 
-test.describe('a provenBy the capture does not hold fails at LOAD (MM3) @unit', () => {
-  test('MM3: a proof element that is not in the capture is refused', () => {
+test.describe('a provenBy the capture cannot prove is settled at LOAD (MM3) @unit', () => {
+  test('MM3: a proof element that is not in the capture is unprovable', () => {
     // wrong: it is accepted here and fails at 4d instead, in a browser, where
     // "not on the page" is indistinguishable from a stale capture.
     const map: ModuleMap = {
-      Search: { route: '/', provenBy: { role: 'heading', name: 'Welcome to Search' } },
+      Search: { route: '/search', provenBy: { role: 'heading', name: 'Welcome to Search' } },
     };
 
-    expect(() => assertProvenByInCapture(map, DEMO, 'm.json')).toThrow(
-      /"Welcome to Search" is not in the capture.*"login", "employees"/s,
-    );
+    const { provable, unprovable } = validateModuleMap(map, DEMO, 'm.json');
+
+    expect(provable).toEqual({});
+    expect(unprovable[0]!.why).toMatch(/"Welcome to Search" is not in the capture/);
+    // And it says what the capture DOES have, or the reader has to go and look.
+    expect(unprovable[0]!.why).toMatch(/Sign in|Register employee/);
   });
 
-  test('MM3: a proof that is on TWO screens cannot prove either', () => {
+  test('MM3: a proof at TWO ROUTES cannot prove either', () => {
     // wrong: the shared header is accepted, and a run "verifies" it is on the
     // employees screen while sitting on the login screen — the entry-state
     // mistake DEMO_4 made, now blessed by config.
     const map: ModuleMap = {
-      'Employee registration': { route: '/', provenBy: { role: 'banner', name: 'Demo HR' } },
+      'Employee registration': {
+        route: '/employees',
+        provenBy: { role: 'banner', name: 'Demo HR' },
+      },
     };
 
-    expect(() => assertProvenByInCapture(map, DEMO, 'm.json')).toThrow(
-      /is in 2 states \("login", "employees"\)/,
-    );
+    const { unprovable } = validateModuleMap(map, DEMO, 'm.json');
+
+    expect(unprovable[0]!.why).toMatch(/at 2 different routes \("\/employees", "\/login"\)/);
+  });
+
+  test('MM3: the SAME anchor across many states of ONE route is provable', () => {
+    // wrong: "is in 58 states, so it cannot say which screen a run reached" — the
+    // old rule, which counted STATES. Measured 2026-10-02 against the 10 DMS
+    // sessions on disk: all nine mapped modules were refused, `File Explorer` and
+    // `Document` for being in 58 states of the SAME screen. Fifty-eight captures of
+    // one screen are still one screen.
+    //
+    // DISCRIMINATING on purpose: three states, one route, so a state-counting rule
+    // refuses this fixture and a route-grouping one accepts it.
+    const walkedThrice = capture([
+      state('files-1', [node('tree', 'Workspaces'), node('heading', 'Shared with me')]),
+      state('files-2', [node('tree', 'Workspaces'), node('button', 'New workspace')]),
+      state('files-3', [node('tree', 'Workspaces')]),
+    ]);
+    // All three at the same route — `state()` derives the URL from the id, so they
+    // are set explicitly here.
+    const oneRoute = {
+      ...walkedThrice,
+      states: walkedThrice.states.map((s) => ({ ...s, url: 'https://app.example/files' })),
+    };
+    const map: ModuleMap = {
+      'File Explorer': { route: '/files', provenBy: { role: 'tree', name: 'Workspaces' } },
+    };
+
+    const { provable, unprovable } = validateModuleMap(map, oneRoute, 'm.json');
+
+    expect(unprovable).toEqual([]);
+    expect(provable['File Explorer']).toEqual({ route: '/files', states: 3 });
   });
 
   test('MM3: a proof matching twice on one screen is not a proof', () => {
     // wrong: two matches are treated as found, and the run proves it reached a
     // screen by pointing at an element it cannot tell apart from another.
+    //
+    // An ambiguous state is excluded from the hits rather than refusing outright,
+    // so one bad capture among 58 cannot disqualify a good anchor. With nothing
+    // left, the message says ambiguity was why — which is `Dashboard` in the real
+    // DMS map: 0 clean hits and 4 ambiguous states.
     const twice = capture([
       state('files', [node('button', 'Open'), node('button', 'Open'), node('heading', 'Files')]),
     ]);
     const map: ModuleMap = {
-      Files: { route: '/', provenBy: { role: 'button', name: 'Open' } },
+      Files: { route: '/files', provenBy: { role: 'button', name: 'Open' } },
     };
 
-    expect(() => assertProvenByInCapture(map, twice, 'm.json')).toThrow(
-      /matches 2 elements in state "files"/,
-    );
+    const { provable, unprovable } = validateModuleMap(map, twice, 'm.json');
+
+    expect(provable).toEqual({});
+    expect(unprovable[0]!.why).toMatch(/matches 2 elements in every state that has it/);
   });
 
-  test('MM3: a good map returns the state each module proved, derived not declared', () => {
-    // wrong: the check passes and returns nothing, so 4d still has to be TOLD
-    // which capture state a module means — and a state id written by hand in
-    // config is one nobody verified against the capture.
+  test('MM3: a proof captured at a route the map does not name is unprovable', () => {
+    // wrong: an anchor that identifies /login is accepted as proof for a module the
+    // map sends to /employees, so the run opens one screen and proves another. The
+    // old rule could not ask this question at all — hits carried no route.
     const map: ModuleMap = {
-      Login: { route: '/', provenBy: { role: 'heading', name: 'Sign in' } },
       'Employee registration': {
-        route: '/',
+        route: '/employees',
+        provenBy: { role: 'heading', name: 'Sign in' },
+      },
+    };
+
+    const { unprovable } = validateModuleMap(map, DEMO, 'm.json');
+
+    expect(unprovable[0]!.why).toMatch(/the map sends this module to "\/employees"/);
+    expect(unprovable[0]!.why).toMatch(/captured at "\/login"/);
+  });
+
+  test('MM3: a good map returns the route each module proved, derived not declared', () => {
+    // wrong: the check passes and returns nothing, so 4d still has to be TOLD
+    // which screen a module means — and a route written by hand in config and
+    // never compared to the capture is one nobody verified.
+    const map: ModuleMap = {
+      Login: { route: '/login', provenBy: { role: 'heading', name: 'Sign in' } },
+      'Employee registration': {
+        route: '/employees',
         provenBy: { role: 'heading', name: 'Register employee' },
       },
     };
 
-    expect(assertProvenByInCapture(map, DEMO, 'm.json')).toEqual({
-      Login: 'login',
-      'Employee registration': 'employees',
+    expect(validateModuleMap(map, DEMO, 'm.json')).toEqual({
+      provable: {
+        Login: { route: '/login', states: 1 },
+        'Employee registration': { route: '/employees', states: 1 },
+      },
+      unprovable: [],
     });
   });
 
+  test('MM3: an entry no sheet names is still VALIDATED, not skipped', () => {
+    // wrong: only the modules a sheet mentions get checked, so an unprovable entry
+    // sits in the file for months and announces itself the first time somebody
+    // writes a row for that screen. That breadth is what caught `Login`'s anchor in
+    // the demo fixture (tests/demo/run-sheet.spec.ts), and it is kept: the triage of
+    // WHICH unprovable entries refuse rows happens in the caller, not here.
+    const map: ModuleMap = {
+      Login: { route: '/login', provenBy: { role: 'heading', name: 'Sign in' } },
+      Nobody: { route: '/nobody', provenBy: { role: 'heading', name: 'Not Captured' } },
+    };
+
+    const { provable, unprovable } = validateModuleMap(map, DEMO, 'm.json');
+
+    expect(Object.keys(provable)).toEqual(['Login']);
+    expect(unprovable.map((entry) => entry.module)).toEqual(['Nobody']);
+  });
+
   test('MM3: a capture with no states is refused rather than vacuously passing', () => {
-    // wrong: zero states means zero modules checked, and the loader reports
-    // clean — a scan that read nothing saying everything is fine.
-    expect(() => assertProvenByInCapture(MAP, capture([]), 'm.json')).toThrow(/has no states/);
+    // wrong: zero states means zero modules checked, and the validator reports
+    // clean — a scan that read nothing saying everything is fine. A THROW and not
+    // an empty partition, because "nothing was searched" is not "nothing matched".
+    expect(() => validateModuleMap(MAP, capture([]), 'm.json')).toThrow(/has no states/);
+  });
+
+  test('MM3: the whole-map refusal is still expressible', () => {
+    // wrong: `assertProvenByInCapture` is kept so the old guarantee stays sayable,
+    // and nothing exercises it — a wrapper that rots while reading as present.
+    expect(() =>
+      assertProvenByInCapture(
+        { Search: { route: '/search', provenBy: { role: 'heading', name: 'Nope' } } },
+        DEMO,
+        'm.json',
+      ),
+    ).toThrow(/is not in the capture/);
+    expect(
+      assertProvenByInCapture(
+        { Login: { route: '/login', provenBy: { role: 'heading', name: 'Sign in' } } },
+        DEMO,
+        'm.json',
+      ),
+    ).toEqual({ Login: { route: '/login', states: 1 } });
   });
 });

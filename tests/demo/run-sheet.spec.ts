@@ -188,12 +188,18 @@ test.describe('runSheet against the bundled demo app @demo', () => {
 
     // ---- F2: the capture comes from its own context, which is then closed ----
     // BOTH screens, and the first run is why. With only the employees state,
-    // `createEntryVerifier` refused at load: `assertProvenByInCapture` validates
-    // EVERY module in the map, and the bundled-demo map also describes `Login`,
-    // whose `provenBy heading "Sign in"` was not in a capture taken after signing
-    // in. That breadth is the validator working — a map entry nobody can prove is
-    // a map entry that fails row by row later — and the fixture was the thin
-    // thing. A real `pnpm inspect` session walks several screens too.
+    // `createEntryVerifier` refused at load: the map validator checks EVERY module,
+    // and the bundled-demo map also describes `Login`, whose `provenBy heading
+    // "Sign in"` was not in a capture taken after signing in. That breadth is the
+    // validator working — a map entry nobody can prove is a map entry that fails row
+    // by row later — and the fixture was the thin thing. A real `pnpm inspect`
+    // session walks several screens too.
+    //
+    // 3b changed what that breadth COSTS, not the breadth: the whole map is still
+    // validated, and an unprovable entry now refuses only the rows of the module it
+    // belongs to while appearing as a warning in the report. `Login` is still
+    // captured here, so the fixture is unchanged — but a thin capture would now
+    // produce a report with a warning rather than no report at all.
     const captureContext = await browser.newContext();
     const capturePage = await captureContext.newPage();
     const captureLogin = new LoginPage(capturePage, env, {});

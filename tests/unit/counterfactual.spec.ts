@@ -69,6 +69,9 @@ const COVERED = [
   // Added 2026-10-01 with the surface partition (K3), mutation-checked: removing the
   // partition fails 2 of its 4, and the other 2 are the halves that must stay green.
   'tests/unit/surface-partition.spec.ts',
+  // Added 2026-10-02 with 3b batch 1: the one reader of the capture directory, and
+  // the per-module map partition that a merged capture made necessary.
+  'tests/unit/capture-source.spec.ts',
 ];
 
 /**
