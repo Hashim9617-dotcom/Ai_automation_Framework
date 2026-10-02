@@ -28,8 +28,60 @@ import { RUNNER_ONLY_VARS, productionEnv } from '../support/spawn-clean';
 
 const ROOT = findRepoRoot();
 
-/** Spawn APIs that accept an `env` and therefore can inherit the runner's. */
-const SPAWN_CALL = /\b(spawn|spawnSync|exec|execSync|execFile|execFileSync|fork)\s*\(/;
+/** The `child_process` exports that accept an `env` and so can inherit the runner's. */
+const SPAWN_EXPORTS = [
+  'spawn',
+  'spawnSync',
+  'exec',
+  'execSync',
+  'execFile',
+  'execFileSync',
+  'fork',
+];
+
+/**
+ * THE NAMES A FILE CAN SPAWN WITH ARE THE NAMES IT IMPORTED.
+ *
+ * This used to be one fixed pattern — `\b(spawn|exec|…)\s*\(` — and it flagged
+ * `/Total: (\d+) tests/.exec(output)` twice in one day: `RegExp.prototype.exec` is a
+ * word followed by a parenthesis, exactly like `child_process.exec`. The first time,
+ * a gate on the file mentioning `child_process` at all was enough. The second time it
+ * was not: `command-box.spec.ts` imports `type ChildProcess`, so the file is in scope
+ * and its only `exec(` is a regular expression's.
+ *
+ * A list of suspicious words cannot tell those apart — the same bound as the
+ * invisible-character detector built from a list of bad characters. The structural
+ * question is what the file BOUND: a call can only reach `child_process` through a
+ * name imported from it, so the pattern is derived per file from its own imports,
+ * and a type-only import binds no value and is dropped.
+ */
+function spawnNamesIn(source: string): string[] {
+  const names = new Set<string>();
+
+  // `import { spawnSync, type ChildProcess } from 'node:child_process'`
+  for (const match of source.matchAll(
+    /import\s*(?:type\s+)?\{([^}]*)\}\s*from\s*['"](?:node:)?child_process['"]/g,
+  )) {
+    const typeOnlyImport = /^import\s+type/.test(match[0]);
+    for (const clause of (match[1] ?? '').split(',')) {
+      const text = clause.trim();
+      if (!text || typeOnlyImport || /^type\s/.test(text)) continue;
+      // `a as b` binds b; the call site uses the local name.
+      const local = (/\sas\s+(\w+)$/.exec(text)?.[1] ?? text).trim();
+      if (SPAWN_EXPORTS.includes(local) || SPAWN_EXPORTS.includes(text)) names.add(local);
+    }
+  }
+
+  // `import cp from 'node:child_process'`, `import * as cp`, `require('child_process')`
+  for (const match of source.matchAll(
+    /(?:import\s+(?:\*\s+as\s+)?(\w+)\s+from\s*['"](?:node:)?child_process['"]|(?:const|let|var)\s+(\w+)\s*=\s*require\(\s*['"](?:node:)?child_process['"]\s*\))/g,
+  )) {
+    const namespace = match[1] ?? match[2];
+    if (namespace) for (const name of SPAWN_EXPORTS) names.add(`${namespace}.${name}`);
+  }
+
+  return [...names];
+}
 
 /** The helper's own exports, which ARE the sanctioned way. */
 const SANCTIONED = /\b(spawnClean|spawnSyncClean|execFileSyncClean|productionEnv)\s*\(/;
@@ -52,7 +104,24 @@ interface Finding {
   text: string;
 }
 
-function scan(): { findings: Finding[]; filesScanned: number } {
+/**
+ * How much of a SUBJECT the scan had, so "clean" can be told from "blindfolded".
+ *
+ * `boundSpawnNames` counts files that actually imported something spawnable, and
+ * `callsExamined` the lines that called one. Measured 2026-10-02 after the pattern
+ * became per-file: exactly ONE real file binds a name (`no-workbooks.spec.ts`'s
+ * `execSync`), and every one of its call sites is git, which is exempt. So the scan
+ * over the real repo would report clean with the derivation returning nothing at all
+ * — rule §T, pointed at the detector that had just been made more precise.
+ */
+interface ScanResult {
+  findings: Finding[];
+  filesScanned: number;
+  boundSpawnNames: number;
+  callsExamined: number;
+}
+
+function scan(): ScanResult {
   // NOTE (2026-09-11): this hard-coded list is the same incomplete-enumeration
   // shape the invisible-character guard was just fixed for — a file that spawns
   // is governed only if someone remembered to add it here. Left as it is for now
@@ -60,6 +129,8 @@ function scan(): { findings: Finding[]; filesScanned: number } {
   // to close: it should enumerate `tests/**` from git rather than from memory.
   const files = [
     'tests/api/api-boot.spec.ts',
+    // Starts the API and, in CB4b, takes its own `--list` to compare a corpus against.
+    'tests/api/command-box.spec.ts',
     'tests/unit/invisible-characters.spec.ts',
     'tests/unit/no-workbooks.spec.ts',
     'tests/unit/no-unscrubbed-spawn.spec.ts',
@@ -74,6 +145,8 @@ function scan(): { findings: Finding[]; filesScanned: number } {
 
   const findings: Finding[] = [];
   let filesScanned = 0;
+  let boundSpawnNames = 0;
+  let callsExamined = 0;
 
   for (const relative of files) {
     const full = path.join(ROOT, relative);
@@ -86,10 +159,13 @@ function scan(): { findings: Finding[]; filesScanned: number } {
     filesScanned += 1;
     // The helper itself is where the raw calls belong.
     if (relative === 'tests/support/spawn-clean.ts') continue;
-    findings.push(...violationsIn(relative, source));
+    const result = violationsIn(relative, source);
+    findings.push(...result.findings);
+    if (result.names > 0) boundSpawnNames += 1;
+    callsExamined += result.calls;
   }
 
-  return { findings, filesScanned };
+  return { findings, filesScanned, boundSpawnNames, callsExamined };
 }
 
 /**
@@ -100,36 +176,33 @@ function scan(): { findings: Finding[]; filesScanned: number } {
  * below are the half that fixes that — one it must catch, one it must stay silent
  * about.
  */
-function violationsIn(relative: string, source: string): Finding[] {
+function violationsIn(
+  relative: string,
+  source: string,
+): { findings: Finding[]; names: number; calls: number } {
   const findings: Finding[] = [];
 
-  // A FILE THAT CANNOT REACH `child_process` CANNOT SPAWN.
-  //
-  // Measured 2026-10-01, by adding two real spawners to the list above:
-  // `app-suite-scope.spec.ts` was reported as a violation for
-  // `/(\d+) files/.exec(listed)` — `RegExp.prototype.exec`, which the pattern
-  // cannot tell from `child_process.exec`, because both are a word followed by a
-  // parenthesis.
-  //
-  // The gate is the structural version of the question the line pattern is asking
-  // (the same move as the invisible-character detector's Unicode categories
-  // replacing a list of bad characters): a spawn needs the module, so a file that
-  // never mentions it has nothing to find. Deliberately a substring of the whole
-  // source rather than an import-statement match, so `require('child_process')` in
-  // any form still brings the file into scope.
-  if (!source.includes('child_process')) return findings;
+  // A file that bound no spawning name cannot spawn, so there is nothing in it to
+  // find — including a `type ChildProcess` import, which binds no value.
+  const names = spawnNamesIn(source);
+  if (names.length === 0) return { findings, names: 0, calls: 0 };
+  const spawnCall = new RegExp(
+    `(?<![.\\w])(${names.map((name) => name.replace('.', '\\.')).join('|')})\\s*\\(`,
+  );
 
+  let calls = 0;
   for (const [index, line] of source.split(/\r?\n/).entries()) {
     const code = line.replace(/\/\/.*$/, '');
-    if (!SPAWN_CALL.test(code)) continue;
-    if (SANCTIONED.test(code)) continue;
-    if (ENV_INSENSITIVE.test(code)) continue;
+    if (!spawnCall.test(code)) continue;
     // An import statement is not a call site.
     if (/^\s*import\b/.test(code)) continue;
+    calls += 1;
+    if (SANCTIONED.test(code)) continue;
+    if (ENV_INSENSITIVE.test(code)) continue;
     findings.push({ file: relative, line: index + 1, text: line.trim() });
   }
 
-  return findings;
+  return { findings, names: names.length, calls };
 }
 
 test.describe('no test spawns in the runner environment @unit', () => {
@@ -137,11 +210,21 @@ test.describe('no test spawns in the runner environment @unit', () => {
     // wrong: without this, the next spawn written anywhere in tests/ inherits
     // NODE_PATH and resolves dependencies the real process cannot — exactly the
     // false pass the API boot test produced on the day it was written.
-    const { findings, filesScanned } = scan();
+    const { findings, filesScanned, boundSpawnNames, callsExamined } = scan();
 
     // Discriminating: a scan that read no files would report clean while
     // checking nothing — the same failure as a scan that reads zero files.
     expect(filesScanned).toBeGreaterThan(3);
+
+    // AND IT HAD A SUBJECT (§T). Since the pattern became per-file, "clean" is also
+    // what a derivation returning nothing produces. Measured: exactly one real file
+    // binds a spawning name and its call sites are all git, so these two numbers are
+    // 1 and 2 — small, which is the point of asserting them rather than assuming them.
+    expect(
+      boundSpawnNames,
+      'no scanned file bound a spawning name — nothing was checked',
+    ).toBeGreaterThan(0);
+    expect(callsExamined, 'no call site was examined — nothing was checked').toBeGreaterThan(0);
 
     expect(
       findings,
@@ -170,12 +253,18 @@ test.describe('no test spawns in the runner environment @unit', () => {
         `${SPAWN}('node', ['-e', '1'], { env: { ...process.env } });`,
       ].join('\n'),
     );
-    expect(caught.map((f) => f.line)).toEqual([2]);
+    expect(caught.findings.map((f) => f.line)).toEqual([2]);
 
-    // The silent half, and the one the assertion is written against: a file with no
-    // access to `child_process` whose only `exec(` is a regular expression's. This is
-    // `app-suite-scope.spec.ts:186` verbatim, the line that produced the false
-    // positive.
+    // THE SILENT HALF, and the one the assertion is written against. Two inputs,
+    // because the false positive came back a second time in a form the first fix did
+    // not cover:
+    //
+    //   - a file that never mentions `child_process` (app-suite-scope.spec.ts:186);
+    //   - a file that imports `type ChildProcess` — in scope, binding no value —
+    //     whose only `exec(` is a regular expression's (command-box.spec.ts:179).
+    //
+    // Both lines are the real ones, and the second is why the pattern is derived from
+    // a file's imports rather than from a list of words.
     const silent = violationsIn(
       'planted-regex.ts',
       [
@@ -183,7 +272,22 @@ test.describe('no test spawns in the runner environment @unit', () => {
         `const files = Number(/(\\d+) files/.${EXEC}(listed)?.[1] ?? 0);`,
       ].join('\n'),
     );
-    expect(silent).toEqual([]);
+    expect(silent.findings).toEqual([]);
+
+    const silentWithTypeImport = violationsIn(
+      'planted-type-import.ts',
+      [
+        "import { type ChildProcess } from 'node:child_process';",
+        'let api: ChildProcess | undefined;',
+        `const total = Number(/Total: (\\d+) tests/.${EXEC}(out)?.[1] ?? 0);`,
+      ].join('\n'),
+    );
+    expect(silentWithTypeImport.findings).toEqual([]);
+    // And the silence is for the RIGHT reason in each case (§X): the first file bound
+    // no name at all, the second bound none because the import was type-only. A
+    // pattern that simply stopped matching would also produce two empty lists.
+    expect(silent.names).toBe(0);
+    expect(silentWithTypeImport.names).toBe(0);
   });
 
   test('the scrub DELETES the variables rather than blanking them', () => {

@@ -147,29 +147,45 @@ ${output.slice(-2000)}`);
     // its projects on AITP_FIXTURE_ONLY (SEC-3e), so ONE listing can never see both.
     // With the live listing dropped, all 8 api tests still passed — CB3 and CB4 both
     // ask about `local`, where the fixture half answers everything.
+    //
+    // `local` ONLY, and the comparison is against a listing this test takes itself.
+    // The first version asked for `local` and `app` and compared the two counts; on a
+    // fresh clone `app` cannot resolve (no BASE_URL), the response carried no
+    // `searched`, and it died on `undefined` — the third time in one day that a guard
+    // of mine required the machine to be configured. `local`'s own live half is the
+    // api and live-setup files, which need no credential at all.
     const local = await post({
       command: 'test the notification preferences drawer',
       environment: 'local',
       dryRun: true,
     });
-    const live = await post({
-      command: 'test the notification preferences drawer',
-      environment: 'app',
-      dryRun: true,
-    });
+    const searched = local.searched as { existingTests: number };
 
-    const countFor = (body: Record<string, unknown>): number =>
-      (body.searched as { existingTests: number }).existingTests;
-
-    // The unit and demo projects alone are ~600 tests; the live surface adds the DMS
-    // specs on top. A threshold rather than an equality, because both suites grow —
-    // but high enough that a single-surface corpus cannot reach it: a live-only
-    // listing is ~192 and a fixture-only one has no DMS spec at all.
-    expect(countFor(local)).toBeGreaterThan(0);
+    // The fixture surface's whole size, from Playwright rather than from a number
+    // written here: a literal would drift as the suite grows, and it would drift in
+    // the direction that keeps this test green.
+    //
+    // Playwright's total counts one entry per project, while the service dedups on
+    // `file::title` — equal here, because the two fixture projects share no file.
+    const fixtureOnly = execFileSyncClean(
+      process.execPath,
+      [require.resolve('@playwright/test/cli'), 'test', '--list', '--reporter=line'],
+      {
+        cwd: ROOT,
+        maxBuffer: 20 * 1024 * 1024,
+        env: { AITP_FIXTURE_ONLY: '1', LOG_LEVEL: 'error' },
+      },
+    );
+    const total = Number(/Total: (\d+) tests/.exec(fixtureOnly)?.[1] ?? 0);
     expect(
-      countFor(live),
-      'the corpus for a live environment is missing a surface',
-    ).toBeGreaterThan(countFor(local));
+      total,
+      `no fixture listing to compare against:\n${fixtureOnly.slice(-400)}`,
+    ).toBeGreaterThan(0);
+
+    expect(
+      searched.existingTests,
+      'the corpus is exactly the fixture surface — the live listing is missing',
+    ).toBeGreaterThan(total);
   });
 
   test('CB5: no request body can turn ALLOW_WRITES on', async () => {
