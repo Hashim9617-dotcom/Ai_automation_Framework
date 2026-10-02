@@ -225,6 +225,13 @@ exactly that. So each mutation declares what should catch it:
 > imports. A log line, an error string and a printed path are interfaces nobody
 > declared (§AI).
 
+> **A guard that READS the environment is testing the machine it runs on, until it
+> SUPPLIES that environment itself.** Four in two days, each green here and red on a
+> clean checkout; two were written an hour after the first two were fixed. Ask it at
+> authoring time: _with every `.env` on this machine deleted, what would this
+> assertion be comparing?_ An exception or `undefined` is the answer that means the
+> machine was the subject (§AJ).
+
 **Measured here, because the failure mode is not the obvious guess:** Playwright
 transpiles without typechecking, so a _type_ error in a mutation is invisible
 and 203 tests still pass; a _syntax_ error aborts Babel before any test runs,

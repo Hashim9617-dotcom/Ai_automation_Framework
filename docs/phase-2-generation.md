@@ -3593,3 +3593,79 @@ column could not have — `interpolate()` reading a `${...}` placeholder out of 
 **comment** I had just written, and `ensureDotenv()` putting back a variable a test
 had deliberately deleted. Both are outbound: the changed thing depended on a layer
 that rewrites its input.
+
+---
+
+## AJ. A guard that READS the environment is testing the machine (2026-10-02)
+
+> **A guard that reads the environment is testing the machine it runs on, until it
+> SUPPLIES that environment itself.**
+
+Four instances in two days, every one green on the machine that wrote it and red on
+a clean checkout. Two were found by running the quickstart on a fresh clone (§AG);
+two were written an hour after the first two were fixed, by the same author who had
+just written the rule down.
+
+| #   | guard                                         | what it read                                  | what a fresh clone said                                                    |
+| --- | --------------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------- |
+| 1   | `tests/unit/no-real-env.spec.ts:96`           | `resolveEnvName()` must not throw             | `ConfigError: refusing to run: no environment was named`                   |
+| 2   | `tests/unit/reporter-target.spec.ts:132` (R4) | `resolveEnvName()` for the expected label     | the same `ConfigError`, from a test about the config's own label           |
+| 3   | `tests/unit/surface-partition.spec.ts:47`     | `TEST_ENV=app`, and this machine's `BASE_URL` | `ConfigError: Environment variable BASE_URL is required but not set`       |
+| 4   | `tests/api/command-box.spec.ts:140` (CB4b)    | the API's corpus for environment `app`        | `TypeError: Cannot read properties of undefined (reading 'existingTests')` |
+
+In every case the production code was RIGHT and the guard was wrong. `resolveEnvName`
+refuses by policy, because every default here is a live system somebody did not
+choose; `loadEnvironment` refuses an unresolvable placeholder for the same reason.
+The guards were asserting _"this developer has configured this machine"_, and that
+sentence is true in exactly one place.
+
+### Why it is its own rule and not just §AI's third column
+
+§AI says to write an outbound list — _what does the thing I am changing depend on?_
+Instance 3 was written WITH that list in hand. The list said "this must be checked
+with `.env` present and absent", and the fixture was still built from an ambient
+value, because the dependency does not look like one: a test that passes
+`TEST_ENV: 'app'` to a child reads as self-contained. Nothing in it names
+`BASE_URL`. The machine supplies that silently, two layers down, inside
+`loadEnvironment`.
+
+> **The tell is not "does this read `process.env`". It is: _if I deleted every
+> `.env` on this machine, what would this assertion be comparing?_** If the answer
+> is an exception, or `undefined`, the guard was measuring the machine.
+
+### The fix is always the same shape, and it is cheap
+
+**Supply the environment, or avoid needing one.** Both appear above:
+
+- **Supply it.** A temp repo root with its own `.env` and `config/env/local.json`
+  (instances 1), or the three values the config interpolates passed to the child
+  (instance 3, which is how `tests/unit/app-suite-scope.spec.ts` already did it —
+  the pattern existed and was not reused). Nothing connects during a `--list`; the
+  values only have to parse.
+- **Avoid it.** `ambientEnvName()` in place of `resolveEnvName()`, because it
+  answers `undefined` instead of refusing (instance 2); and `local` in place of
+  `app`, because its file pins a literal URL and needs no credential at all
+  (instance 4).
+
+### What caught them, and the one that nearly was not caught
+
+Instances 1 and 2 were caught by a fresh-clone run of the quickstart. Instance 3 was
+caught by its own §T line — _assert the check had a subject_:
+
+```ts
+expect(
+  live.counts.get('chromium') ?? 0,
+  `nothing was collected at all:\n${live.output}`,
+).toBeGreaterThan(0);
+```
+
+Without it, "zero unit tests collected" — the thing the test wanted to see — is
+exactly what a listing that never ran also produces. It would have been a green
+suite on a clone where the instrument was dead.
+
+> **An environment-dependent guard needs §T more than most**, because the
+> flattering reading and the failure mode produce the same output: nothing.
+
+So the standing practice is not vigilance but a question in the checklist, asked of
+every guard at authoring time: **what would this compare on a machine with no
+`.env`?** A guard that cannot answer is not yet a guard.
