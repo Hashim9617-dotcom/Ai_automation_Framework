@@ -31,7 +31,7 @@ import {
   renderTriage,
   findRepoRoot,
 } from '@aitp/shared';
-import { ambientEnvName, loadCaptureFromDisk, loadEnvironment } from '@aitp/execution-engine';
+import { loadCaptureFromDisk, requireApplicationArg } from '@aitp/execution-engine';
 
 /**
  * Module (sheet column 1) -> the captured route that IS that screen.
@@ -101,39 +101,13 @@ function main(): void {
   const outIndex = process.argv.indexOf('--out');
   const outDir = outIndex > 0 ? process.argv[outIndex + 1] : undefined;
 
-  // `--app` IS REQUIRED, and a disagreement with the environment is REFUSED.
-  //
-  // `triage` is non-interactive: nobody is watching it resolve a target, and its
-  // output — a ceiling that gets quoted — is about one application's sheet paired
-  // against one application's captures. An ambient `TEST_ENV` deciding that silently
-  // is SEC-2's shape: the thing that chooses where the work points must not come
-  // from the layer that can redirect it without anyone looking.
-  //
-  // So the application is an argument. If an environment is ALSO set and names a
-  // different application, both are printed and the run refuses — the two sources
-  // disagree and there is no safe tie-break, which is the same reasoning as the
-  // clause-kind column.
-  const appIndex = process.argv.indexOf('--app');
-  const application = appIndex > 0 ? process.argv[appIndex + 1] : undefined;
-  if (!application) {
-    throw new Error(
-      'usage: pnpm triage <workbook.xlsx> --app <application> [--out <dir>]\n' +
-        '  --app is required: triage pairs one application\x27s sheet against that ' +
-        'application\x27s captures, and nothing else should decide which.',
-    );
-  }
-  const ambient = ambientEnvName();
-  if (ambient) {
-    const ambientApplication = loadEnvironment(ambient).application;
-    if (ambientApplication !== application) {
-      throw new Error(
-        `refusing to run: --app says "${application}" and TEST_ENV="${ambient}" is configured ` +
-          `for application "${ambientApplication}". Two sources disagree about which ` +
-          'application this is, and there is no safe tie-break.\n' +
-          `  Pass --app ${ambientApplication}, or unset TEST_ENV.`,
-      );
-    }
-  }
+  // `--app` IS REQUIRED, and a disagreement with the environment is REFUSED. The
+  // reasoning lives with the function now, because `pnpm run-sheet` needs the same
+  // rule and a second copy of a refusal drifts (§AE).
+  const application = requireApplicationArg({
+    argv: process.argv,
+    usage: 'usage: pnpm triage <workbook.xlsx> --app <application> [--out <dir>]',
+  });
 
   const routes = loadModuleRoutes(application);
   const MODULE_ROUTES = routes.routes;

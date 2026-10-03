@@ -1,3 +1,4 @@
+export * from './config/application-arg';
 export * from './config/environment';
 export * from './config/schema';
 export * from './locators/smart-locator';
