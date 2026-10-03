@@ -41,6 +41,7 @@
     "docker:down": "docker compose -f infra/docker/docker-compose.yml down",
     "eval:generation": "tsx scripts/eval-generation-fixture.ts",
     "triage": "tsx scripts/triage-sheet.ts",
+    "run-sheet": "tsx scripts/run-sheet.ts",
     "smoke:generation": "tsx scripts/generation-smoke.ts",
     "generate:review": "tsx scripts/generate-review.ts",
     "check:api-deps": "node scripts/check-api-deps.mjs",

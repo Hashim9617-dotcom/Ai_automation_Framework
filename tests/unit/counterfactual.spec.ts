@@ -72,6 +72,10 @@ const COVERED = [
   // Added 2026-10-02 with 3b batch 1: the one reader of the capture directory, and
   // the per-module map partition that a merged capture made necessary.
   'tests/unit/capture-source.spec.ts',
+  // Added 2026-10-03 with 3b batch 2: the shared-route rule, and the CLI driven as a
+  // real process. Both carry their counterfactuals from the first line.
+  'tests/demo/shared-route-tabs.spec.ts',
+  'tests/demo/run-sheet-cli.spec.ts',
 ];
 
 /**
@@ -97,17 +101,48 @@ interface TestLine {
   hasCounterfactual: boolean;
 }
 
-function testsIn(file: string): TestLine[] {
-  const lines = readFileSync(path.join(ROOT, file), 'utf8').split(/\r?\n/);
+export function testsIn(file: string): TestLine[] {
+  return testsInSource(readFileSync(path.join(ROOT, file), 'utf8'));
+}
+
+/**
+ * The counterfactual must be the FIRST THING IN THE BODY — not the first thing after
+ * the `test(` line.
+ *
+ * It was the line immediately below, which is the same thing until a signature wraps:
+ *
+ *     test('C1: …', async ({
+ *       browser,          <- the line the check read
+ *       env,
+ *     }) => {
+ *       // wrong: …       <- the counterfactual, three lines down
+ *
+ * Prettier wraps every destructured fixture list of more than one name, so two new
+ * suites were reported as having no counterfactual while carrying one. That direction
+ * is the lucky one — it is loud. The inverse would have been a test with no
+ * counterfactual passing because its signature happened to wrap.
+ *
+ * So the body is found first (`=> {`) and the counterfactual must be the next line.
+ * "First thing said" is still the rule; only the definition of "first" is fixed.
+ *
+ * Exported with `testsInSource` so the scanner has a falsifier: handed a source
+ * directly, a test can present the case that matters.
+ */
+export function testsInSource(source: string): TestLine[] {
+  const lines = source.split(/\r?\n/);
   const found: TestLine[] = [];
   for (const [i, line] of lines.entries()) {
     if (!/^\s*test\(/.test(line)) continue;
-    // The counterfactual sits immediately under the test opening, so it is the
-    // first thing read — before the fixture it is a claim about.
+
+    // Walk to the line that opens the body. Bounded, so a malformed file cannot run
+    // the scan off the end and report a test as covered by a comment far below.
+    let body = i;
+    for (let step = 0; step < 6 && !/=>\s*\{\s*$/.test(lines[body] ?? ''); step += 1) body += 1;
+
     found.push({
       line: i + 1,
       title: /test\(\s*['"`](.+?)['"`]/.exec(line)?.[1] ?? line.trim(),
-      hasCounterfactual: (lines[i + 1] ?? '').includes('// wrong:'),
+      hasCounterfactual: (lines[body + 1] ?? '').includes('// wrong:'),
     });
   }
   return found;
@@ -158,5 +193,39 @@ test.describe('property tests state their counterfactual @unit', () => {
     }
     // And the two lists must not overlap, or coverage could be claimed twice.
     expect(COVERED.filter((file) => NOT_YET_COVERED.includes(file))).toEqual([]);
+  });
+
+  test('§W: the scanner finds a counterfactual under a WRAPPED signature, and still misses a real gap', () => {
+    // wrong: the scanner reads the line immediately after `test(`, so a Prettier-
+    // wrapped fixture list hides the counterfactual and the file is reported as
+    // uncovered. Measured 2026-10-03: two new suites were reported that way while
+    // carrying one. That direction is loud; the inverse — a test with no
+    // counterfactual passing because its signature wrapped — would be silent.
+    const wrapped = [
+      "test('C1: a wrapped signature', async ({",
+      '  browser,',
+      '  env,',
+      '}) => {',
+      '  // wrong: the thing this fixture would produce if the code were broken.',
+      '  expect(1).toBe(1);',
+      '});',
+    ].join('\n');
+
+    expect(testsInSource(wrapped).map((entry) => entry.hasCounterfactual)).toEqual([true]);
+
+    // THE SILENT HALF, and the one the assertion is written against: a scanner that
+    // simply looked for `// wrong:` anywhere below would call this covered too.
+    const missing = [
+      "test('C2: no counterfactual at all', async ({",
+      '  page,',
+      '}) => {',
+      '  const root = setUp();',
+      '  // wrong: this sentence arrives AFTER the fixture it is supposed to be a',
+      '  // claim about, which is the ordering the rule exists to enforce.',
+      '  expect(root).toBeDefined();',
+      '});',
+    ].join('\n');
+
+    expect(testsInSource(missing).map((entry) => entry.hasCounterfactual)).toEqual([false]);
   });
 });

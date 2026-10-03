@@ -185,11 +185,51 @@ export async function runSheet(options: RunSheetOptions): Promise<RunSheetResult
       why: blocked.get(row.module)!,
     }));
 
-  const resolved = runnableRows.map((row) =>
-    // The entry state is the module's route, named by the map rather than
-    // guessed from the row.
-    resolveAuthoredRow(row, options.capture, map[row.module]!.route.replace(/^\//, '') || 'root'),
-  );
+  /**
+   * THE STATE A ROW RESOLVES AGAINST IS LOOKED UP, NOT SPELLED.
+   *
+   * This derived a state id from the module's route — `/employees` became
+   * `employees` — which worked for exactly as long as the only caller built its own
+   * capture with ids chosen to match. The disk loader session-qualifies them
+   * (`2026-10-01T…Z/employees`), because two walks of one screen otherwise collide on
+   * the cursor a grounding check moves. So the spelled id matched nothing and every
+   * row came back `refused`: found by the CLI's end-to-end run, with three
+   * pre-registered outcomes disagreeing at once, and invisible to every test whose
+   * capture it had also written.
+   *
+   * THE NEWEST state at the route, because a locator should be written against the
+   * most recent walk of that screen. The loader reads sessions in sorted directory
+   * order and the directories are ISO timestamps, so the last one wins.
+   *
+   * A module with no state at its route cannot get here: `validateModuleMap` has
+   * already refused it, which is the §Y half — this lookup is only reached once that
+   * gate has passed, so a missing entry is a wiring fault and not an outcome.
+   */
+  const newestStateAt = new Map<string, string>();
+  for (const state of options.capture.states) {
+    const route = (() => {
+      try {
+        const pathname = new URL(state.url).pathname;
+        return pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+      } catch {
+        return state.url;
+      }
+    })();
+    newestStateAt.set(route, state.id);
+  }
+
+  const resolved = runnableRows.map((row) => {
+    const route = map[row.module]!.route.replace(/\/+$/, '') || '/';
+    const stateId = newestStateAt.get(route);
+    if (!stateId) {
+      throw new Error(
+        `${mapFile}, module "${row.module}": no captured state at route "${route}", yet the ` +
+          'map validator called it provable. That is a wiring fault between the two, not a ' +
+          'result — a row must never be resolved against a state nobody captured.',
+      );
+    }
+    return resolveAuthoredRow(row, options.capture, stateId);
+  });
 
   const entry: EntryControl = {
     moduleOf: (row) => moduleOfRow.get(row.rowId) ?? '(unknown module)',
