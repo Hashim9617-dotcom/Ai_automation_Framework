@@ -122,12 +122,28 @@ export function createEntryVerifier(options: EntryVerifierOptions): {
       };
     }
 
-    const { role, name } = entry.provenBy;
-    // Addressed the way the executor addresses a row's target: a text role by
-    // its text, everything else by role and exact name (§11.2).
+    const { role, name, selected } = entry.provenBy;
+    /**
+     * Addressed the way the executor addresses a row's target: a text role by its
+     * text, everything else by role and exact name (§11.2).
+     *
+     * `selected` is passed ONLY when the map declares it. Two reasons, and the
+     * second is why it is a conditional rather than `selected: undefined`:
+     *
+     * - the map can express the property, so the run must read it, or a provenBy
+     *   that says "the OPEN tab" would be satisfied by the closed one — the same
+     *   divergence the capture-side filter in `validateModuleMap` closes;
+     * - Playwright's `selected` option is only valid for roles that support
+     *   `aria-selected`, and it throws for the rest. A heading lookup must not
+     *   acquire an option just because the type allows one.
+     */
     const locator = TEXT_ROLES.includes(role)
       ? options.page.getByText(name, { exact: true })
-      : options.page.getByRole(role as Parameters<Page['getByRole']>[0], { name, exact: true });
+      : options.page.getByRole(role as Parameters<Page['getByRole']>[0], {
+          name,
+          exact: true,
+          ...(selected === undefined ? {} : { selected }),
+        });
 
     let count: number;
     try {
@@ -146,7 +162,15 @@ export function createEntryVerifier(options: EntryVerifierOptions): {
         reason: 'state-assert',
         detail:
           `"${entry.route}" opened, but the element that proves module "${module}" — ` +
-          `${role} "${name}" — is not on it. The rows below never ran.`,
+          `${role} "${name}"${selected === undefined ? '' : ` selected=${selected}`} — is not ` +
+          'on it. The rows below never ran.' +
+          // NAMED, because the two failures want different actions: the screen is
+          // wrong, or the screen is right and the wrong tab is open. Without the
+          // property in the message a QA re-checks the route and finds it correct.
+          (selected === undefined
+            ? ''
+            : ' A route that shares its path with another module is reached with the wrong ' +
+              'tab open as easily as not at all.'),
       };
     }
 

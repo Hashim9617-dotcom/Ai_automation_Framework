@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { ARIA_ROLES, TEXT_ROLES, collapseTextDuplicates } from '../a11y/addressability';
 import type { BoundedCapture } from '../generation/bounding';
+import type { CapturedState } from '../generation/grounding';
+import type { AccessibilityNode } from '../types/ai';
 import { findCandidates } from './resolver';
 
 /**
@@ -44,6 +46,19 @@ import { findCandidates } from './resolver';
 export interface ProvenBy {
   role: string;
   name: string;
+  /**
+   * The element's selection state, for a screen that is a TAB on a shared route.
+   *
+   * Two modules at one route cannot be told apart by an element both views
+   * contain: a `tab "Permissions"` exists in the DOM whether or not it is the open
+   * one, so naming it proves only that the tab strip is there. `selected: true` is
+   * what makes it a proof of WHICH tab is open.
+   *
+   * Optional, and absent means "do not look at it" rather than "false" — the same
+   * distinction `AccessibilityNode.selected` carries, where `undefined` is the
+   * capture not recording the property and must never be read as `false`.
+   */
+  selected?: boolean;
 }
 
 export interface ModuleEntry {
@@ -165,7 +180,22 @@ export function loadModuleMap(file: string): ModuleMap {
       );
     }
 
-    map[module] = { route, provenBy: { role, name } };
+    // VALIDATED, because an unvalidated optional field is a silent no-op: a QA
+    // writes `"selected": "true"` and the run ignores it, which is the quiet
+    // failure this file exists to avoid.
+    const selected = (entry.provenBy as Record<string, unknown>).selected;
+    if (selected !== undefined && typeof selected !== 'boolean') {
+      throw new Error(
+        `${where}: provenBy "selected" must be true or false (a JSON boolean, not a string), ` +
+          `found ${typeof selected}. Use it only for a tab on a route another module shares — ` +
+          'it is what tells "the tab strip is present" from "this tab is open".',
+      );
+    }
+
+    map[module] = {
+      route,
+      provenBy: { role, name, ...(selected === undefined ? {} : { selected }) },
+    };
   }
   return map;
 }
@@ -329,11 +359,60 @@ export function validateModuleMap(
   const provable: Record<string, ProvenModule> = {};
   const unprovable: UnprovableModule[] = [];
 
+  /**
+   * TWO KEYS THAT DIFFER ONLY IN CASE, reported and never merged.
+   *
+   * The real map holds `"User Role"` and `"user role"`, both at
+   * `/admin/user-roles` with the same proof. Folding them together would be a
+   * downstream mechanism deciding something the sheet already knows: the Module
+   * column is what a QA typed, two spellings may be two screens or one typo, and
+   * only the person who wrote the sheet can say which. Keying on a lowercased name
+   * would also make the map silently lossy — the second entry would overwrite the
+   * first, and whichever route survived would be a coin toss.
+   *
+   * So both stay, both are validated, and the pair is named. The shared-route rule
+   * below refuses them anyway while they carry the same proof, but it refuses them
+   * for being indistinguishable rather than for being near-duplicates, and those are
+   * two different things to tell a reader.
+   */
+  const byLowerName = new Map<string, string[]>();
+  for (const module of Object.keys(map)) {
+    const key = module.toLowerCase();
+    byLowerName.set(key, [...(byLowerName.get(key) ?? []), module]);
+  }
+  for (const [, variants] of byLowerName) {
+    if (variants.length < 2) continue;
+    unprovable.push({
+      module: variants.sort()[0]!,
+      why:
+        `${file}: ${variants.length} entries differ only in CASE — ${quoted(variants.sort())}. ` +
+        'They are NOT merged: two spellings may be two screens or one typo, and the Module ' +
+        "column is the QA's. Decide which is real, delete the other, and correct the sheet.",
+    });
+  }
+
+  /**
+   * Candidates for one provenBy in one state, INCLUDING its declared property.
+   *
+   * `findCandidates` filters on name and role only, so a `selected` a map declares
+   * would be expressible and ignored — the map could say "the open tab" and the
+   * validator would accept the closed one. The property is applied here, where the
+   * matching happens, rather than trusted to a function that does not read it.
+   */
+  const matchesIn = (state: CapturedState, provenBy: ProvenBy): AccessibilityNode[] => {
+    const named = collapseTextDuplicates(findCandidates(state, provenBy.name, [provenBy.role]));
+    if (provenBy.selected === undefined) return named;
+    // `undefined` on the NODE is the capture not recording the property, and that is
+    // silence — never `false`. A proof that needs the property cannot be satisfied by
+    // a node that never carried it.
+    return named.filter((node) => node.selected === provenBy.selected);
+  };
+
   for (const [module, entry] of Object.entries(map)) {
     const { role, name } = entry.provenBy;
     const matches = capture.states.map((state) => ({
       state,
-      nodes: collapseTextDuplicates(findCandidates(state, name, [role])),
+      nodes: matchesIn(state, entry.provenBy),
     }));
 
     const ambiguous = matches.filter((match) => match.nodes.length > 1);
@@ -398,6 +477,69 @@ export function validateModuleMap(
     }
 
     provable[module] = { route, states: hits.length };
+  }
+
+  /**
+   * THE HOLE IN THE ROUTE RULE: two modules at one route.
+   *
+   * A route-level proof says which SCREEN a run reached. It cannot say which of
+   * several modules AT that screen it reached, and the real map has two such
+   * groups — measured 2026-10-03:
+   *
+   *     /files              File Explorer | Document   both tree "Workspaces"
+   *     /admin/user-roles   User Role | user role | Permissions
+   *                                                   all heading "User role"
+   *
+   * `Permissions` is a tab inside User Role, so its rows would have run against the
+   * User Role view and reported passes and failures about the wrong screen. That is
+   * worse than a refusal: a refusal is visible and a wrong pass is not.
+   *
+   * FAIL-CLOSED: on a shared route a module needs a proof the others do NOT match.
+   * Identical provenBy entries distinguish nothing, so every member of the group is
+   * refused by name. A tab declaring `selected: true` DOES distinguish, because the
+   * closed tab's node carries `selected: false` and is filtered out above — which is
+   * the whole reason the property was added.
+   *
+   * The check is structural rather than a list of known-shared routes: it asks
+   * whether any captured state separates this module from each route-mate, so a new
+   * pairing nobody thought about is caught the day it is added.
+   */
+  const byRoute = new Map<string, string[]>();
+  for (const [module, proven] of Object.entries(provable)) {
+    byRoute.set(proven.route, [...(byRoute.get(proven.route) ?? []), module]);
+  }
+
+  for (const [route, modules] of byRoute) {
+    if (modules.length < 2) continue;
+    const statesAt = capture.states.filter((state) => routeOf(state.url) === route);
+
+    for (const module of modules) {
+      const mine = map[module]!.provenBy;
+      const indistinguishable = modules
+        .filter((other) => other !== module)
+        .filter((other) => {
+          const theirs = map[other]!.provenBy;
+          // Is there a state at this route where MY proof holds and THEIRS does not?
+          // One such state is enough: it is a screen the two can be told apart on.
+          return !statesAt.some(
+            (state) => matchesIn(state, mine).length === 1 && matchesIn(state, theirs).length === 0,
+          );
+        })
+        .sort();
+
+      if (indistinguishable.length === 0) continue;
+      delete provable[module];
+      unprovable.push({
+        module,
+        why:
+          `${file}, module "${module}": shared route "${route}" — proof ${mine.role} ` +
+          `"${mine.name}"${mine.selected === undefined ? '' : ` selected=${mine.selected}`} ` +
+          `cannot tell "${module}" from ${quoted(indistinguishable)}. Every captured state ` +
+          'at that route that has one has the other. Give the tab-like module a proof with a ' +
+          'state, e.g. { "role": "tab", "name": "…", "selected": true }, or capture the screen ' +
+          'that is actually different and point the route at it.',
+      });
+    }
   }
 
   return { provable, unprovable };
