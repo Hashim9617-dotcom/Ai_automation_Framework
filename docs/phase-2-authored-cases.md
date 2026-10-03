@@ -1626,3 +1626,90 @@ The two halves feel different in the moment and are worth separating:
 **The tell:** ask what the mechanism returns for input it has no business
 judging. If the answer is _"something that looks fine"_, it is being asked the
 wrong question, and moving it earlier in the pipeline will not help.
+
+---
+
+## BACKLOG — the sheet NAME is a gate and the LAYOUT is only a suggestion
+
+**Not built. Recorded 2026-10-03 with the measurements that found it, because the
+decision was to accept today's layout rather than change the matcher now.**
+
+Two checks sit side by side in `readFinalTestCases` and behave oppositely:
+
+| check                   | behaviour                     | where                         |
+| ----------------------- | ----------------------------- | ----------------------------- |
+| `grid.name` ≠ the sheet | **throws**                    | `final-test-cases.ts:434`     |
+| a header ≠ the schema   | pushes a string into an array | `final-test-cases.ts:443-452` |
+
+`headerWarnings` is returned at line 595 and **read by nothing but tests** —
+grepped across `packages/`, `apps/`, `scripts/` and `tests/`: four hits, all in
+the reader itself plus three assertions. No caller inspects it, `runSheet` does
+not, the report does not render it.
+
+`tests/unit/final-test-cases.spec.ts:101` (`F2`) proves the direction: it renames
+**column 4, `Test Case ID` — an INPUT** — and asserts the read SUCCEEDS with one
+warning. Column positions come from the schema and not from the header row, so
+every value is then taken from the position the old layout had, and the rows come
+back populated from the wrong columns.
+
+> **The name is a label a QA can change freely; the headers are what make the
+> column positions mean anything. Gating the former and merely noting the latter
+> is the wrong way round.**
+
+Not theoretical in either direction, both measured on 2026-10-03:
+
+- a correct 22-column sheet was **refused** for being named `Sheet1`;
+- a sheet named `Final Test cases` with a renamed input header would be **read to
+  completion**.
+
+Only `.trim()` keeps this from biting today: the real workbook's column 19 is
+`"SOC DMS "` with a trailing `U+0020`, which trims to match.
+
+### The shape to build, when it is built
+
+Layouts as DATA under `config/apps/<application>/`: `{ name, headers[], inputs[],
+optionalOutputs[] }`, with `FINAL_TEST_CASES_SCHEMA` becoming the first entry
+rather than a constant in code. `packages/` keeps the matcher and gains no
+application knowledge. A sheet is matched by its **exact ordered header row**
+(after a per-cell trim, which is deliberate rather than incidental); `--sheet`
+says only which sheet to open. Zero matches refuse, naming the closest layout and
+the FIRST differing column; more than one match refuses, naming both (§AC — a
+config fault, and ambiguity resolves toward refusal). An input column may never
+be absent; an output column may be absent only where the layout declares it
+optional.
+
+Pre-registered tests, both halves (§W):
+
+| #   | input                                               | expected                                   |
+| --- | --------------------------------------------------- | ------------------------------------------ |
+| L1  | a 16-column layout's header row                     | accepted, layout named                     |
+| L2  | the 22-column `Final Test cases` header row         | **still** accepted — the regression half   |
+| L3  | an input header renamed (`Then` → `Expected`)       | refused, naming the column and both values |
+| L4  | an input column MOVED (`Given`/`When` swapped)      | refused — same headers, wrong order        |
+| L5  | two declared layouts with identical headers         | refused, naming both                       |
+| L6  | column 19's trailing space                          | accepted — so the tolerance is deliberate  |
+| L7  | an output column absent where NOT declared optional | refused — the other half of optionality    |
+
+`L4` and `L7` carry the weight: without `L4` the matcher could be a set
+comparison and still pass `L1`-`L3`; without `L7`, "optional" would mean "any
+output may vanish".
+
+### The one open question
+
+`AuthoredRow.type` reads column 18 (`Type`) at `final-test-cases.ts:570` and
+**nothing anywhere reads it back** — grepped, one hit, the assignment itself. It is
+also **0 of 476 filled** in the real workbook. So it is an input in name only, and
+any future layout that drops the column forces the question: remove the field, or
+keep it and declare it a non-input? Removing is cleaner; keeping costs a field
+that is always empty. Deciding it by loosening the input rule would be the wrong
+way to answer.
+
+### Tests that change when this is built
+
+`tests/unit/authored-sheet.spec.ts` (the sheet-name refusal becomes a header-row
+refusal — same property, rewritten not deleted), `tests/unit/final-test-cases.spec.ts`
+(the schema is read from data), and the three fixture builders that name their
+sheet `FINAL_TEST_CASES_SCHEMA.sheetName` — `tests/demo/run-sheet-cli.spec.ts`,
+`tests/demo/run-sheet.spec.ts`, `tests/support/xlsx-fixture.ts`. At least one of
+those should then use a differently-named sheet, to prove the name stopped being
+load-bearing.
