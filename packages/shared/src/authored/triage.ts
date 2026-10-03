@@ -164,6 +164,111 @@ export interface TriageResult {
 }
 
 /**
+ * WORDS IN A CLAUSE THAT NOTHING CONSUMED — a MEASUREMENT, never a gate (P5).
+ *
+ * The resolver reads a quoted name, a role word, a property word and a verb. Every
+ * other word in the clause is read by nothing, and a clause can therefore say
+ * something the run silently ignores — *"verify the "Total" is 5"* resolves to the
+ * element and drops the number, which is the fail-open shape this repo has corrected
+ * five times.
+ *
+ * Some of those are already refused by name (values, counts, quantifiers, ordinals,
+ * scope words, a second quoted name). This counts what is left OVER after all of
+ * them, which is the honest residue rather than a restatement of the gates.
+ *
+ * ## Deliberately not a refusal
+ *
+ * Making it one would refuse most of a real sheet: English is full of words a parser
+ * does not need. The number exists so the decision to build a consumption rule is
+ * taken against a measurement — and so the cost of not having one is visible on every
+ * report instead of being a paragraph in a design doc.
+ */
+const CONSUMED_BY_NOTHING_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'by',
+  'can',
+  'for',
+  'from',
+  'has',
+  'have',
+  'in',
+  'is',
+  'it',
+  'of',
+  'on',
+  'or',
+  'should',
+  'that',
+  'the',
+  'then',
+  'there',
+  'they',
+  'this',
+  'to',
+  'user',
+  'users',
+  'when',
+  'will',
+  'with',
+  // Read by the resolver itself, so not leftovers.
+  'click',
+  'clicks',
+  'verify',
+  'verifies',
+  'check',
+  'checks',
+  'enter',
+  'enters',
+  'select',
+  'selects',
+  'visible',
+  'invisible',
+  'enabled',
+  'disabled',
+  'checked',
+  'present',
+  'not',
+  'button',
+  'buttons',
+  'link',
+  'links',
+  'heading',
+  'headings',
+  'field',
+  'fields',
+  'tab',
+  'tabs',
+  'checkbox',
+  'option',
+  'options',
+  'text',
+  'textbox',
+  'table',
+  'dialog',
+  'menu',
+]);
+
+export function leftoverWords(clauseText: string): string[] {
+  // The quoted name IS consumed, so it is removed before anything else — otherwise
+  // every word inside a multi-word element name would count as a leftover.
+  const withoutNames = clauseText.replace(/["'`][^"'`]*["'`]/g, ' ');
+  return [
+    ...new Set(
+      withoutNames
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((word) => word.length > 1 && !CONSUMED_BY_NOTHING_STOP_WORDS.has(word)),
+    ),
+  ];
+}
+
+/**
  * A clause that describes an OUTCOME rather than pointing at an element.
  *
  * Deliberately narrow. Every pattern here is a shape measured in the real
@@ -457,6 +562,52 @@ export function renderTriage(triage: TriageResult): string {
     `| ${counts['too-vague-to-verify']} (${pct(counts['too-vague-to-verify'])}) | too vague for anything to verify | the row needs rewriting — QA work |`,
     '',
   ];
+
+  /**
+   * P5 — the consumption residue, MEASURED and labelled as a measurement.
+   *
+   * No threshold, no verdict and nothing refuses on it. It is here so the question
+   * "should a clause have to be fully consumed?" is decided against a number from
+   * this sheet rather than against an intuition, and so the cost of not having that
+   * rule is on every report instead of in a design doc.
+   */
+  // From `evidence` — the clause the triage actually read, verbatim. A `TriagedRow`
+  // carries that and not the whole row, which is the honest scope: the measurement is
+  // over the text a decision was made from.
+  const leftoverPerRow = triage.rows.map((row) => ({
+    rowId: row.rowId,
+    words: leftoverWords(row.evidence),
+  }));
+  const rowsWithLeftovers = leftoverPerRow.filter((row) => row.words.length > 0);
+  const frequency = new Map<string, number>();
+  for (const row of rowsWithLeftovers) {
+    for (const word of row.words) frequency.set(word, (frequency.get(word) ?? 0) + 1);
+  }
+  const commonest = [...frequency]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 8);
+
+  lines.push(
+    '### Leftover words — a measurement, not a gate',
+    '',
+    `${rowsWithLeftovers.length} of ${triage.rows.length} row(s) contain words the resolver ` +
+      'reads nothing from. It uses a quoted name, a role word, a property word and a verb; ' +
+      'everything else is ignored, so a clause can say something a run silently drops.',
+    '',
+    '> **Nothing refuses on this number.** Values, counts, quantifiers, ordinals, scope words ' +
+      'and a second quoted name are already refused by name — this is what is left after all ' +
+      'of them, and it is reported so the decision to build a consumption rule is taken ' +
+      'against a measurement.',
+    '',
+    ...(commonest.length > 0
+      ? [
+          '| Leftover word | Rows |',
+          '| --- | ---: |',
+          ...commonest.map(([word, count]) => `| \`${word}\` | ${count} |`),
+          '',
+        ]
+      : []),
+  );
 
   if (triage.missingCaptures.length > 0) {
     lines.push(
