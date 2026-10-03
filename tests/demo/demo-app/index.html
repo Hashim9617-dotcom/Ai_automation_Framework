@@ -213,18 +213,18 @@
       const SESSION_KEY = 'demo.session';
 
       function setSession(user) {
-        sessionStorage.setItem(SESSION_KEY, user);
+        localStorage.setItem(SESSION_KEY, user);
         $('current-user').textContent = user;
       }
 
       function clearSession() {
-        sessionStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(SESSION_KEY);
         $('current-user').textContent = '';
       }
 
       /** The session decides which view a load shows — the path never did. */
       function restoreSession() {
-        const user = sessionStorage.getItem(SESSION_KEY);
+        const user = localStorage.getItem(SESSION_KEY);
         if (user) {
           $('current-user').textContent = user;
           show('employees');
@@ -320,8 +320,21 @@
       // would have passed with the sign-in DELETED. That is a fixture that cannot
       // discriminate, and the fix for one is to change the input.
       //
-      // sessionStorage, not localStorage: it is per-tab, so it dies with the
-      // context even if a runner ever stopped clearing storage between tests.
+      // localStorage since 2026-10-03, and for the reason that argued for a session
+      // at all: A FIXTURE SHOULD BE SHAPED LIKE PRODUCTION.
+      //
+      // It was sessionStorage, chosen because per-tab storage "dies with the context
+      // even if a runner ever stopped clearing storage between tests" — a second
+      // safety net for an independence the paragraph above had just shown the runner
+      // already provides. The cost was measured on 2026-10-03: Playwright's
+      // `storageState()` captures cookies and localStorage and NOT sessionStorage, so
+      // a session saved by `pnpm auth` could never be replayed here, and the
+      // `pnpm run-sheet` CLI — whose entire sign-in is a saved session — could not
+      // authenticate against this app at all. Its end-to-end test would have had to
+      // pre-register the auth FAILURE as its outcome.
+      //
+      // Nothing is lost: a fresh BrowserContext starts with empty localStorage too,
+      // so every test that relies on landing signed-out still does.
       restoreSession();
       render();
     </script>
