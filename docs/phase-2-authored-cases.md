@@ -1333,24 +1333,45 @@ we now know it on evidence rather than on a mismatch.
 
 ### 13.2 The gap the old denominator was hiding: capture coverage
 
-**Nine modules have no capture at all — 856 of 1922 clauses, 45% of the sheet.**
+**As measured on 2026-09-09: nine modules had no capture at all — 856 of 1922
+clauses, 45% of the sheet.**
 
-| clauses | module                       |
-| ------: | ---------------------------- |
-|     221 | Document Template Categories |
-|     165 | User Group                   |
-|     146 | Permissions                  |
-|      96 | Workflow                     |
-|      65 | Policy agent                 |
-|      57 | Notification                 |
-|      52 | Login                        |
-|      49 | Audit Logs                   |
-|       5 | DMS portal                   |
+| clauses | module                       | status on 2026-10-03                   |
+| ------: | ---------------------------- | -------------------------------------- |
+|     221 | Document Template Categories | **captured** — `/admin/document-types` |
+|     165 | User Group                   | **captured** — `/admin/user-groups`    |
+|     146 | Permissions                  | captured as a panel, no URL of its own |
+|      96 | Workflow                     | captured, deliberately unpaired        |
+|      65 | Policy agent                 | **no screen located**                  |
+|      57 | Notification                 | **no screen located**                  |
+|      52 | Login                        | captured, deliberately unpaired        |
+|      49 | Audit Logs                   | **captured** — `/audit-log`            |
+|       5 | DMS portal                   | out of scope by decision               |
 
-No resolver can do anything with these. They are not a resolver problem, a sheet
-problem or a grammar problem — **nobody has captured those screens.** That is
-the single largest actionable item on this path and it was invisible while every
-row was being compared against the dashboard.
+**That first line is a measurement from 2026-09-09 and the right-hand column is
+why it must carry its date.** Re-measured 2026-10-03 against 126 usable states in
+11 sessions, including a fresh 28-state walk: six of the nine have a capture now,
+and the table above read as a live worklist for three weeks after four of its rows
+had been closed. §AB — re-take a measurement before repeating it.
+
+The capture coverage today, by module rather than by clause:
+
+| modules | state                                                                |
+| ------: | -------------------------------------------------------------------- |
+|  **10** | mapped and **provable** — every one verified against all 126 states  |
+|       2 | captured, deliberately unpaired: `Workflow`, `Login`                 |
+|       2 | **no screen located**: `Policy agent`, `Notification`                |
+|       1 | out of scope by decision: `DMS portal`                               |
+|       2 | removed 2026-10-03: `Permissions` (no own URL), `user role` (a typo) |
+
+**The clause counts in the first table are NOT re-derived here.** They came from a
+different sheet measurement and this pass had no workbook in hand; the module names
+and capture status are what was re-measured. A sheet pass refreshes the numbers.
+
+What has not changed is the shape of the finding: the remaining wall is screens
+nobody has walked, not a resolver, a sheet or a grammar problem. It is just two
+screens now instead of nine, and the two are ones nobody has been able to FIND —
+which is a different request to a different person.
 
 ### 13.3 Wall 1: 30 non-parsing clauses, classified
 

@@ -1,29 +1,32 @@
 {
-  "//": "Module (sheet column 1) -> the captured route that IS that screen. DATA, not code: this moved out of scripts/triage-sheet.ts so no application name lives in a script. A wrong pairing manufactures a false ceiling in whichever direction it errs, so triage PRINTS this on every run and a human checks it by eye. Add a route when a module is captured; `skipped` records a module deliberately left unpaired, with the reason, because a blank and a decision are different answers.",
+  "//": "Module (sheet column 1) -> the captured route that IS that screen. DATA, not code: this moved out of scripts/triage-sheet.ts so no application name lives in a script. A wrong pairing manufactures a false ceiling in whichever direction it errs, so triage PRINTS this on every run and a human checks it by eye. Add a route when a module is captured; `skipped` records a module deliberately left unpaired and `notCaptured` one nobody has walked, because a blank, a decision and an absence are three different answers.",
   "routes": {
     "Dashboard": "dashboard",
     "File Explorer": "files",
-    "Document": "files",
+    "Document": "documents",
     "Global search": "search",
     "User": "admin/users",
     "User Role": "admin/user-roles",
-    "user role": "admin/user-roles",
     "Bulk upload": "bulk-upload",
-    "Permissions": "admin/user-roles"
+    "Document Template Categories": "admin/document-types",
+    "User Group": "admin/user-groups",
+    "Audit Logs": "audit-log"
   },
   "notes": {
     "Bulk upload": "Was 'upload-files'. /upload-files is a DIFFERENT screen and is being removed from the application; the wizard the sheet means is at /bulk-upload (heading 'Synergy DMS Bulk Upload Wizard'). Decided 2026-09-28 by the user — both paths are on disk and nothing automatic could tell which one the sheet's 'Bulk upload' names.",
-    "Permissions": "A TAB on the User Role screen, not a screen with its own URL, so it shares one capture with 'User Role'. A real pairing, not a duplicate: the capture at /admin/user-roles reached a 'Permissions saved' state, which is what these rows start from."
+    "Document": "ADDED 2026-10-03 from the fresh walk. 'Document' is a separate screen listing all File Explorer documents, at /documents with its own searchbox — not the file explorer itself. It was paired to /files until now, which made two modules share one route with one proof and refused both: a proof cannot say which of them a run reached. Separate routes is the fix the rule was asking for.",
+    "Document Template Categories": "ADDED 2026-10-03 from the fresh walk: /admin/document-types. A sub-screen /admin/document-types/new (the Create Document Type form) was also captured and is deliberately NOT a module — no sheet row names it.",
+    "User Group": "ADDED 2026-10-03 from the fresh walk: /admin/user-groups.",
+    "Audit Logs": "ADDED 2026-10-03 from the fresh walk: /audit-log."
+  },
+  "removed": {
+    "user role": "A TYPO of 'User Role', decided 2026-10-03. Not merged and no case-insensitive matching: two spellings may be two screens or one typo, and only the person who wrote the sheet can say which — a downstream mechanism deciding it would take authority from the Module column. The two sheet cells are being corrected by hand; until then those rows are refused BY NAME, which is the visible version of the problem rather than a silent fix.",
+    "Permissions": "REMOVED 2026-10-03: no URL of its own in any capture. The previous note here claimed the /admin/user-roles capture 'reached a Permissions saved state, which is what these rows start from' — re-measured on the 3 Oct walk, both fresh states carry ~20 permission-named nodes and ZERO tab roles, so the panel is rendered additively over the roles list and is not exposed as a dialog. Every list-view anchor is still present while it is open, so no presence-based proof separates the two in either direction. Its 146 clauses are User Role rows in substance; nothing aliases them automatically, by decision. Reinstate this entry when the app gives the panel its own URL or exposes it as a dialog/tab."
   },
   "skipped": {
     "Workflow": "Captures exist at /workflow/requests and below, deliberately NOT paired: dev update in progress (2026-09-28). A pairing written now would be against a screen that is changing, and leaving it unpaired is the honest state — it shows in triage's 'captured but unpaired' line until a route is filled in.",
-    "Login": "A capture exists at /login, deliberately not paired for the same reason."
+    "Login": "A capture exists at /login, deliberately not paired for the same reason.",
+    "DMS portal": "OUT OF SCOPE by decision 2026-10-03. One sheet clause names it; it is in neither this file's routes nor notCaptured, and that gap was itself a finding — it had been unaccounted for in both directions."
   },
-  "notCaptured": [
-    "Document Template Categories",
-    "User Group",
-    "Policy agent",
-    "Notification",
-    "Audit Logs"
-  ]
+  "notCaptured": ["Policy agent", "Notification"]
 }
