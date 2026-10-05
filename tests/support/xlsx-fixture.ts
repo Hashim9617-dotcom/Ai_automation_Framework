@@ -27,6 +27,49 @@ import { crc32, deflateRawSync } from 'node:zlib';
  * from a TEST, into `artifacts/`, which is gitignored. Nothing in production
  * needs to produce one.
  */
+/**
+ * A cell Excel writes as `<c r="I2" s="12"/>` — STYLED BUT EMPTY.
+ *
+ * ## Why this had to be added, and what its absence cost
+ *
+ * This writer emitted NOTHING for `''` (`value === '' ? '' : …`), so no fixture in
+ * the suite had ever contained a self-closing `<c/>`. The reader's cell regex
+ * required a closing tag and mis-parsed one when it met it — swallowing the next
+ * cell's value, returning a raw shared-string index as text and shifting every
+ * column after it. Ten of 22 columns in the real DMS workbook were attributed to
+ * the wrong header, and **600 passing tests could not see it**, because the writer
+ * and the reader shared one assumption: *an empty cell is an absent cell*.
+ *
+ * A real Excel file disagrees. A cell that has ever been formatted — a border, a
+ * fill, a cleared value — persists as a styled blank, and the QA sheet is full of
+ * them.
+ *
+ * > A reader verified only against your own writer inherits the writer's
+ * > assumptions (§AK).
+ *
+ * Use this wherever a fixture should look like a sheet somebody has actually
+ * edited, rather than like one this repo generated.
+ */
+export const STYLED_BLANK = '\u0000STYLED_BLANK\u0000';
+
+/**
+ * A workbook holding ONE sheet whose XML is given verbatim.
+ *
+ * `buildXlsx` can only emit the forms it knows how to write, which is precisely the
+ * limitation that hid the self-closing-cell bug. Some cell forms a real file
+ * contains cannot be produced by any writer this repo would sensibly have — an
+ * inline string, a `t="str"` formula result, a duplicate reference, a row whose
+ * cells are out of order — and those are exactly the inputs the parser's refusals
+ * exist for.
+ *
+ * So the escape hatch is explicit and narrow: hand-written sheet XML, wrapped in a
+ * real zip, read back through the real reader. It is a FIXTURE for the parser and
+ * not a second writer — nothing builds a workbook this way outside a parser test.
+ */
+export function bookFromSheetXml(name: string, sheetXml: string): Buffer {
+  return packWorkbook([{ name, xml: sheetXml }], []);
+}
+
 export function buildXlsx(sheets: Array<{ name: string; rows: string[][] }>): Buffer {
   const shared: string[] = [];
   const indexOf = (value: string): number => {
@@ -35,8 +78,6 @@ export function buildXlsx(sheets: Array<{ name: string; rows: string[][] }>): Bu
     shared.push(value);
     return shared.length - 1;
   };
-  const esc = (s: string): string =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const colName = (n: number): string => {
     let out = '';
     let x = n;
@@ -52,17 +93,32 @@ export function buildXlsx(sheets: Array<{ name: string; rows: string[][] }>): Bu
     const rows = sheet.rows
       .map((cells, r) => {
         const cs = cells
-          .map((value, c) =>
-            value === ''
-              ? ''
-              : `<c r="${colName(c + 1)}${r + 1}" t="s"><v>${indexOf(value)}</v></c>`,
-          )
+          .map((value, c) => {
+            const ref = `${colName(c + 1)}${r + 1}`;
+            // A styled blank is PRESENT and EMPTY — the form the reader used to
+            // mis-parse. Emitted with a style attribute and no body, exactly as
+            // Excel writes it.
+            if (value === STYLED_BLANK) return `<c r="${ref}" s="12"/>`;
+            if (value === '') return '';
+            return `<c r="${ref}" t="s"><v>${indexOf(value)}</v></c>`;
+          })
           .join('');
         return `<row r="${r + 1}">${cs}</row>`;
       })
       .join('');
     return `<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows}</sheetData></worksheet>`;
   });
+
+  return packWorkbook(
+    sheets.map((s, i) => ({ name: s.name, xml: sheetXml[i]! })),
+    shared,
+  );
+}
+
+/** The zip and the manifest, shared by both builders so neither drifts. */
+function packWorkbook(sheets: Array<{ name: string; xml: string }>, shared: string[]): Buffer {
+  const esc = (s: string): string =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
   const files: Array<[string, string]> = [
     ['[Content_Types].xml', '<?xml version="1.0"?><Types/>'],
@@ -79,7 +135,7 @@ export function buildXlsx(sheets: Array<{ name: string; rows: string[][] }>): Bu
         .map((_s, i) => `<Relationship Id="rId${i + 1}" Target="worksheets/sheet${i + 1}.xml"/>`)
         .join('')}</Relationships>`,
     ],
-    ...sheets.map((_s, i): [string, string] => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml[i]!]),
+    ...sheets.map((s, i): [string, string] => [`xl/worksheets/sheet${i + 1}.xml`, s.xml]),
     [
       'xl/sharedStrings.xml',
       `<?xml version="1.0"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${shared

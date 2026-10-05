@@ -1,4 +1,4 @@
-import { buildXlsx } from '../support/xlsx-fixture';
+import { bookFromSheetXml, buildXlsx, STYLED_BLANK } from '../support/xlsx-fixture';
 import { test, expect } from '@playwright/test';
 import {
   FINAL_TEST_CASES_SCHEMA,
@@ -491,6 +491,123 @@ test.describe('the xlsx reader (X1) @unit', () => {
     const grid = readSheetGrid(book, 'inherit-shaped');
     expect(grid.rows[2]![0]).toBe('');
     expect(grid.rows[2]![1]).toBe('second');
+  });
+
+  /**
+   * A STYLED BLANK CELL (P1-P6).
+   *
+   * Excel writes a cell that has ever been formatted as `<c r="I2" s="12"/>` —
+   * present, empty, self-closing. The reader's cell pattern required a closing tag
+   * and mis-parsed one when it met it: it swallowed the next cell's body, returned
+   * that cell's raw SHARED-STRING INDEX as text, and shifted every column after it.
+   *
+   * **600 passing tests could not see it**, and the reason is the finding: this
+   * suite's writer emitted NOTHING for an empty cell, so no fixture had ever
+   * contained the form. Writer and reader shared one assumption — an empty cell is
+   * an absent cell — and a real sheet disagrees (§AK).
+   *
+   * Measured on the real DMS workbook: ten of 22 columns attributed to the wrong
+   * header, six rows reporting a Module of "1572"/"27"/"1456".
+   */
+  const sheetWith = (rows: string[][]) =>
+    readSheetGrid(buildXlsx([{ name: 'styled', rows }]), 'styled');
+
+  test('P1: a styled blank mid-row leaves its own column empty and the next one intact', () => {
+    // wrong: column I swallows J's body, so I reports J's value and J is gone —
+    // and every column after shifts by one. That is the real workbook's `Given`
+    // carrying `Preconditions`.
+    const grid = sheetWith([
+      ['A', 'B', 'C'],
+      ['a2', STYLED_BLANK, 'c2'],
+    ]);
+
+    expect(grid.rows[1]).toEqual(['a2', '', 'c2']);
+  });
+
+  test('P2: a styled blank at column A is empty, never a number', () => {
+    // wrong: A2 returns the shared-string INDEX of a later cell in the row, so a
+    // Module column reads "1572" and a report prints an index where a screen name
+    // belongs. Six real rows did exactly this.
+    const grid = sheetWith([
+      ['Module', 'Feature'],
+      [STYLED_BLANK, 'something'],
+    ]);
+
+    expect(grid.rows[1]![0]).toBe('');
+    expect(grid.rows[1]![0]).not.toMatch(/^\d+$/);
+    expect(grid.rows[1]![1]).toBe('something');
+  });
+
+  test('P3: a shared string straight after a styled blank resolves to TEXT', () => {
+    // wrong: the blank cell's attributes are read instead of the real cell's, so
+    // `t="s"` is never seen, the value falls to the numeric branch and the index is
+    // returned verbatim. DISCRIMINATING on purpose: the value is a string whose
+    // shared-string index is a small number, so an index leak is visible as a
+    // number where a word is expected.
+    const grid = sheetWith([
+      ['A', 'B'],
+      [STYLED_BLANK, 'Permissions'],
+    ]);
+
+    expect(grid.rows[1]![1]).toBe('Permissions');
+  });
+
+  test('P4: inline strings and t="str" are read, and a number stays its own text', () => {
+    // wrong: only shared strings are handled, so a formula result (`t="str"`) or an
+    // inline string reads empty — and a numeric cell reads empty too, which is
+    // indistinguishable from a blank one.
+    const xml =
+      '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>inline</t></is></c>' +
+      '<c r="B1" t="str"><v>formula</v></c>' +
+      '<c r="C1"><v>1572</v></c>' +
+      '<c r="D1" t="b"><v>1</v></c></row>' +
+      '</sheetData></worksheet>';
+    const grid = readSheetGrid(bookFromSheetXml('odd-types', xml), 'odd-types');
+
+    // A number is its own text, and 1572 here is a VALUE — the same digits that
+    // leaked as an index above, which is why this row is worth having.
+    expect(grid.rows[0]).toEqual(['inline', 'formula', '1572', 'TRUE']);
+  });
+
+  test('P5: a missing, duplicate or backwards reference is REFUSED', () => {
+    // wrong: a cell with no `r` is placed by sequence, a duplicate silently takes
+    // the last writer, and an out-of-order row is read as if sorted. All three put
+    // a plausible value under the wrong header, which is invisible afterwards —
+    // the exact failure this whole step exists to close.
+    const sheet = (cells: string) =>
+      bookFromSheetXml(
+        'bad',
+        '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+          `<sheetData><row r="1">${cells}</row></sheetData></worksheet>`,
+      );
+
+    expect(() => readSheetGrid(sheet('<c t="s"><v>0</v></c>'), 'bad')).toThrow(
+      /row 1: a cell has no "r" reference/,
+    );
+    expect(() =>
+      readSheetGrid(sheet('<c r="A1"><v>1</v></c><c r="A1"><v>2</v></c>'), 'bad'),
+    ).toThrow(/row 1: cell "A1" appears twice/);
+    expect(() =>
+      readSheetGrid(sheet('<c r="C1"><v>1</v></c><c r="B1"><v>2</v></c>'), 'bad'),
+    ).toThrow(/row 1: cell "B1" goes backwards \(column 2 after column 3\)/);
+  });
+
+  test('P6: the ordinary fixtures read exactly as before — the silent half', () => {
+    // wrong: a stricter parser refuses or re-shapes the sheets this suite already
+    // builds, so the fix trades one wrong answer for another. These are the shapes
+    // X1 has always asserted; they must be untouched.
+    const grid = sheetWith([
+      ['k', 'v'],
+      ['a', '1'],
+      ['', 'second'],
+    ]);
+
+    expect(grid.rows[1]).toEqual(['a', '1']);
+    // A leading gap the writer omits entirely is still filled, so positions hold.
+    expect(grid.rows[2]).toEqual(['', 'second']);
+    // And a fully blank row stays an empty row rather than disappearing.
+    expect(sheetWith([['k'], []]).rows[1]).toEqual([]);
   });
 
   test('X1: a workbook read end to end produces the same rows as the grid path', () => {

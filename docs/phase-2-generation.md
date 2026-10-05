@@ -3669,3 +3669,103 @@ suite on a clone where the instrument was dead.
 So the standing practice is not vigilance but a question in the checklist, asked of
 every guard at authoring time: **what would this compare on a machine with no
 `.env`?** A guard that cannot answer is not yet a guard.
+
+---
+
+## AK. A reader verified only against your own writer inherits the writer's assumptions (2026-10-05)
+
+> **A parser tested only against fixtures your own writer produced is not tested
+> against the format. It is tested against your beliefs about the format, and the
+> writer holds the same beliefs. Verify it against an INDEPENDENT parser on a REAL
+> artifact.**
+
+`readSheetGrid` had 600 passing tests over it and mis-read the real workbook for
+three weeks.
+
+### What it got wrong
+
+Excel writes a cell that has ever been formatted — a border, a fill, a cleared
+value — as a self-closing `<c r="I2" s="12"/>`: **present and empty**. The cell
+pattern required a closing tag:
+
+```ts
+/<c[^>]*\br="([A-Z]+\d+)"([^>]*)>([\s\S]*?)<\/c>/g;
+```
+
+A self-closing tag still MATCHED it. `([^>]*)` consumed ` s="12"/`, the `>` closed
+the tag, and `([\s\S]*?)<\/c>` then ran forward to the NEXT cell's closing tag and
+took that cell's body as this reference's value. Two faults from one regex:
+
+- the attributes came from the EMPTY cell, so the swallowed cell's `t="s"` was
+  never seen; the value fell to the numeric branch and the raw **shared-string
+  index** was returned as text. Six rows reported a Module of `1572` / `27` /
+  `1456`, each the index of a later cell in the same row;
+- the real cell was consumed, so every column after it shifted. **Ten of 22
+  columns were attributed to the wrong header** — `Given` carried
+  `Preconditions`, `Test Data` carried `Actual Result`, `Type` read empty against
+  372 filled cells.
+
+### Why 600 tests could not see it
+
+`tests/support/xlsx-fixture.ts` emitted **nothing** for an empty cell:
+
+```ts
+value === '' ? '' : `<c r="…" t="s"><v>${indexOf(value)}</v></c>`;
+```
+
+So no fixture in the suite had ever contained a self-closing `<c/>`. The form the
+reader mis-parsed was a form the writer could not produce.
+
+> **Writer and reader shared one assumption — _an empty cell is an absent cell_ —
+> and a test built from both can only confirm it.** This is the same shape as a mock
+> that encodes what you believe a system does (§L), a stub that cannot falsify
+> itself, and a single application that cannot tell "this rule is right" from "this
+> rule fits this app". The novelty is that the two halves were a writer and a
+> reader, which look independent and are not.
+
+### What found it
+
+Not review and not the suite. An **independent oracle** — openpyxl plus the raw
+`sheet1.xml`, resolving shared strings by cell reference — disagreed with per-column
+counts reported from the grid. Confirmed by writing a second parser in `scratch/`
+that shares no code with the reader: its own zip inflate, its own cell regex.
+
+Three layers now have to agree on the real artifact before a number from it is
+believed:
+
+| layer                         | what it proves                    |
+| ----------------------------- | --------------------------------- |
+| (i) raw XML, independent code | what the file actually says       |
+| (ii) `readSheetGrid`          | what the reader makes of it       |
+| (iii) `AuthoredRow` fields    | what the pipeline ends up holding |
+
+A difference between (i) and (ii) is a parser bug. A difference between (ii) and
+(iii) is either a mapping bug or a denominator difference, and the latter must be
+accounted for cell by cell — here it was exactly four cells, in G, I, L and M, all
+on the six rows that have no `AuthoredRow`.
+
+### The three rules that fall out
+
+1. **A fixture writer must be able to produce the forms a real file contains**,
+   including the ugly ones. `STYLED_BLANK` and `bookFromSheetXml` exist for the
+   forms no sensible writer would emit — an inline string, a `t="str"` formula
+   result, a duplicate reference, a row whose cells are out of order.
+2. **Place every value by its own identifier, never by sequence**, and refuse when
+   the identifier is missing, duplicated or backwards. A parser that falls back on
+   order produces a plausible value under the wrong header, which is invisible
+   afterwards.
+3. **A headline number assumes the reader that produced it.** §14.4 of
+   `phase-2-authored-cases.md` taught that a ceiling carries the capture coverage it
+   was measured under; this adds the layer underneath. The sheet's ceiling moved
+   from 29.8% to **5.7%** on the same workbook with no change to the rules, and the
+   clause COUNT was identical either way (1922) — which is why nothing noticed: a
+   shift between four similarly-filled columns moves the text and no total.
+
+### The one that nearly stayed hidden
+
+`t="str"` — a formula's string result — stores its text in `<v>`, not `<t>`. The old
+reader routed it through the `<t>` branch alongside `inlineStr`, so **every
+formula-result cell has always read empty.** It was caught by `P4`, a test written
+for the self-closing bug, because that test used `bookFromSheetXml` to write a cell
+form the fixture writer still cannot express. One independent instrument found two
+faults; neither was visible to the suite that existed.

@@ -1501,6 +1501,32 @@ from the report.
 
 ### 14.3 The ceiling: 29.8%
 
+> **EVERY NUMBER IN §14.3 AND §14.4 WAS MEASURED ON THE MISALIGNED READER
+> (pre-4d).** `readSheetGrid` mis-associated values with cell references whenever a
+> row held a self-closing empty cell, so ten of 22 columns were attributed to the
+> wrong header — `Given` carried `Preconditions`, `Test Data` carried
+> `Actual Result`, `Type` read empty against 372 filled cells. Every figure below
+> was therefore computed from clause text taken out of the wrong columns. Fixed
+> 2026-10-05; re-measured against the same workbook with the parser corrected:
+>
+> | measure                        | pre-4d (misaligned) | 4d (by cell reference) |
+> | ------------------------------ | ------------------: | ---------------------: |
+> | ceiling, today's captures      |           **29.8%** |               **5.7%** |
+> | ceiling, every module captured |           **48.5%** |               **7.4%** |
+> | automatable rows               |                 140 |                     27 |
+> | clauses read                   |                1922 |                   1922 |
+> | modules captured               |             8 of 17 |               10 of 17 |
+>
+> **The drop is not a regression — it is the first measurement of this sheet taken
+> from the right columns.** 29.8% was never a fact about this workbook. The clause
+> COUNT is unchanged at 1922, which is why the error survived so long: all four
+> clause columns are ~470 filled, so a shift between them moved the text without
+> moving any total.
+>
+> The numbers below are kept as written rather than edited, because §14.4's whole
+> argument is about how a ceiling should be qualified, and a figure silently
+> replaced would destroy the record of how it was got wrong.
+
 Three walls, put together honestly, over 470 real rows:
 
 |            rows | why                                  | what a human does                           |

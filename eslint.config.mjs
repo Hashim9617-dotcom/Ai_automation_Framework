@@ -4,7 +4,17 @@ import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   {
-    ignores: ['**/node_modules/**', '**/dist/**', 'artifacts/**', 'tests/demo-app/**'],
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      'artifacts/**',
+      'tests/demo-app/**',
+      // Throwaway probes and measurement harnesses. Gitignored (`/scratch/`), so
+      // linting them gates a commit on files no commit can contain — and the first
+      // thing one does is `console.log` a number, which this config forbids by
+      // design everywhere it matters.
+      'scratch/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

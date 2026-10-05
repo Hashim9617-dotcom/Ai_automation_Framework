@@ -232,6 +232,14 @@ exactly that. So each mutation declares what should catch it:
 > assertion be comparing?_ An exception or `undefined` is the answer that means the
 > machine was the subject (§AJ).
 
+> **A reader verified only against your own WRITER inherits the writer's
+> assumptions.** 600 tests passed over an xlsx parser that mis-read the real
+> workbook for three weeks: the writer emitted nothing for an empty cell, so no
+> fixture ever held the self-closing `<c/>` the reader mis-parsed — and ten of 22
+> columns were attributed to the wrong header. Verify against an INDEPENDENT parser
+> on a REAL artifact, place every value by its own identifier rather than by order,
+> and remember that a headline number assumes the reader that produced it (§AK).
+
 **Measured here, because the failure mode is not the obvious guess:** Playwright
 transpiles without typechecking, so a _type_ error in a mutation is invisible
 and 203 tests still pass; a _syntax_ error aborts Babel before any test runs,
@@ -606,6 +614,19 @@ modules captured**, where "no capture for this module" is itself one of the
 exclusion reasons. It is not the ceiling of the approach; it is the ceiling of
 today's capture coverage. With every module captured the same rules give
 **48.5%**.
+
+> **Both of those numbers were measured on the MISALIGNED READER (pre-4d), and
+> neither was ever a fact about the sheet.** `readSheetGrid` mis-placed values
+> whenever a row held a self-closing empty cell, so the clause columns were read
+> out of the wrong headers. Re-measured on 2026-10-05 with the parser fixed and
+> 10 of 17 modules captured: **5.7% today, 7.4% with every module**. The clause
+> count is identical (1922) either way, which is exactly why it went unnoticed —
+> a shift between four similarly-filled columns moves the text and no total.
+>
+> The rule this section states is unaffected and the example is kept, because the
+> way the number was qualified is the point. What the episode adds is a second
+> qualifier nobody had thought to attach: **a headline number also assumes the
+> READER that produced it** (§AK in `docs/phase-2-generation.md`).
 
 An alarming number is the dangerous kind to leave unqualified: it gets repeated,
 where a flattering one would have invited scrutiny. So both are computed, both

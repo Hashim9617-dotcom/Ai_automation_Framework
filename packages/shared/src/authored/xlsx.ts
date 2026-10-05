@@ -157,25 +157,108 @@ export function readSheetGrid(file: Buffer, sheetName: string): SheetGrid {
   const sheetXml = zip.get(sheet.part)?.toString('utf8');
   if (!sheetXml) throw new Error(`workbook part ${sheet.part} is missing`);
 
+  /**
+   * A SELF-CLOSING CELL IS A DIFFERENT FORM, and conflating the two shifted a
+   * sheet's columns for three weeks.
+   *
+   * The old pattern was `<c[^>]*\br="(…)"([^>]*)>([\s\S]*?)<\/c>` — it required a
+   * closing tag. A styled blank cell has none: Excel writes `<c r="I2" s="12"/>`.
+   * That still MATCHED, because `([^>]*)` happily consumed ` s="12"/` and the `>`
+   * then closed the tag, after which `([\s\S]*?)<\/c>` ran forward to the NEXT
+   * cell's closing tag and took its body as this reference's value. Two faults from
+   * one regex, both measured on the real DMS workbook on 2026-10-05:
+   *
+   * - the swallowed cell's `t="s"` was never seen (the attributes came from the
+   *   EMPTY cell), so the value fell to the numeric branch and the raw
+   *   SHARED-STRING INDEX was returned as text. Six rows reported a Module of
+   *   "1572" / "27" / "1456", each the index of a later cell in the same row;
+   * - the real cell was consumed, so every column after it shifted. Ten of 22
+   *   columns were attributed to the wrong header — `Given` carried
+   *   `Preconditions`, `Test Data` carried `Actual Result`, and `Type` read empty
+   *   while the sheet had 372 filled.
+   *
+   * So the two forms are alternatives, `\/>` FIRST so a self-closing tag can never
+   * fall through to the open-tag branch, and the attributes are read from the
+   * cell's OWN start tag only.
+   */
   const byRow = new Map<number, string[]>();
-  for (const rowMatch of sheetXml.matchAll(/<row[^>]*\br="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)) {
+  for (const rowMatch of sheetXml.matchAll(
+    /<row\b[^>]*\br="(\d+)"[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g,
+  )) {
+    const rowNumber = Number(rowMatch[1]!);
     const cells: string[] = [];
-    for (const c of rowMatch[2]!.matchAll(/<c[^>]*\br="([A-Z]+\d+)"([^>]*)>([\s\S]*?)<\/c>/g)) {
-      const type = /\bt="([^"]+)"/.exec(c[2]!)?.[1];
-      const inner = c[3]!;
+    /**
+     * FAIL CLOSED on anything that would make a POSITION a guess.
+     *
+     * Every value is placed by its own `r` reference and never by sequence, so a
+     * cell without one cannot be placed at all — and a duplicate or backwards
+     * reference means the file is not what this parser assumes. Silently taking the
+     * last writer, or sorting, would be the same class of mistake as the regex
+     * above: a plausible value under the wrong header.
+     */
+    const seen = new Set<number>();
+    let previousColumn = 0;
+    for (const c of (rowMatch[2] ?? '').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      const attributes = c[1]!;
+      const inner = c[2];
+      const reference = /\br="([A-Z]+\d+)"/.exec(attributes)?.[1];
+      if (!reference) {
+        throw new Error(
+          `sheet "${sheet.name}", row ${rowNumber}: a cell has no "r" reference, so its column ` +
+            'cannot be known. Every value is placed by its reference and never by order.',
+        );
+      }
+      const column = columnOf(reference);
+      if (seen.has(column)) {
+        throw new Error(
+          `sheet "${sheet.name}", row ${rowNumber}: cell "${reference}" appears twice. ` +
+            'Refusing rather than choosing one — a duplicate means this file is not shaped the ' +
+            'way this parser assumes, and the wrong choice is invisible afterwards.',
+        );
+      }
+      if (column <= previousColumn) {
+        throw new Error(
+          `sheet "${sheet.name}", row ${rowNumber}: cell "${reference}" goes backwards ` +
+            `(column ${column} after column ${previousColumn}). Refusing rather than sorting: ` +
+            'a row whose cells are out of order is not a row this parser has ever seen, and ' +
+            'guessing would place values under the wrong headers.',
+        );
+      }
+      seen.add(column);
+      previousColumn = column;
+
+      const type = /\bt="([^"]+)"/.exec(attributes)?.[1];
+      const body = inner ?? '';
       let value: string;
       if (type === 's') {
-        value = shared[Number(/<v>(\d+)<\/v>/.exec(inner)?.[1] ?? -1)] ?? '';
-      } else if (type === 'inlineStr' || type === 'str') {
+        const index = /<v>(\d+)<\/v>/.exec(body)?.[1];
+        // No `<v>` means no string, NOT shared string zero and never the index.
+        value = index === undefined ? '' : (shared[Number(index)] ?? '');
+      } else if (type === 'inlineStr') {
+        // `<is><t>text</t></is>` — the text is inline, in `<t>` runs.
         value = decodeXml(
-          [...inner.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => t[1]!).join(''),
+          [...body.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => t[1]!).join(''),
         );
+      } else if (type === 'str') {
+        // A FORMULA'S STRING RESULT, and it lives in `<v>` — NOT in `<t>`.
+        //
+        // Both types went through the `<t>` branch, so every `t="str"` cell read
+        // empty. Caught by P4 rather than by review: the two names look like
+        // variants of one thing and store their text in different elements.
+        value = decodeXml(/<v>([\s\S]*?)<\/v>/.exec(body)?.[1] ?? '');
+      } else if (type === 'b') {
+        // Excel stores a boolean as 1/0 and SHOWS it as TRUE/FALSE, which is what a
+        // QA reading the sheet sees and therefore what a clause would quote.
+        const raw = /<v>([\s\S]*?)<\/v>/.exec(body)?.[1];
+        value = raw === undefined ? '' : raw.trim() === '1' ? 'TRUE' : 'FALSE';
       } else {
-        value = decodeXml(/<v>([\s\S]*?)<\/v>/.exec(inner)?.[1] ?? '');
+        // A number stays its own text. Dates are numbers here too; nothing in this
+        // pipeline reads one, and inventing a format would be a guess in a cell.
+        value = decodeXml(/<v>([\s\S]*?)<\/v>/.exec(body)?.[1] ?? '');
       }
-      cells[columnOf(c[1]!) - 1] = value;
+      cells[column - 1] = value;
     }
-    byRow.set(Number(rowMatch[1]!), cells);
+    byRow.set(rowNumber, cells);
   }
 
   const highest = Math.max(0, ...byRow.keys());
