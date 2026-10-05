@@ -1720,13 +1720,21 @@ output may vanish".
 
 ### The one open question
 
-`AuthoredRow.type` reads column 18 (`Type`) at `final-test-cases.ts:570` and
-**nothing anywhere reads it back** — grepped, one hit, the assignment itself. It is
-also **0 of 476 filled** in the real workbook. So it is an input in name only, and
-any future layout that drops the column forces the question: remove the field, or
-keep it and declare it a non-input? Removing is cleaner; keeping costs a field
-that is always empty. Deciding it by loosening the input rule would be the wrong
-way to answer.
+`AuthoredRow.type` reads column 18 (`Type`) and **nothing anywhere reads it back** —
+grepped, one hit, the assignment itself. That half stands.
+
+> **CORRECTED 2026-10-05: this note previously said column `Type` is "0 of 476
+> filled" in the real workbook. That was wrong.** Read from the raw sheet XML by
+> cell reference, column R `Type` is **372 of 476 filled**. The zero came from
+> `readSheetGrid`, which mis-associates values with cell references whenever a row
+> contains a self-closing empty cell — see the SEV note below. So `type` is empty
+> in every `AuthoredRow` today, but because the READER loses it, not because the
+> QA leaves it blank.
+
+So the question is narrower than it looked: the field is unread by anything
+downstream, which is reason enough to decide its fate — but "always empty" was an
+artefact of a parser bug and is not an argument for removing it. Deciding it by
+loosening the input rule would still be the wrong way to answer.
 
 ### Tests that change when this is built
 
