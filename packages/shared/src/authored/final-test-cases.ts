@@ -157,7 +157,6 @@ export interface FinalSheetReadResult {
   unreadable: UnreadableSheetRow[];
   /** Rows that were entirely empty: padding, accounted for but not reported. */
   blankRows: number;
-  headerWarnings: string[];
 }
 
 /**
@@ -440,15 +439,73 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
   }
   if (grid.rows.length < 2) throw new Error('the sheet has no data rows');
 
+  /**
+   * THE LAYOUT IS A GATE, like the sheet name above it.
+   *
+   * These two checks used to behave oppositely: a wrong sheet NAME threw, and a
+   * wrong HEADER pushed a string into `headerWarnings` that was returned and read
+   * by nothing — grepped 2026-10-03 across `packages/`, `apps/`, `scripts/` and
+   * `tests/`: the only readers were three assertions in this reader's own spec. No
+   * caller inspected it, `runSheet` did not, the report did not render it.
+   *
+   * So a sheet named `Final Test cases` whose input headers were renamed, moved or
+   * missing was READ TO COMPLETION. Column positions come from the schema and not
+   * from the header row, so every value was taken from the position the old layout
+   * had, and the rows came back populated from the wrong columns. The old `F2` test
+   * proved exactly that and called it reporting: it renamed column 4, `Test Case
+   * ID` — an INPUT — and asserted the read succeeded.
+   *
+   * The name is a label a QA can rename at will; the headers are what make a column
+   * POSITION mean anything. Gating the former while merely noting the latter was the
+   * wrong way round, and both directions were measured on the real workbook: a
+   * correct 22-column sheet was refused for being called `Sheet1`, and a wrongly
+   * laid-out sheet with the right name would have been read.
+   *
+   * ## Trailing cells, measured before this rule was written
+   *
+   * `readSheetGrid` sets a row's length from the highest column carrying a `<c>`
+   * element: a cell absent from the XML is dropped, a cell PRESENT BUT BLANK comes
+   * back as `''` and extends the length. A whitespace-only trailing cell is
+   * therefore empty to a human and non-empty to `length`, so the tail is trimmed
+   * before it is counted — otherwise a styled empty column would refuse a correct
+   * sheet.
+   */
   const header = grid.rows[0]!;
-  const headerWarnings: string[] = [];
-  for (const [i, expected] of FINAL_TEST_CASES_SCHEMA.expectedHeaders.entries()) {
+  const expectedHeaders = FINAL_TEST_CASES_SCHEMA.expectedHeaders;
+  const differences: string[] = [];
+  for (const [i, expected] of expectedHeaders.entries()) {
+    // `.trim()` is a DELIBERATE tolerance, not an accident: the real workbook's
+    // column 19 is `"SOC DMS "` with a trailing U+0020, and H5 pins that.
     const actual = (header[i] ?? '').trim();
     if (actual !== expected) {
-      headerWarnings.push(
-        `column ${i + 1}: expected "${expected}", found "${actual}" — the layout may have changed`,
+      differences.push(
+        `column ${i + 1}: expected "${expected}", found "${actual === '' ? '(absent)' : actual}"`,
       );
     }
+  }
+  // Only cells with content beyond the schema are headers. An empty one is padding.
+  for (const [i, cell] of header.slice(expectedHeaders.length).entries()) {
+    if (cell.trim() !== '') {
+      differences.push(
+        `column ${expectedHeaders.length + i + 1}: expected nothing beyond column ` +
+          `${expectedHeaders.length}, found "${cell.trim()}"`,
+      );
+    }
+  }
+  if (differences.length > 0) {
+    throw new Error(
+      // "the sheet X does not have the X layout" is what the first draft printed,
+      // because the sheet name and the layout name are the same string in the only
+      // case that reaches here. Phrased about the HEADER ROW instead, which is the
+      // thing that differs and reads correctly either way.
+      `the header row of sheet "${grid.name}" is not the ` +
+        `"${FINAL_TEST_CASES_SCHEMA.sheetName}" layout — ${differences.length} column(s) differ:\n` +
+        differences.map((line) => `  ${line}`).join('\n') +
+        '\n  Column positions come from the layout, not from the header row, so reading this ' +
+        'sheet anyway would take every value from the position the old layout had and return ' +
+        'rows populated from the wrong columns. Fix the header row, or the sheet needs a ' +
+        'layout of its own.',
+    );
   }
 
   const col = FINAL_TEST_CASES_SCHEMA.columns;
@@ -592,5 +649,5 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
     );
   }
 
-  return { rows, unreadable, blankRows, headerWarnings };
+  return { rows, unreadable, blankRows };
 }

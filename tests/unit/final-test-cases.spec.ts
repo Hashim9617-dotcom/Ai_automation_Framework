@@ -89,27 +89,124 @@ test.describe('columns map by POSITION (F2, F4) @unit', () => {
     expect(HEADER[16]).toBe('Issue No.');
     expect(HEADER[19]).toBe('Issue No.');
     const result = readFinalTestCases(gridOf(row()));
-    expect(result.headerWarnings).toEqual([]);
     expect(result.rows[0]!.scenarioName).toBe('Valid login');
   });
 
-  test('F2: the trailing space in "SOC DMS " is tolerated, not a warning', () => {
-    // Validated against the TRIMMED name, so real-world padding is fine.
-    expect(HEADER[18]).toBe('SOC DMS ');
-    expect(readFinalTestCases(gridOf(row())).headerWarnings).toEqual([]);
+  /**
+   * THE LAYOUT IS A GATE (H1-H6), and it used to be a suggestion.
+   *
+   * `F2: a changed layout IS reported` lived here and asserted the opposite of what
+   * its name implies: it renamed **column 4, `Test Case ID` — an INPUT** — and
+   * expected the read to SUCCEED with one warning in `headerWarnings`. That array
+   * was returned and read by nothing but this file, so a sheet with renamed, moved
+   * or missing input headers was read to completion with every value taken from the
+   * position the OLD layout had.
+   *
+   * H1 is that test rewritten to the behaviour it was named for. H5 and H6 are the
+   * silent half: the tolerances that must survive, or a stricter gate would refuse
+   * the real workbook and the rule would be the refuses-everything failure.
+   */
+  const withHeader = (header: string[]) => ({
+    name: FINAL_TEST_CASES_SCHEMA.sheetName,
+    rows: [header, row()],
   });
 
-  test('F2: a changed layout IS reported', () => {
-    // The discriminating half: header validation must be able to fail, or it
-    // is decoration.
-    const moved: string[] = [...HEADER];
-    moved[3] = 'Something Else';
-    const result = readFinalTestCases({
-      name: FINAL_TEST_CASES_SCHEMA.sheetName,
-      rows: [moved, row()],
-    });
-    expect(result.headerWarnings.length).toBe(1);
-    expect(result.headerWarnings[0]).toContain('column 4');
+  test('H1: an INPUT header renamed is REFUSED, naming the column', () => {
+    // wrong: the read succeeds and returns a warning nobody reads, so column 4's
+    // values keep coming from position 4 while the sheet means something else
+    // there. That is what this test asserted before 2026-10-05.
+    const renamed = [...HEADER];
+    renamed[3] = 'Something Else';
+
+    expect(() => readFinalTestCases(withHeader(renamed))).toThrow(
+      /column 4: expected "Test Case ID", found "Something Else"/,
+    );
+    // And it says WHY reading anyway would be wrong, not merely that it refused.
+    expect(() => readFinalTestCases(withHeader(renamed))).toThrow(/wrong columns/);
+  });
+
+  test('H2: two input columns SWAPPED are refused', () => {
+    // wrong: the header SET is unchanged, so any check that compared names without
+    // position accepts this — and every Given is then read as a When and every When
+    // as a Given. The one case a set comparison cannot see.
+    const swapped = [...HEADER];
+    [swapped[9], swapped[10]] = [HEADER[10]!, HEADER[9]!];
+
+    const run = () => readFinalTestCases(withHeader(swapped));
+    expect(run).toThrow(/2 column\(s\) differ/);
+    expect(run).toThrow(/column 10: expected "Given", found "When"/);
+    expect(run).toThrow(/column 11: expected "When", found "Given"/);
+  });
+
+  test('H3: a MISSING last column is refused', () => {
+    // wrong: a short header row leaves `header[21]` undefined, which the old check
+    // trimmed to '' and compared — and then reported nothing, because the loop only
+    // warned. A sheet missing a column is a different layout.
+    const short = HEADER.slice(0, 21);
+
+    expect(() => readFinalTestCases(withHeader(short))).toThrow(
+      /column 22: expected "Status 5", found "\(absent\)"/,
+    );
+  });
+
+  test('H4: an EXTRA non-empty header is refused', () => {
+    // wrong: an unknown column 23 is ignored, so a sheet that has grown a column
+    // reads as the old layout — and the next person to add a column to the schema
+    // silently changes what every existing sheet means.
+    expect(() => readFinalTestCases(withHeader([...HEADER, 'Sign-off']))).toThrow(
+      /column 23: expected nothing beyond column 22, found "Sign-off"/,
+    );
+  });
+
+  test('H5: the trailing space in "SOC DMS " is still accepted', () => {
+    // wrong: the gate compares raw cells, and the REAL workbook is refused — its
+    // column 19 is "SOC DMS " with a trailing U+0020. A rule that refuses the one
+    // sheet it exists to read is the refuses-everything failure, so the trim is a
+    // deliberate tolerance and this pins it.
+    expect(HEADER[18]).toBe('SOC DMS ');
+    expect(() => readFinalTestCases(gridOf(row()))).not.toThrow();
+  });
+
+  test('H6: the real workbook\u2019s 22 headers, as a literal, are accepted', () => {
+    // wrong: the gate is tuned to this repo's fixture rather than to the sheet a QA
+    // maintains, and the first real run refuses. TYPED OUT rather than read from the
+    // file: a fixture that loads the workbook would pass by construction on this
+    // machine and could not run anywhere else (§AJ).
+    //
+    // Measured from "D:\\DMS\\dms details\\...xlsx" on 2026-10-03 — 22 cells, one
+    // raw difference from the schema (column 19's trailing space), none surviving a
+    // trim.
+    const REAL = [
+      'Module',
+      'Feature',
+      'Scenario ID',
+      'Test Case ID',
+      'Scenario Name',
+      'Test Objective',
+      'Test Type',
+      'Priority',
+      'Preconditions',
+      'Given',
+      'When',
+      'And',
+      'Then',
+      'Test Data',
+      'Actual Result',
+      'Status',
+      'Issue No.',
+      'Type',
+      'SOC DMS ',
+      'Issue No.',
+      'Status 4',
+      'Status 5',
+    ];
+
+    expect(() => readFinalTestCases(withHeader(REAL))).not.toThrow();
+    // DISCRIMINATING: the literal above must be the real thing, not a copy of the
+    // fixture that happens to pass. One raw difference, and it is column 19.
+    expect(REAL.filter((h, i) => h !== FINAL_TEST_CASES_SCHEMA.expectedHeaders[i])).toEqual([
+      'SOC DMS ',
+    ]);
   });
 
   test('F4: output columns are never read as input', () => {

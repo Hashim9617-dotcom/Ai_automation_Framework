@@ -1631,8 +1631,32 @@ wrong question, and moving it earlier in the pipeline will not help.
 
 ## BACKLOG — the sheet NAME is a gate and the LAYOUT is only a suggestion
 
-**Not built. Recorded 2026-10-03 with the measurements that found it, because the
-decision was to accept today's layout rather than change the matcher now.**
+**CLOSED 2026-10-05 for the layout half: a differing header row is now REFUSED,
+thrown the way the sheet-name refusal is, naming every differing column.** The
+layouts-as-data proposal below is still open; what changed is that the existing
+single layout is now a gate rather than a note. What follows is kept because the
+reasoning is what the proposal rests on.
+
+Two things found while demonstrating the refusal at each caller, both left for
+later:
+
+- **The Command Box turns a layout refusal into NOT CONFIGURED.**
+  `loadSheetRows` catches, logs `Could not read the workbook at …`, and returns
+  `null` — which is the same value it returns when `AITP_SHEET_PATH` is unset, so
+  the response tells a reader "no workbook is configured" about a workbook that is
+  configured and whose header row changed. That is this doc's own three-answers
+  rule (NOT CONFIGURED / EMPTY / FAILED TO LOAD) broken at the one place it was
+  written for. Pre-existing — any throw did this — but a stricter reader makes it
+  reachable, so it is worth a third state in the response rather than a fourth
+  reading of `null`.
+- **`pnpm triage` prints a captured path containing a document id** in its
+  "captured but unpaired" line. Harmless on a terminal, not harmless in a report
+  that gets shared: the standing rule is that URLs are stripped of anything
+  identifying. The fix is to mask the id, not to drop the line — the line is how a
+  reader learns a screen was walked and never paired.
+
+**Recorded 2026-10-03 with the measurements that found it, because the decision
+was to accept today's layout rather than change the matcher now.**
 
 Two checks sit side by side in `readFinalTestCases` and behave oppositely:
 
