@@ -13,6 +13,7 @@ import {
   collapseTextDuplicates,
   extractRole,
   findCandidates,
+  refusalOwners,
   type Owner,
   type ResolvedRow,
   type StepRefusal,
@@ -504,11 +505,17 @@ export function resolveAuthoredRow(
       refusals.push({
         stepIndex,
         sentence: clause.text,
-        why: 'unparseable-step',
+        why: 'clause-not-labelled',
         candidates: [],
-        reason: `${authored.rowId}, ${clause.source} clause "${clause.text}": ${
-          clause.why ?? 'could not be classified'
-        }`,
+        // THE REMEDY NAMES THE COLUMN, because that is the artefact to change.
+        // Under the old shared code this row's advice was indistinguishable from
+        // "rewrite your sentence", which is work nobody needed to do.
+        reason:
+          `${authored.rowId}, ${clause.source} clause "${clause.text}": ${
+            clause.why ?? 'could not be classified'
+          } — put it in a Given, When or Then column and we will read it; we will ` +
+          'not guess, because mistaking an assertion for a click makes a test that ' +
+          'passes having verified nothing',
       });
       continue;
     }
@@ -534,7 +541,7 @@ export function resolveAuthoredRow(
           // could not read an action out of, which they can rewrite today. Both
           // refuse; merging them would send half of each group to the wrong
           // place, which is why `failed` and `refused` are separate too.
-          why: capability.verb ? 'action-not-supported' : 'unparseable-step',
+          why: capability.verb ? 'action-not-supported' : 'no-readable-action',
           candidates: [],
           reason: capability.verb
             ? `${authored.rowId}: "${capability.verb}" is not an action this platform can ` +
@@ -553,9 +560,16 @@ export function resolveAuthoredRow(
       refusals.push({
         stepIndex,
         sentence: clause.text,
-        why: 'unparseable-step',
+        why: 'no-readable-target',
         candidates: [],
-        reason: `${authored.rowId}, ${clause.source} clause "${clause.text}": no element could be read out of it`,
+        // THE REMEDY IS A QUOTED NAME, and it is measured rather than hopeful: of
+        // the 118 clauses that land here on the real sheet, NONE carries a quoted
+        // name this platform failed to read. A quoted name is trusted whatever its
+        // shape, so quoting the control is the whole fix.
+        reason:
+          `${authored.rowId}, ${clause.source} clause "${clause.text}": no element could be ` +
+          'read out of it — name the control in quotes (`clicks the "Save" button`) and we ' +
+          'will use it exactly as written',
       });
       continue;
     }
@@ -663,7 +677,13 @@ export function resolveAuthoredRow(
       steps: [],
       grades: [],
       refusals,
-      summary: `${authored.rowId}: refused — ${refusals.length} clause(s) could not be resolved`,
+      // WHO ACTS, on the one line a reader sees. Plural, because a row routinely
+      // carries refusals belonging to two different people, and naming only the
+      // first would send half of them to the wrong place — which is the entire
+      // reason these codes are kept apart.
+      summary:
+        `${authored.rowId}: refused — ${refusals.length} clause(s) could not be resolved ` +
+        `(owner: ${refusalOwners(refusals).join(', ')})`,
     };
   }
 

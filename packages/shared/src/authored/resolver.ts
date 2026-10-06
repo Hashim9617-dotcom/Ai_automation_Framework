@@ -38,7 +38,49 @@ import type { AuthoredCase } from './sheet';
 
 /** Why a row could not be turned into runnable steps. Machine-readable. */
 export type RefusalReason =
+  /**
+   * NOTHING COULD BE READ OUT OF THE SENTENCE — and this is the OLD, undivided
+   * answer, kept for exactly one caller.
+   *
+   * `resolveRow` below reads a bare `string[]` through `parseStep`, which returns
+   * `undefined` for every kind of failure at once: it has no way to say whether it
+   * could not find an action, could not find a name, or was handed something the
+   * sheet never labelled. A code it cannot justify would be worse than this one.
+   *
+   * The AUTHORED path can tell those three apart, and so it must — see the three
+   * codes below. Measured on the real workbook before splitting: 394 refusals wore
+   * this single code, and they were 147 unlabelled clauses, 129 unreadable actions
+   * and 118 clauses naming no element, with three different owners.
+   */
   | 'unparseable-step'
+  /**
+   * THE COLUMN IS BLANK FOR THIS CLAUSE, so nobody has said what it is.
+   *
+   * 147 of the 394 on the real sheet, and the biggest of the three. Mostly the
+   * "&"-joined halves of a cell where only the first half got a column. The
+   * remedy is a column, not a rewrite, which is why it cannot share a code with
+   * either of the other two.
+   */
+  | 'clause-not-labelled'
+  /**
+   * NO ACTION THIS PLATFORM CAN PERFORM COULD BE READ OUT OF AN ACTION CLAUSE.
+   *
+   * 129 of the 394. OURS: the clause is a legitimate instruction and the grammar
+   * has only a click. Distinct from `action-not-supported`, which NAMES the verb it
+   * cannot perform — here no verb was recognisable at all, so there is nothing to
+   * put on a capability backlog and the honest statement is about the grammar's
+   * reach rather than about a missing feature.
+   */
+  | 'no-readable-action'
+  /**
+   * THE CLAUSE NAMES NO ELEMENT.
+   *
+   * 118 of the 394, and the measurement that settled its owner: of those 118, **0**
+   * carry a quoted name this platform failed to read. The sheet quotes a control
+   * name in 5 clauses out of 1452, so these rows genuinely do not say what to act
+   * on — the remedy is to quote the control, and no parser change reaches them.
+   */
+  | 'no-readable-target'
   | 'ambiguous-target'
   | 'target-not-found'
   | 'entry-state-not-captured'
@@ -79,6 +121,52 @@ export type RefusalReason =
    * read.
    */
   | 'qualifier-not-supported';
+
+/**
+ * WHO ACTS on each refusal — and it is READ, not carried for show.
+ *
+ * `renderRefusalOwners` puts it in the summary of every refused row, and B1's
+ * triage reads it to decide whose list a row belongs in. That matters because the
+ * cautionary case is in this repo already: `TRIAGE_OWNER`'s own docstring records
+ * a map populated on every row that nothing ever consulted, so a wrong entry
+ * compiled clean and stayed wrong.
+ *
+ * Total over `RefusalReason` (`satisfies Record<…>`), so a new code cannot be added
+ * without deciding whose problem it is. The vocabulary is `TRIAGE_OWNER`'s on
+ * purpose — the same four words, so a reader never has to map one onto the other.
+ *
+ * `unparseable-step` is `'qa'` and that is the conservative reading rather than the
+ * true one: the undivided code covers our gaps as well as theirs, and it cannot say
+ * which. Its one caller is door A's `resolveRow`.
+ */
+export type RefusalOwner = 'qa' | 'platform' | 'capture' | 'environment';
+
+export const REFUSAL_OWNER = {
+  'unparseable-step': 'qa',
+  'clause-not-labelled': 'qa',
+  'no-readable-action': 'platform',
+  'no-readable-target': 'qa',
+  'ambiguous-target': 'qa',
+  'target-not-found': 'capture',
+  'entry-state-not-captured': 'capture',
+  'action-not-supported': 'platform',
+  'assertion-not-supported': 'platform',
+  'column-verb-conflict': 'qa',
+  'qualifier-not-supported': 'platform',
+} as const satisfies Record<RefusalReason, RefusalOwner>;
+
+/**
+ * The DISTINCT owners of a row's refusals, in a stable order, for a printed line.
+ *
+ * Distinct and plural because a row routinely carries refusals belonging to two
+ * different people — naming only the first would send half of them to the wrong
+ * place, which is the thing keeping these codes apart is for.
+ */
+export function refusalOwners(refusals: ReadonlyArray<{ why: RefusalReason }>): RefusalOwner[] {
+  const order: RefusalOwner[] = ['platform', 'qa', 'capture', 'environment'];
+  const present = new Set<RefusalOwner>(refusals.map((refusal) => REFUSAL_OWNER[refusal.why]));
+  return order.filter((owner) => present.has(owner));
+}
 
 export interface StepRefusal {
   stepIndex: number;

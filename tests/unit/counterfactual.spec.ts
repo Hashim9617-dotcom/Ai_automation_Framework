@@ -76,6 +76,10 @@ const COVERED = [
   // real process. Both carry their counterfactuals from the first line.
   'tests/demo/shared-route-tabs.spec.ts',
   'tests/demo/run-sheet-cli.spec.ts',
+  // Added 2026-10-06 with B3: three faults that shared one refusal code. Every test
+  // here asserts its code AND the absence of the other two, because the three gates
+  // live within a few lines of each other and a drifted order reads as correct.
+  'tests/unit/refusal-codes.spec.ts',
 ];
 
 /**

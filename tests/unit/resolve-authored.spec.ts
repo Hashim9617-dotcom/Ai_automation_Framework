@@ -203,7 +203,7 @@ test.describe('the one place classification is needed (C2) @unit', () => {
     );
 
     expect(resolved.outcome).toBe('row-unclear');
-    expect(resolved.refusals[0]!.why).toBe('unparseable-step');
+    expect(resolved.refusals[0]!.why).toBe('clause-not-labelled');
     expect(resolved.refusals[0]!.reason).toContain('SI_001 / TC_001');
     // Proof the fixture is discriminating: the target really does resolve.
     expect(extractTarget('the "Sign in" button')).toBe('Sign in');
@@ -504,7 +504,7 @@ test.describe('role, then collapse, then count (C6) @unit', () => {
  */
 test.describe('a Given clause is the entry state (C7) @unit', () => {
   test('C7: a Given is carried as a precondition, not refused', () => {
-    // wrong: pushed through element resolution it becomes an `unparseable-step`
+    // wrong: pushed through element resolution it becomes a `no-readable-action`
     // refusal, the row is marked row-unclear, and a QA is told their
     // precondition is unreadable — 455 times over one sheet.
     const resolved = resolveAuthoredRow(
@@ -525,7 +525,7 @@ test.describe('a Given clause is the entry state (C7) @unit', () => {
       CAPTURE,
       'login',
     );
-    expect(asWhen.refusals[0]!.why).toBe('unparseable-step');
+    expect(asWhen.refusals[0]!.why).toBe('no-readable-action');
   });
 
   test('C7: a Given never becomes a runnable step', () => {

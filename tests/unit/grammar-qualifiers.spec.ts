@@ -201,7 +201,7 @@ const EXPECTED: Record<string, string> = {
   'then|verify the table contains "Jane"': 'refused: assertion-not-supported',
   'then|verify the "Notes" field equals "10"': 'refused: assertion-not-supported',
   'then|verify the "Department" dropdown has value "HR"': 'refused: assertion-not-supported',
-  'then|verify the system displays a message': 'refused: unparseable-step',
+  'then|verify the system displays a message': 'refused: no-readable-target',
 
   // ---- counts ----
   'then|verify 3 rows are shown': 'refused: assertion-not-supported',
