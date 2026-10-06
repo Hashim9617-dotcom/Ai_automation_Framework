@@ -266,22 +266,60 @@ test.describe('a file-upload clause is refused rather than clicked @unit', () =>
     expect(clicks, 'a click was attempted for an unsupported action').toEqual([]);
   });
 
-  test('U3: an UPLOAD clause is stopped by the write gate FIRST, and that is pinned on purpose', async () => {
+  test('U3: an UPLOAD clause is stopped by the REFUSAL now, and that is pinned on purpose', async () => {
     // wrong: someone reads "upload is refused now" and relaxes the hold, or
     // `ALLOW_WRITES` is set for an unrelated reason — and the false pass returns
-    // through a door nobody was watching. The refusal still exists underneath;
-    // this records which of the two actually stops the row today.
+    // through a door nobody was watching. Both gates still exist; this records
+    // which of the two actually stops the row today.
+    //
+    // THE ORDER CHANGED IN B2, AND THE EXPECTATION MOVED WITH IT BY DECISION.
+    //
+    // This test's job has never been to assert that `held` is the right answer —
+    // read its own first paragraph — it is to record WHICH gate is load-bearing, so
+    // nobody relaxes the one that is. B2 put `refused` first, measured on 140 real
+    // rows that were held while carrying no runnable step at all.
+    //
+    // It moves this row to `refused`, and that is the better answer for the reason
+    // U2 above records as a regret: `held` says "this would write", which is true
+    // and useless, where `action-not-supported` says "this platform cannot do
+    // uploads". U2's note says the word `attach` was removed from the write list
+    // precisely because it traded the informative refusal for the vaguer hold; the
+    // reorder gives that message back for `uploads` too.
+    //
+    // It is also the STRONGER of the two gates, which is why the move is not a
+    // relaxation: a refusal has no environment variable. Under the old order
+    // `ALLOW_WRITES=1` dropped this row through the hold and into the refusal
+    // anyway; under this one the refusal is reached first and the flag is never
+    // consulted. The property that matters — no click, either way — is unchanged
+    // and still asserted below.
     const resolved = resolveAuthoredRow(rowWith('uploads "Attach"', 'UP_1'), CAPTURE, 'upload');
 
+    // BOTH gates still fire on this row. Neither has been weakened; only the
+    // order in which the reader is told about them has changed.
     expect(resolved.writeRisk).toBe('creates-data');
     expect(resolved.refusals.map((r) => r.why)).toContain('action-not-supported');
 
     const { clicks, execute } = clickRecorder();
     const run = await executeAuthoredRows({ resolved: [resolved], unreadable: [], execute, entry });
 
-    // `held` wins because that gate runs before the refused one. Either way, no
-    // click — which is the property that matters.
-    expect(run.results[0]!.status).toBe('held');
+    expect(run.results[0]!.status).toBe('refused');
+    // The informative message reaches the reader, which is the whole gain.
+    expect(run.results[0]!.detail).toContain(
+      '"uploads" is not an action this platform can perform',
+    );
+    expect(clicks).toEqual([]);
+
+    // AND THE HOLD IS STILL THERE UNDERNEATH. With writes turned on the row is
+    // still refused and still never clicked — so this records a gate that moved,
+    // not one that was removed.
+    const withWrites = await executeAuthoredRows({
+      resolved: [resolved],
+      unreadable: [],
+      execute,
+      entry,
+      allowWrites: true,
+    });
+    expect(withWrites.results[0]!.status).toBe('refused');
     expect(clicks).toEqual([]);
   });
 
@@ -309,10 +347,11 @@ test.describe('a file-upload clause is refused rather than clicked @unit', () =>
     // wrong: the new refusal is produced but counted nowhere, so `rowsRead` no
     // longer equals the buckets — and E2's arithmetic is the only thing that
     // would say so. A row missing from the tally is a row nobody reads.
-    // `selects`, not `attaches`: an ATTACH clause is now stopped by the WRITE gate
-    // first (see U2), so it lands in the `held` bucket and this test would be
-    // measuring that instead. `selects` is unperformable and is not a write word,
-    // so the row reaches the refused bucket — which is the bucket under test.
+    // `selects`, not `attaches`, and the reason is now historical: an ATTACH clause
+    // used to be stopped by the WRITE gate first, so it landed in the `held` bucket
+    // and this test would have been measuring that instead. Since B2 the refusal is
+    // reached first and either verb would do — the choice is kept because `selects`
+    // needs no reasoning about gate order to land where this test looks.
     const refusedRow = resolveAuthoredRow(
       rowWith('User selects "View"', 'AT_2'),
       CAPTURE,

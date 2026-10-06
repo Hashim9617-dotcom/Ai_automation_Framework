@@ -529,8 +529,43 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       stepsRun: 0,
     };
 
+    /**
+     * REFUSED IS DECIDED FIRST, AND THE ORDER IS THE FINDING (B2).
+     *
+     * `held` used to come first, which made it the answer for any write-risky row —
+     * including one the resolver could not read a single step out of. Measured on
+     * the real workbook: of **141** held rows, **140 had zero usable steps**. Every
+     * clause had been refused, so `ALLOW_WRITES` was not what stopped them, and the
+     * report sent 140 QAs to ask for write permission that would have changed
+     * nothing.
+     *
+     * Both statements were true of those rows — they would write, AND they could
+     * not be read — and a row gets one status, so the question is which one tells
+     * the reader what to do. "We could not read your row" is actionable today;
+     * "turn on writes" is advice that cannot help, and worse, it is advice that
+     * sounds like the only obstacle.
+     *
+     * The write gate is NOT weakened by this. A row with no steps cannot write,
+     * because there is nothing to run — so no row that could write loses its hold.
+     * That is why the reorder is safe to state as a reporting fix rather than a
+     * policy change (§V: the claim is tested by the test below that deletes the
+     * refusal and watches the hold come back).
+     */
+    if (row.outcome === 'row-unclear') {
+      results.push({
+        ...common,
+        status: 'refused',
+        owner: OWNER_OF.refused,
+        detail: row.refusals.map((refusal) => refusal.reason).join('; ') || row.summary,
+      });
+      continue;
+    }
+
     // Write risk gates EXECUTION, not just classification (§9.4). Held is a
     // reported outcome with its reason, never a silent omission.
+    //
+    // Reached only by a row whose every clause resolved, so `held` now means what
+    // it says: this row CAN run, and policy is the one thing stopping it.
     if (row.writeRisk === 'creates-data' && !allowWrites) {
       results.push({
         ...common,
@@ -546,20 +581,10 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
       continue;
     }
 
-    if (row.outcome === 'row-unclear') {
-      results.push({
-        ...common,
-        status: 'refused',
-        owner: OWNER_OF.refused,
-        detail: row.refusals.map((refusal) => refusal.reason).join('; ') || row.summary,
-      });
-      continue;
-    }
-
     // THE ENTRY STATE IS VERIFIED BEFORE ANY STEP RUNS.
     //
-    // After `held` and `refused`, because those need no screen at all — a held
-    // row is a policy decision and an unclear row cannot run wherever it is.
+    // After `refused` and `held`, because those need no screen at all — an unclear
+    // row cannot run wherever it is, and a held row is a policy decision.
     // Before the steps, because a step executed on the wrong screen produces a
     // verdict about the wrong screen: a missing target there is not a stale
     // capture, and reporting it as one is exactly §11.4's correction.

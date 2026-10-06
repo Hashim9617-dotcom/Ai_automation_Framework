@@ -496,6 +496,112 @@ test.describe('write risk gates EXECUTION (E4) @unit', () => {
   });
 });
 
+/**
+ * HELD MEANT "WRITE-RISKY", AND THE READER TOOK IT TO MEAN "ONLY POLICY STOPS THIS"
+ * (B2).
+ *
+ * Measured on the real workbook: of **141** held rows, **140 resolved zero usable
+ * steps** — every clause had been refused. `ALLOW_WRITES` was not what stopped them,
+ * and the report sent 140 QAs to ask for a flag that would have changed nothing.
+ *
+ * Both facts were true of those rows, and a row gets one status. The order decides
+ * which one the reader is told, so the order is the fix.
+ */
+test.describe('refused is decided before held (B2) @unit', () => {
+  test('B2: a write-risky row the resolver could not read is REFUSED, not held', async () => {
+    // wrong: under the old order this is `held` with "turn on ALLOW_WRITES" — advice
+    // that cannot help, about a row with no steps to run either way, and it hides
+    // the refusal that is the only actionable thing anyone could be told.
+    const unreadable = resolved({
+      rowId: 'SI_9 / TC_3',
+      writeRisk: 'creates-data',
+      writeRiskWhy: '"new" is a word that indicates a change to stored data',
+      outcome: 'row-unclear',
+      steps: [],
+      targets: [],
+      refusals: [
+        {
+          stepIndex: 0,
+          sentence: 'x',
+          why: 'no-readable-target',
+          candidates: [],
+          reason: 'no element could be read out of it',
+        },
+      ],
+    });
+    const outcome = await run([unreadable]);
+
+    expect(outcome.results[0]!.status).toBe('refused');
+    expect(outcome.results[0]!.detail).toContain('no element could be read out of it');
+    expect(outcome.results[0]!.detail).not.toContain('ALLOW_WRITES');
+    expect(outcome.tally.held).toBe(0);
+    expect(outcome.tally.refused).toBe(1);
+  });
+
+  test('B2: the same row WITHOUT the refusal is held again, so the write gate is intact', async () => {
+    // wrong: a reorder that simply stopped holding write-risky rows would pass the
+    // test above and silently open the gate. This is §V applied to an ORDER — the
+    // claim is "the hold moved behind the refusal", and the way to test it is to
+    // delete the refusal and watch the hold come back, not to confirm the refusal
+    // works.
+    let ran = 0;
+    const counting: StepExecutor = async () => {
+      ran += 1;
+      return { kind: 'passed' as const, observed: 'the element was there' };
+    };
+    const readable = resolved({
+      rowId: 'SI_9 / TC_3',
+      writeRisk: 'creates-data',
+      writeRiskWhy: '"new" is a word that indicates a change to stored data',
+    });
+    const outcome = await run([readable], [], counting, false);
+
+    expect(outcome.results[0]!.status).toBe('held');
+    expect(outcome.results[0]!.detail).toContain('ALLOW_WRITES');
+    expect(ran).toBe(0);
+  });
+
+  test('B2: no row can write by being unreadable — a refused row runs nothing either', async () => {
+    // wrong: if the reorder let a row past the write gate on its way to the
+    // executor, an unreadable write-risky row would become the one way to reach a
+    // live system with writes off. The gate it must not pass is the EXECUTOR, and
+    // the only honest assertion is that the executor was never called.
+    let ran = 0;
+    const counting: StepExecutor = async () => {
+      ran += 1;
+      return { kind: 'passed' as const, observed: 'the element was there' };
+    };
+    const outcome = await run(
+      [
+        resolved({
+          rowId: 'SI_9 / TC_4',
+          writeRisk: 'creates-data',
+          outcome: 'row-unclear',
+          steps: [],
+          targets: [],
+          refusals: [
+            {
+              stepIndex: 0,
+              sentence: 'x',
+              why: 'no-readable-action',
+              candidates: [],
+              reason: 'no action could be read out of it',
+            },
+          ],
+        }),
+      ],
+      [],
+      counting,
+      false,
+    );
+
+    expect(ran).toBe(0);
+    expect(outcome.results[0]!.stepsRun).toBe(0);
+    // And the tally still accounts for every row it was given (§T).
+    expect(outcome.tally.rowsRead).toBe(1);
+  });
+});
+
 test.describe('the sheet is never written to (E5) @unit', () => {
   test('E5: no execution-path code writes to the workbook', () => {
     // wrong: code that opened the workbook to "update the Status column" leaves a forbidden term in the scanned source.
