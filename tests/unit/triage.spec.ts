@@ -1,10 +1,14 @@
 import { test, expect } from '@playwright/test';
 import {
   triageSheet,
+  TRIAGE_OWNER,
   renderTriage,
   looksLikeAccessibleName,
   extractTarget,
   resolveAuthoredRow,
+  executeAuthoredRows,
+  type EntryControl,
+  type StepExecutor,
   type AccessibilityNode,
   type AuthoredRow,
   type BoundedCapture,
@@ -141,30 +145,29 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
    * is buildable) and `too-vague-to-verify` was the QA's (the row needs rewriting).
    * Both were decided by shape patterns triage owned.
    *
-   * Triage has no clause rules of its own now, so both labels are gone — and the
-   * finding, measured when this test first ran, is worse than the merge I expected:
-   * **neither row is flagged at all.** Both come back as rows a run would execute.
+   * Triage has no clause rules of its own now, so both labels are gone. B1 reported
+   * something worse than the merge it expected — **neither row was flagged at all**,
+   * because an ASSERT clause whose target is in no captured node was not refused:
+   * `resolveAuthoredRow` pushed a step with `role: 'generic'` and no target, and
+   * `extractTarget` slices `record` out of *"the record should be created
+   * successfully"* and `ui` out of *"the ui should show a colour change…"* (§13.4).
    *
-   * The cause is in the resolver and predates B1. `extractTarget` slices `record`
-   * out of *"the record should be created successfully"* and `ui` out of *"the ui
-   * should show a colour change…"* — §13.4, documented — and an ASSERT clause whose
-   * target is in no captured node is NOT refused: `resolveAuthoredRow` pushes an
-   * assert step with `role: 'generic'`. Only ACTION clauses get `target-not-found`.
+   * **C1 closed that**, and this test moved with it: an unquoted target matching no
+   * captured node is now refused `no-readable-target`. So the merge B1 predicted has
+   * actually happened, one commit late, and both rows are flagged again.
    *
-   * So the row resolves, and B1 faithfully reports what the run will do with it.
-   * The run is not wrong either — it executes the row and the live page answers
-   * `target-not-on-page`, which lands as `stale-capture`. But the QA's report loses
-   * a warning it used to carry, and the row is routed to the capture's owner
-   * instead of to whoever can rewrite it.
-   *
-   * **The fix belongs in the resolver, not here**: an assert whose target matches no
-   * captured node should refuse like an action's does. That is a behaviour change
-   * with its own blast radius, so it is reported rather than smuggled into B1.
+   * What is still LOST is the distinction, and it is the point of keeping this test:
+   * `outcome-not-element` was owned by the PLATFORM (a page/state assertion is
+   * buildable) and `too-vague-to-verify` by the QA. Both are now `no-readable-target`,
+   * owner qa — so on the real workbook ~36 rows moved from "the platform should build
+   * page/state assertions" to "the QA should quote a control", which is the worse
+   * diagnosis for them. Restoring it is a refinement of an already-refused row's
+   * LABEL and carries no drift risk: nothing about `automatable` would depend on it.
    */
-  test('T: an outcome clause and a vague clause are now UNFLAGGED, which is a regression', () => {
-    // wrong: asserting the reason I expected (`no-readable-target`) and moving on
-    // would have recorded a merge that did not happen and missed the actual
-    // behaviour — that these rows are no longer flagged by triage at all.
+  test('T: an outcome clause and a vague clause now share one reason, and that is a LOSS', () => {
+    // wrong: asserting only the new reason for one of them, and deleting the other
+    // test, would hide the merge entirely — the suite would read as though the
+    // platform had never distinguished these two audiences.
     const outcome = triageSheet(
       [
         rowOf('SI_2 / TC_1', 'Dashboard', [
@@ -188,14 +191,17 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
       CAPTURED,
     );
 
-    // Neither is an obstacle any more. `Save` is a write word so the first is held;
-    // the second clicks a link and is simply run.
-    expect(outcome.rows[0]!.reason).toBe('automatable-but-held');
-    expect(vague.rows[0]!.reason).toBe('automatable');
+    // Both flagged again since C1, and both with the SAME reason and the SAME owner
+    // — which is the loss this test exists to record.
+    expect(outcome.rows[0]!.reason).toBe('no-readable-target');
+    expect(vague.rows[0]!.reason).toBe('no-readable-target');
+    expect(outcome.rows[0]!.reason).toBe(vague.rows[0]!.reason);
+    expect(TRIAGE_OWNER[outcome.rows[0]!.reason]).toBe('qa');
 
     // AND THE CAUSE, asserted so this test names a mechanism rather than a mood:
-    // the resolver read a target out of both sentences, and neither is in the
-    // capture. A reader who comes here after a fix will see exactly what changed.
+    // the resolver read a plausible name out of both sentences, and neither is in
+    // the capture. That is WHY they are refused, and why the two cannot be told
+    // apart without a rule nobody has written yet.
     expect(extractTarget('the record should be created successfully')).toBe('record');
     expect(extractTarget('the ui should show a colour change proper response and animations')).toBe(
       'ui',
@@ -482,7 +488,7 @@ test.describe('triage reports the run-s verdict, not its own (B1) @unit', () => 
     expect(triage.ceiling.withCurrentCaptures).toBe(0);
   });
 
-  test('B1e: triage-s automatable SET equals the set the executor runs', () => {
+  test('B1e: triage-s automatable SET equals the set the executor runs', async () => {
     // wrong: with two implementations of one question, a SET comparison is the only
     // thing that notices when they part. Every per-row test passed throughout the
     // 27-versus-0 divergence, because each was right about its own row.
@@ -532,6 +538,40 @@ test.describe('triage reports the run-s verdict, not its own (B1) @unit', () => 
     // implementation that agreed by returning nothing — or everything — fails.
     expect(saysAutomatable).toEqual(['SI_A / TC_1']);
     expect(saysAutomatable.length).toBeLessThan(rows.length);
+
+    /**
+     * AND THE SAME COMPARISON AT EXECUTION LEVEL (C1).
+     *
+     * The filter above is the resolve-level condition, and that is how a hole got
+     * through: a row whose assert target was in no captured node satisfied every
+     * clause of it — no refusals, steps present, read-only — and the run refused it
+     * anyway, at execution, for having no target to check. This comparison is the
+     * one that would have caught it, and it has to run the rows to make it.
+     *
+     * The executor is the most permissive one there is, deliberately: anything it
+     * declines to run has been declined by the engine.
+     */
+    const ran: string[] = [];
+    const permissive: StepExecutor = async () => ({
+      kind: 'passed',
+      observed: 'the stub says it was there',
+    });
+    const entry: EntryControl = {
+      moduleOf: () => 'Dashboard',
+      verify: async () => ({ verified: true }),
+    };
+    const run = await executeAuthoredRows({
+      runId: 'run_b1e',
+      resolved: rows
+        .filter((row) => CAPTURED.entryStateOf.has(row.module))
+        .map((row) => resolveAuthoredRow(row, CAPTURE, CAPTURED.entryStateOf.get(row.module)!)),
+      unreadable: [],
+      entry,
+      execute: permissive,
+    });
+    for (const result of run.results) if (result.status === 'passed') ran.push(result.rowId);
+
+    expect(ran.sort()).toEqual(saysAutomatable);
   });
 
   test('B1f: a module absent from the entry-state map is no-capture, whatever its clauses', () => {

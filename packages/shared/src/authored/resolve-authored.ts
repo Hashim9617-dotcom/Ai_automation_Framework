@@ -45,6 +45,17 @@ import {
  * structural rather than a rule someone has to remember: a function with no way
  * to return a kind has no way to disagree about one.
  */
+/**
+ * A name the human explicitly delimited.
+ *
+ * ONE expression, because two places now ask the question: `extractTarget` below
+ * uses it to trust a name whatever its shape, and the assert branch uses it to
+ * decide whether an absent target is the QA's claim about the application or a slice
+ * of prose. Two copies of this regex would eventually disagree about what "quoted"
+ * means, and the two answers are a refusal and an app finding.
+ */
+const QUOTED_NAME = /["'`]([^"'`]{2,})["'`]/;
+
 export function extractTarget(text: string): string | undefined {
   const trimmed = text.trim().replace(/[.;]+$/, '');
   if (!trimmed) return undefined;
@@ -54,7 +65,7 @@ export function extractTarget(text: string): string | undefined {
   // ("Go to location PDF … Updated 27/08/2026, 11:52:32" is a real button on
   // this one), and second-guessing a name the QA typed in quotes would be the
   // same overreach as re-deriving their clause kind.
-  const quoted = /["'`]([^"'`]{2,})["'`]/.exec(trimmed);
+  const quoted = QUOTED_NAME.exec(trimmed);
   if (quoted) return quoted[1]!.trim();
 
   const patterns = [
@@ -638,12 +649,68 @@ export function resolveAuthoredRow(
     const claim = assertedProperty(clause.text) ?? { property: 'present' as const, expected: true };
 
     const { property, expected } = claim;
-    if (candidates[0]) {
-      targets.push({ stepIndex: steps.length, role: candidates[0].role, name: target });
+
+    /**
+     * AN ASSERT TARGET IN NO CAPTURED NODE: REFUSED IF IT WAS SLICED, KEPT IF IT WAS
+     * QUOTED (C1).
+     *
+     * This branch used to push `role: candidates[0]?.role ?? 'generic'` with NO entry
+     * in `targets`, and the consequences were measured rather than reasoned about:
+     *
+     * - `executeAuthoredRows` dispatches the step with no target, and **reported
+     *   `passed`** when handed a stub executor that passes everything. The real
+     *   Playwright executor refuses it (`no-observable-check`), so no live run was
+     *   ever wrong — but the guarantee lived in ONE `if` in ONE executor, which is
+     *   the component a stub replaces. The engine now refuses it too.
+     * - triage called such a row `automatable` while the real run refuses it, which
+     *   is a hole in the B1 agreement that only shows at EXECUTION, where B1's
+     *   resolve-level comparison could not see it.
+     *
+     * The split is on whether the QA QUOTED the name, because that is the only
+     * evidence available about what they meant:
+     *
+     * - **unquoted** — `extractTarget` sliced it out of prose. `record` out of *"the
+     *   record should be created successfully"*, `ui` out of *"the ui should show a
+     *   colour change…"*. It was never a control name, and refusing is the honest
+     *   answer: the row names no element. Measured on the real workbook before this
+     *   landed: 1 row, 1 clause, 0 of them quoted.
+     * - **quoted** — the QA typed the quotes deliberately, and a quoted name is
+     *   trusted whatever its shape (see `extractTarget`). Its absence from the
+     *   capture is then a claim about the APPLICATION, not a parse failure, so the
+     *   step is kept and carries a real target for the executor to look for.
+     *
+     * The role for a kept-but-uncaptured target is `StaticText`, which the executor
+     * addresses with `getByText(name, { exact: true })`. Exact, so unrelated page
+     * text cannot satisfy it. The alternative — `generic` — would send
+     * `getByRole('generic', …)` after an element that almost never carries an
+     * accessible name, and the resulting `target-not-on-page` would report the
+     * CAPTURE as stale about an element the capture never had.
+     */
+    if (!candidates[0]) {
+      if (!QUOTED_NAME.test(clause.text)) {
+        refusals.push({
+          stepIndex,
+          sentence: clause.text,
+          why: 'no-readable-target',
+          candidates: [],
+          reason:
+            `${authored.rowId}, ${clause.source} clause "${clause.text}": "${target}" was read ` +
+            `out of the sentence and matches nothing in "${state.id}" — so it is prose, not a ` +
+            'control. Name the control in quotes (`verify "Saved" is visible`) and we will ' +
+            'use it exactly as written, present in the capture or not.',
+        });
+        continue;
+      }
+      // QUOTED and absent: kept, with a target, as an app finding.
+      targets.push({ stepIndex: steps.length, role: 'StaticText', name: target });
+      steps.push({ kind: 'assert', role: 'StaticText', name: target, property, expected });
+      continue;
     }
+
+    targets.push({ stepIndex: steps.length, role: candidates[0].role, name: target });
     steps.push({
       kind: 'assert',
-      role: candidates[0]?.role ?? 'generic',
+      role: candidates[0].role,
       name: target,
       property,
       expected,

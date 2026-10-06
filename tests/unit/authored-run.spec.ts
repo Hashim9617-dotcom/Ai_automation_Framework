@@ -602,6 +602,97 @@ test.describe('refused is decided before held (B2) @unit', () => {
   });
 });
 
+/**
+ * THE ENGINE REFUSES AN ASSERTION WITH NO TARGET, WHATEVER THE EXECUTOR SAYS (C1).
+ *
+ * `playwright-executor.ts` has always returned `no-observable-check` when handed no
+ * target, and that was the whole guarantee. Measured with a stub that passes
+ * everything: the engine dispatched the step and reported the row **`passed`**.
+ *
+ * No live run was ever wrong, because the real executor refuses. But "no live run
+ * was ever wrong" is a fact about one implementation of an interface any caller can
+ * supply — the same shape as a cache test that passes with the production cache
+ * deleted, because the stand-in has one too.
+ */
+test.describe('an assertion with no target is refused by the ENGINE (C1) @unit', () => {
+  /** Passes everything, and records what it was asked. The stub must not be safe. */
+  const permissive = (): { asked: string[]; execute: StepExecutor } => {
+    const asked: string[] = [];
+    return {
+      asked,
+      execute: async ({ step, target }) => {
+        asked.push(`${step.kind}:${target ? `${target.role} "${target.name}"` : 'NO TARGET'}`);
+        return { kind: 'passed' as const, observed: 'the stub says it was there' };
+      },
+    };
+  };
+
+  test('C1c: a targetless assert is refused and the executor is never called for it', async () => {
+    // wrong: measured at the previous commit, this row came back `passed` with
+    // `stepsRun: 2`. The stub is deliberately the most permissive executor there is,
+    // so a green result here could only come from the engine (§V).
+    const { asked, execute } = permissive();
+    const outcome = await run(
+      [
+        resolved({
+          rowId: 'SI_C / TC_1',
+          steps: [
+            { kind: 'action', description: 'click "Sign in"' },
+            {
+              kind: 'assert',
+              role: 'generic',
+              name: 'record',
+              property: 'present',
+              expected: true,
+            },
+          ],
+          // The action has one; the assertion does not. That asymmetry is the case.
+          targets: [{ stepIndex: 0, role: 'button', name: 'Sign in' }],
+        }),
+      ],
+      [],
+      execute,
+      false,
+    );
+
+    expect(outcome.results[0]!.status).toBe('refused');
+    expect(outcome.tally.passed).toBe(0);
+    // The executor saw the ACTION and was never asked about the assertion.
+    expect(asked).toEqual(['action:button "Sign in"']);
+  });
+
+  test('C1c: an assert WITH a target is dispatched and can still pass', async () => {
+    // wrong: an engine that refused every assertion would pass the test above and
+    // make assertions impossible — the refuses-everything failure, in the one place
+    // that decides whether anything is ever verified. This is the case that must get
+    // through, and it differs from the one above by exactly one target.
+    const { asked, execute } = permissive();
+    const outcome = await run(
+      [
+        resolved({
+          rowId: 'SI_C / TC_2',
+          steps: [
+            {
+              kind: 'assert',
+              role: 'button',
+              name: 'Sign in',
+              property: 'present',
+              expected: true,
+            },
+          ],
+          targets: [{ stepIndex: 0, role: 'button', name: 'Sign in' }],
+        }),
+      ],
+      [],
+      execute,
+      false,
+    );
+
+    expect(outcome.results[0]!.status).toBe('passed');
+    expect(asked).toEqual(['assert:button "Sign in"']);
+  });
+});
+
 test.describe('the sheet is never written to (E5) @unit', () => {
   test('E5: no execution-path code writes to the workbook', () => {
     // wrong: code that opened the workbook to "update the Status column" leaves a forbidden term in the scanned source.

@@ -316,6 +316,95 @@ test.describe('an orphaned row is a QA-facing output (C4) @unit', () => {
  * The failure direction is the bad one: the row is perfect, the platform loses
  * its own data, and the report tells the QA their row could not be verified.
  */
+/**
+ * AN ASSERT TARGET IN NO CAPTURED NODE (C1).
+ *
+ * This branch pushed a step with `role: 'generic'` and NO target, and the measured
+ * consequence was that `executeAuthoredRows` reported the row **`passed`** when
+ * handed a stub executor that passes everything. The real Playwright executor
+ * refuses it, so no live run was ever wrong — but the guarantee lived in one `if` in
+ * the one component a stub replaces, and triage called such a row `automatable`
+ * while the run refuses it.
+ *
+ * The split is on whether the QA QUOTED the name, because that is the only evidence
+ * there is about what they meant.
+ */
+test.describe('an assert target the capture does not hold (C1) @unit', () => {
+  test('C1a: an UNQUOTED target matching no captured node is refused', () => {
+    // wrong: it becomes a step with no target, the engine dispatches it, and whether
+    // the row passes depends entirely on what the executor does with a missing
+    // target — which is a safety property living outside the engine.
+    const resolved = resolveAuthoredRow(
+      rowOf([
+        { text: 'the record should be created successfully', source: 'then', kind: 'assert' },
+      ]),
+      CAPTURE,
+      'login',
+    );
+
+    expect(resolved.outcome).toBe('row-unclear');
+    expect(resolved.refusals[0]!.why).toBe('no-readable-target');
+    expect(resolved.steps).toEqual([]);
+    // The fixture is DISCRIMINATING: `extractTarget` really does read a plausible
+    // name out of this sentence, so the refusal is about the capture not holding it
+    // — not about the sentence being unparseable.
+    expect(extractTarget('the record should be created successfully')).toBe('record');
+  });
+
+  test('C1a: an UNQUOTED target that IS in the capture still resolves', () => {
+    // wrong: refusing every unquoted target would pass the test above while making
+    // the resolver useless for the sheet's ordinary sentences — the
+    // refuses-everything failure. Quoting is the tie-breaker only when the capture
+    // cannot settle it.
+    const resolved = resolveAuthoredRow(
+      rowOf([{ text: 'verify Sign in is visible', source: 'then', kind: 'assert' }]),
+      CAPTURE,
+      'login',
+    );
+
+    expect(resolved.refusals).toEqual([]);
+    expect(resolved.steps).toHaveLength(1);
+    expect(resolved.targets[0]).toEqual({ stepIndex: 0, role: 'button', name: 'Sign in' });
+  });
+
+  test('C1b: a QUOTED target absent from the capture is kept, with a real target', () => {
+    // wrong: refused, it becomes the QA's problem — and their sentence is perfectly
+    // clear. They typed the quotes; the element's absence is a claim about the
+    // APPLICATION, which is a finding the run should make rather than decline.
+    const resolved = resolveAuthoredRow(
+      rowOf([{ text: 'verify "Payroll summary" is visible', source: 'then', kind: 'assert' }]),
+      CAPTURE,
+      'login',
+    );
+
+    expect(resolved.refusals).toEqual([]);
+    expect(resolved.steps).toHaveLength(1);
+    // A TARGET, so the executor has something to look for — and `StaticText`, which
+    // it addresses with `getByText(name, { exact: true })`. Exact, so unrelated page
+    // text cannot satisfy it; and not `generic`, whose absence would be reported as
+    // a stale capture about an element the capture never had.
+    expect(resolved.targets[0]).toEqual({
+      stepIndex: 0,
+      role: 'StaticText',
+      name: 'Payroll summary',
+    });
+  });
+
+  test('C1b: a QUOTED target the capture DOES hold keeps its real role', () => {
+    // wrong: sending every quoted name to `StaticText` would pass the test above and
+    // throw away the role the capture knows, so a button assertion would be looked
+    // for as text. This is the case that must keep `button`.
+    const resolved = resolveAuthoredRow(
+      rowOf([{ text: 'verify "Sign in" is visible', source: 'then', kind: 'assert' }]),
+      CAPTURE,
+      'login',
+    );
+
+    expect(resolved.refusals).toEqual([]);
+    expect(resolved.targets[0]).toEqual({ stepIndex: 0, role: 'button', name: 'Sign in' });
+  });
+});
+
 test.describe('the resolver hands the executor its targets (C5) @unit', () => {
   test('C5: an "ok" row carries a target for every step', () => {
     // wrong: with `targets` dropped on this path the array is empty, the

@@ -643,6 +643,37 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
 
     for (const [stepIndex, step] of row.steps.entries()) {
       const target = row.targets?.find((entry) => entry.stepIndex === stepIndex);
+
+      /**
+       * AN ASSERTION WITH NO TARGET IS REFUSED HERE, NOT ASKED (C1).
+       *
+       * The executor has always refused one — `playwright-executor.ts` returns
+       * `no-observable-check` when it is handed no target. That was the whole
+       * guarantee, and it lived in the one component a stub replaces.
+       *
+       * Measured with a stub that passes everything: the engine dispatched an
+       * assert step with no target and **reported the row `passed`**, two steps
+       * run, on a clause whose target was in no captured node. No live run was
+       * ever wrong, because the real executor refuses; but "no live run was ever
+       * wrong" is a fact about one implementation of an interface anyone can
+       * supply, and the engine is where it has to be true.
+       *
+       * So the executor is never called, and its own branch stays as defence in
+       * depth rather than as the defence. §V: the claim that safety moved from the
+       * executor to here is tested by handing this a stub that would pass.
+       */
+      if (step.kind === 'assert' && !target) {
+        stopped = {
+          outcome: {
+            kind: 'no-observable-check',
+            observed: '',
+            evidence: { failingClause: `${step.role} "${step.name}"` },
+          },
+          step,
+        };
+        break;
+      }
+
       const outcome = await options.execute({
         rowId: row.rowId,
         step,
