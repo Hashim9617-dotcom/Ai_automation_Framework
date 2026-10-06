@@ -45,7 +45,8 @@
     "smoke:generation": "tsx scripts/generation-smoke.ts",
     "generate:review": "tsx scripts/generate-review.ts",
     "check:api-deps": "node scripts/check-api-deps.mjs",
-    "migrate:captures": "tsx scripts/migrate-captures.ts"
+    "migrate:captures": "tsx scripts/migrate-captures.ts",
+    "verify-entries": "tsx scripts/verify-entries.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
