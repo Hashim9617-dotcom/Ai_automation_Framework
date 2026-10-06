@@ -564,3 +564,40 @@ export function assertProvenByInCapture(
   }
   return provable;
 }
+
+/**
+ * THE STATE EACH MODULE'S ROWS RESOLVE AGAINST — one expression, every caller.
+ *
+ * This logic lived inside `runSheet` and was then re-derived, identically, by
+ * anything that wanted to know what the run would do. Two copies of a route→state
+ * lookup is the shape every fail-open finding in this repo has had: a drifted copy
+ * reads exactly like a correct one, and the divergence shows up as a row resolving
+ * against a different screen than the one the run used.
+ *
+ * It matters most for B1. Triage's `automatable` is only the run's answer if it
+ * resolves against the run's state, so the two now call this rather than agreeing
+ * by coincidence.
+ *
+ * **THE NEWEST state at the route**, because a locator should be written against
+ * the most recent walk of that screen. The disk loader reads sessions in sorted
+ * directory order and those directories are ISO timestamps, so the last one wins.
+ *
+ * Modules with no captured state at their route are simply ABSENT from the result
+ * — never mapped to an empty string, which a caller could spend on a lookup. The
+ * returned map's `keys()` is therefore the honest answer to "which modules can be
+ * resolved at all", and that is what triage keys its capture question on.
+ */
+export function entryStateByModule(map: ModuleMap, capture: BoundedCapture): Map<string, string> {
+  const newestAt = new Map<string, string>();
+  for (const state of capture.states) newestAt.set(routeOf(state.url), state.id);
+
+  const byModule = new Map<string, string>();
+  for (const [module, entry] of Object.entries(map)) {
+    // `routeOf` and `normaliseRoute` are this file's own, already used by
+    // `validateModuleMap` — so the route a module is matched on here is the same
+    // string that validator compared, by construction rather than by agreement.
+    const stateId = newestAt.get(normaliseRoute(entry.route));
+    if (stateId !== undefined) byModule.set(module, stateId);
+  }
+  return byModule;
+}

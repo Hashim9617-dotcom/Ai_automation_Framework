@@ -30,6 +30,8 @@ import {
   triageSheet,
   renderTriage,
   findRepoRoot,
+  loadModuleMap,
+  entryStateByModule,
 } from '@aitp/shared';
 import { loadCaptureFromDisk, requireApplicationArg } from '@aitp/execution-engine';
 
@@ -152,12 +154,6 @@ function main(): void {
   const matchFor = (route: string): string | undefined =>
     [...paths].sort().find((captured) => pathMatchesRoute(captured, route));
 
-  const capturedModules = new Set(
-    Object.entries(MODULE_ROUTES)
-      .filter(([, route]) => matchFor(route) !== undefined)
-      .map(([module]) => module),
-  );
-
   console.log(`paths captured: ${[...paths].sort().join(', ')}`);
   if (unparseable.length > 0) {
     console.log(
@@ -200,7 +196,26 @@ function main(): void {
   const sheet = readFinalTestCases(readSheetGrid(readFileSync(workbook), 'Final Test cases'));
   if (sheet.rows.length === 0) throw new Error('read 0 rows — refusing to report a ceiling');
 
-  const triage = triageSheet(sheet.rows, capturedModules);
+  /**
+   * THE CEILING NEEDS THE CAPTURE ITSELF NOW, not a list of routes (B1).
+   *
+   * `automatable` is the resolver's verdict, so triage resolves every row against
+   * the state its module was captured at — which needs nodes, and the route view
+   * above has none. A refusal rather than a figure computed from nothing: a ceiling
+   * reported over an empty capture would be 0.0% and would look like a measurement.
+   */
+  if (source.kind !== 'loaded') {
+    throw new Error(
+      `refusing to report a ceiling: ${source.reason}\n` +
+        '  Every row is resolved against the capture, so with none there is nothing to resolve ' +
+        'them with. This is NOT a ceiling of 0% — nothing was measured.',
+    );
+  }
+  const mapFile = path.join(findRepoRoot(), 'config', 'apps', application, 'module-map.json');
+  const map = loadModuleMap(mapFile);
+  const entryStateOf = entryStateByModule(map, source.capture);
+
+  const triage = triageSheet(sheet.rows, { capture: source.capture, entryStateOf });
   const { ceiling } = triage;
 
   console.log(`\nrows read: ${sheet.rows.length} (+${sheet.unreadable.length} unreadable)`);
@@ -208,9 +223,14 @@ function main(): void {
     `ceiling with today's captures : ${(ceiling.withCurrentCaptures * 100).toFixed(1)}%  ` +
       `(${ceiling.modulesCaptured} of ${ceiling.modulesTotal} sheet module keys)`,
   );
+  // NULL IS A SENTENCE HERE TOO. Printing `0.0%` would claim the ceiling stays at
+  // nothing even with every screen walked, which nobody has measured.
   console.log(
-    `ceiling once all are captured : ${(ceiling.withAllModulesCaptured * 100).toFixed(1)}%  ` +
-      `(${ceiling.rowsBlockedByMissingCapture} rows blocked only by a missing capture)`,
+    ceiling.withAllModulesCaptured === null
+      ? `ceiling once all are captured : ${ceiling.withAllModulesCapturedWhy}  ` +
+          `(${ceiling.rowsBlockedByMissingCapture} rows blocked only by a missing capture)`
+      : `ceiling once all are captured : ${(ceiling.withAllModulesCaptured * 100).toFixed(1)}%  ` +
+          `(${ceiling.rowsBlockedByMissingCapture} rows blocked only by a missing capture)`,
   );
   console.log(`\n${JSON.stringify(triage.counts, null, 1)}`);
 

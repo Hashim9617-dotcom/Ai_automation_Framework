@@ -80,6 +80,9 @@ const COVERED = [
   // here asserts its code AND the absence of the other two, because the three gates
   // live within a few lines of each other and a drifted order reads as correct.
   'tests/unit/refusal-codes.spec.ts',
+  // Added 2026-10-06 with B1: the Command Box's three answers for a sheet ceiling,
+  // where a WITHHELD second number must not read as a missing workbook.
+  'tests/api/sheet-ceiling.spec.ts',
 ];
 
 /**

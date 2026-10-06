@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import { Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
@@ -12,6 +13,9 @@ import {
   planCommand,
   readFinalTestCases,
   readSheetGrid,
+  triageSheet,
+  loadModuleMap,
+  entryStateByModule,
   type CommandPlan,
   type InventoryEntry,
   type RunTarget,
@@ -108,7 +112,7 @@ export class CommandService {
     };
 
     if (plan.door === 'existing') return this.runExisting(plan, request, base);
-    if (plan.door === 'sheet') return this.planSheet(plan, base);
+    if (plan.door === 'sheet') return this.planSheet(plan, base, request.environment);
     if (plan.door === 'generate') return this.planGeneration(plan, base);
 
     return { ...base, resolved: false, run: null };
@@ -162,17 +166,89 @@ export class CommandService {
    * that `RunnerService` does not have yet (§3). Reporting the match honestly
    * beats pretending to run it.
    */
-  private planSheet(plan: CommandPlan, base: Record<string, unknown>) {
+  private planSheet(plan: CommandPlan, base: Record<string, unknown>, environment: string) {
     return {
       ...base,
       resolved: true,
       sheetMatches: plan.sheetMatches,
       run: null,
+      ceiling: this.loadSheetCeiling(environment),
       note:
         `${plan.sheetMatches.length} authored row(s) match. Executing authored rows needs the ` +
         'in-process runner described in docs/phase-2-command-box.md §3, which is not built yet — ' +
         'so these rows are reported, not run.',
     };
+  }
+
+  /**
+   * The sheet's automation ceiling, with FOUR distinct answers and never a bare null.
+   *
+   * ## Why this needed its own shape
+   *
+   * `withAllModulesCaptured` became `number | null` in B1 — null whenever a module
+   * has no capture, because `automatable` is the resolver's verdict now and those
+   * rows have no state to resolve against. This service is the reader that already
+   * turns a `null` into "no workbook is configured" (`sheetRows`), so a null ceiling
+   * arriving here was one careless `??` away from telling a QA their workbook was
+   * missing when it was read perfectly well.
+   *
+   * The three-states rule applies twice over, so the states are explicit:
+   *
+   * | state | means |
+   * | --- | --- |
+   * | `not-configured` | no `AITP_SHEET_PATH`, or no file there — set one up |
+   * | `could-not-load` | the workbook or the capture is there and could not be read |
+   * | `measured` | both numbers are present |
+   * | `measured` + `withAllModulesCaptured: null` | the first number is real; the second is **not measurable**, and `withAllModulesCapturedWhy` says why |
+   *
+   * The last two share a state deliberately: in both, the sheet WAS read and the
+   * ceiling WAS computed. Giving the null its own top-level state would put it
+   * beside the two failures, which is the confusion this exists to prevent.
+   */
+  private loadSheetCeiling(environment: string): Record<string, unknown> {
+    const configured = process.env.AITP_SHEET_PATH;
+    if (!configured || !existsSync(configured)) {
+      return {
+        state: 'not-configured',
+        why: 'no workbook is configured — set AITP_SHEET_PATH to one outside the repository',
+      };
+    }
+    try {
+      const application = loadEnvironment(environment).application;
+      const source = loadCaptureFromDisk(application, {});
+      if (source.kind !== 'loaded') {
+        return {
+          state: 'could-not-load',
+          why:
+            `the workbook was read and the capture was not: ${source.reason}. Every row is ` +
+            'resolved against the capture, so no ceiling was computed — this is NOT a ceiling ' +
+            'of 0%.',
+        };
+      }
+      const mapFile = path.join(this.repoRoot, 'config', 'apps', application, 'module-map.json');
+      const map = loadModuleMap(mapFile);
+      const sheet = readFinalTestCases(readSheetGrid(readFileSync(configured), 'Final Test cases'));
+      const { ceiling } = triageSheet(sheet.rows, {
+        capture: source.capture,
+        entryStateOf: entryStateByModule(map, source.capture),
+      });
+      return {
+        state: 'measured',
+        withCurrentCaptures: ceiling.withCurrentCaptures,
+        // PASSED THROUGH AS NULL, with its sentence beside it. Not coerced to 0,
+        // not dropped, and not renamed into one of the failure states above.
+        withAllModulesCaptured: ceiling.withAllModulesCaptured,
+        withAllModulesCapturedWhy: ceiling.withAllModulesCapturedWhy,
+        modulesCaptured: ceiling.modulesCaptured,
+        modulesTotal: ceiling.modulesTotal,
+      };
+    } catch (error) {
+      this.logger.warn(`Could not compute the sheet ceiling: ${String(error)}`);
+      return {
+        state: 'could-not-load',
+        why: `the workbook at ${configured} could not be read: ${String(error)}`,
+      };
+    }
   }
 
   /**

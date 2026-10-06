@@ -5,7 +5,9 @@ import {
   renderTriage,
   triageSheet,
   actionCapability,
+  unsupportedQualifier,
   TRIAGE_OWNER,
+  type TriageInputs,
   type AuthoredRow,
   type BoundedCapture,
   type EntryControl,
@@ -92,6 +94,16 @@ const CAPTURE: BoundedCapture = {
   ],
   transitions: [],
   selection: { keywords: [], available: [], chosen: [], excluded: [] },
+};
+
+/**
+ * Triage resolves against the capture now (B1), and this file's whole point is that
+ * triage and the run give the SAME answer — so it must be the same capture and the
+ * same entry state the run below uses, not an equivalent one.
+ */
+const TRIAGE_INPUTS: TriageInputs = {
+  capture: CAPTURE,
+  entryStateOf: new Map([['Bulk upload', 'upload']]),
 };
 
 /**
@@ -392,13 +404,17 @@ test.describe('a file-upload clause is refused rather than clicked @unit', () =>
  */
 test.describe('triage and the run give the same answer @unit', () => {
   const triageOf = (when: string, id: string) =>
-    triageSheet([rowWith(when, id)], new Set(['Bulk upload'])).rows[0]!;
+    triageSheet([rowWith(when, id)], TRIAGE_INPUTS).rows[0]!;
 
   const runOf = async (when: string, id: string) => {
     const resolved = resolveAuthoredRow(rowWith(when, id), CAPTURE, 'upload');
     const { clicks, execute } = clickRecorder();
     const run = await executeAuthoredRows({ resolved: [resolved], unreadable: [], execute, entry });
-    return { status: run.results[0]!.status, clicks };
+    // THE RUN'S OWN REFUSAL CODE, not just its status. This suite is named "triage
+    // and the run give the same answer" and compared triage's REASON against the
+    // run's STATUS — two different things, so a row where the two disagreed about
+    // WHY read as agreement. B1 found one; see W2.
+    return { status: run.results[0]!.status, clicks, why: resolved.refusals[0]?.why };
   };
 
   test('T1: an unsupported action is refused by BOTH, and owned by the platform', async () => {
@@ -482,13 +498,40 @@ test.describe('triage and the run give the same answer @unit', () => {
     //
     // The capture holds `option "Jane"`, so this refusal is NOT "nothing matched"
     // — the fixture can reach the false pass, and did.
+    //
+    // ## B1 FOUND A WRONG REASON HERE, and it is left wrong on purpose
+    //
+    // Triage used to answer `unsupported-action` — the right diagnosis; the verb
+    // `enters` is one the platform cannot perform. The RUN refuses it as
+    // `qualifier-not-supported`, because `unsupportedQualifier` runs first and its
+    // ORDINAL pattern matches **"First"** inside the field name *"First name"*.
+    //
+    // That is the fourth instance of one rule in this repo: an element's own name is
+    // not a description of it. `extractRole` read "select" out of *"Select
+    // department"*; `actionCapability` read `enter` out of *"presses Enter"*;
+    // `ROLE_NOUNS` read `toggle` out of a control called a toggle. Here an ordinal
+    // is read out of a field called "First name". The name is unquoted, so the
+    // existing quote-stripping defence does not reach it.
+    //
+    // The two answers DISAGREED for as long as this test compared triage's reason
+    // with the run's STATUS, which both got right. Asserting they share a reason is
+    // what exposed it. Fixing the ordinal rule is a resolver change with its own
+    // blast radius and does not belong inside B1, so this pins the wrong-but-shared
+    // reason and names the fix.
     const triaged = triageOf("user enters 'Jane' in First name", 'W_3');
-    const { status, clicks } = await runOf("user enters 'Jane' in First name", 'W_4');
+    const { status, clicks, why } = await runOf("user enters 'Jane' in First name", 'W_4');
 
-    expect(triaged.reason).toBe('unsupported-action');
+    // THE B1 PROPERTY: one answer, whatever it is.
+    expect(triaged.reason).toBe('qualifier-not-supported');
+    expect(why).toBe('qualifier-not-supported');
     expect(TRIAGE_OWNER[triaged.reason]).toBe('platform');
     expect(status).toBe('refused');
     expect(clicks).toEqual([]);
+
+    // AND THE KNOWN-WRONG PART, asserted so a fix cannot land silently: the real
+    // obstacle is the verb, and `actionCapability` says so plainly.
+    expect(actionCapability("user enters 'Jane' in First name").verb).toBe('enters');
+    expect(unsupportedQualifier("user enters 'Jane' in First name")).toBe('first');
   });
 
   test('W3: the refusal NAMES the verb, and blames the platform not the sentence', async () => {
@@ -517,7 +560,7 @@ test.describe('triage and the run give the same answer @unit', () => {
     // invisible because no output ever shows it.
     const triage = triageSheet(
       [rowWith('User attaches "Attach"', 'AG_5'), rowWith('clicks on "Attach"', 'AG_6')],
-      new Set(['Bulk upload']),
+      TRIAGE_INPUTS,
     );
     const markdown = renderTriage(triage);
 

@@ -4,7 +4,12 @@ import {
   renderTriage,
   looksLikeAccessibleName,
   extractTarget,
+  resolveAuthoredRow,
+  type AccessibilityNode,
   type AuthoredRow,
+  type BoundedCapture,
+  type CapturedState,
+  type TriageInputs,
 } from '@aitp/shared';
 
 /**
@@ -32,7 +37,45 @@ const rowOf = (rowId: string, module: string, clauses: AuthoredRow['clauses']): 
   clauses,
 });
 
-const CAPTURED = new Set(['Dashboard']);
+/**
+ * THE CAPTURE IS NOW PART OF THE FIXTURE (B1).
+ *
+ * Triage used to be handed module NAMES — `new Set(['Dashboard'])` — and decided
+ * `automatable` from its own clause rules. It is now a projection of
+ * `resolveAuthoredRow`, so every test here has to supply the thing the resolver
+ * resolves against. That is not incidental: the bug this replaced was triage
+ * answering a question it could not see the evidence for.
+ */
+const node = (role: string, name: string): AccessibilityNode => ({ role, name, enabled: true });
+
+const DASHBOARD: CapturedState = {
+  id: 'dashboard',
+  label: 'dashboard',
+  url: 'https://app.example/dashboard',
+  nodes: [
+    node('button', 'Save'),
+    node('link', 'Reports'),
+    node('heading', 'Employee directory'),
+    // TWO nodes with one name, so an ambiguity fixture exists that the collapse
+    // rule cannot flatten: two BUTTONS, not a control and its own text.
+    node('button', 'Edit'),
+    node('button', 'Edit'),
+  ],
+  truncated: false,
+};
+
+const CAPTURE: BoundedCapture = {
+  sessionId: 's',
+  states: [DASHBOARD],
+  transitions: [],
+  selection: { keywords: [], available: [], chosen: [], excluded: [] },
+};
+
+/** `Dashboard` is captured; `Workflow` deliberately is not. */
+const CAPTURED: TriageInputs = {
+  capture: CAPTURE,
+  entryStateOf: new Map([['Dashboard', 'dashboard']]),
+};
 
 test.describe('a target must look like a NAME, not a sentence (P) @unit', () => {
   test('P: a sliced sentence is not a target', () => {
@@ -90,10 +133,39 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
     expect(triage.missingCaptures[0]).toEqual({ module: 'Workflow', rows: 1 });
   });
 
-  test('T: an outcome clause is OUR work to build, not the QA-s to rewrite', () => {
-    // wrong: filed as too-vague, a buildable page-assertion row is sent back to
-    // its author to rewrite, and the same row comes back unchanged.
-    const triage = triageSheet(
+  /**
+   * WHAT B1 COST, RECORDED AS A TEST RATHER THAN LEFT AS A DIFF.
+   *
+   * These were two tests asserting two different reasons, and the distinction was
+   * real: `outcome-not-element` was OURS (owner platform — a page/state assertion
+   * is buildable) and `too-vague-to-verify` was the QA's (the row needs rewriting).
+   * Both were decided by shape patterns triage owned.
+   *
+   * Triage has no clause rules of its own now, so both labels are gone — and the
+   * finding, measured when this test first ran, is worse than the merge I expected:
+   * **neither row is flagged at all.** Both come back as rows a run would execute.
+   *
+   * The cause is in the resolver and predates B1. `extractTarget` slices `record`
+   * out of *"the record should be created successfully"* and `ui` out of *"the ui
+   * should show a colour change…"* — §13.4, documented — and an ASSERT clause whose
+   * target is in no captured node is NOT refused: `resolveAuthoredRow` pushes an
+   * assert step with `role: 'generic'`. Only ACTION clauses get `target-not-found`.
+   *
+   * So the row resolves, and B1 faithfully reports what the run will do with it.
+   * The run is not wrong either — it executes the row and the live page answers
+   * `target-not-on-page`, which lands as `stale-capture`. But the QA's report loses
+   * a warning it used to carry, and the row is routed to the capture's owner
+   * instead of to whoever can rewrite it.
+   *
+   * **The fix belongs in the resolver, not here**: an assert whose target matches no
+   * captured node should refuse like an action's does. That is a behaviour change
+   * with its own blast radius, so it is reported rather than smuggled into B1.
+   */
+  test('T: an outcome clause and a vague clause are now UNFLAGGED, which is a regression', () => {
+    // wrong: asserting the reason I expected (`no-readable-target`) and moving on
+    // would have recorded a merge that did not happen and missed the actual
+    // behaviour — that these rows are no longer flagged by triage at all.
+    const outcome = triageSheet(
       [
         rowOf('SI_2 / TC_1', 'Dashboard', [
           { text: 'click the "Save" button', source: 'when', kind: 'action' },
@@ -102,15 +174,10 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
       ],
       CAPTURED,
     );
-    expect(triage.rows[0]!.reason).toBe('outcome-not-element');
-  });
-
-  test('T: a vague clause is the QA-s to rewrite', () => {
-    // wrong: filed as an outcome, it joins a buildable backlog and waits for
-    // work that could never make it verifiable.
-    const triage = triageSheet(
+    const vague = triageSheet(
       [
         rowOf('SI_3 / TC_1', 'Dashboard', [
+          { text: 'click the "Reports" link', source: 'when', kind: 'action' },
           {
             text: 'the ui should show a colour change proper response and animations',
             source: 'then',
@@ -120,7 +187,21 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
       ],
       CAPTURED,
     );
-    expect(triage.rows[0]!.reason).toBe('too-vague-to-verify');
+
+    // Neither is an obstacle any more. `Save` is a write word so the first is held;
+    // the second clicks a link and is simply run.
+    expect(outcome.rows[0]!.reason).toBe('automatable-but-held');
+    expect(vague.rows[0]!.reason).toBe('automatable');
+
+    // AND THE CAUSE, asserted so this test names a mechanism rather than a mood:
+    // the resolver read a target out of both sentences, and neither is in the
+    // capture. A reader who comes here after a fix will see exactly what changed.
+    expect(extractTarget('the record should be created successfully')).toBe('record');
+    expect(extractTarget('the ui should show a colour change proper response and animations')).toBe(
+      'ui',
+    );
+    expect(DASHBOARD.nodes.map((n) => n.name)).not.toContain('record');
+    expect(DASHBOARD.nodes.map((n) => n.name)).not.toContain('ui');
   });
 
   test('T: a row that can be PERFORMED but not VERIFIED is not automatable', () => {
@@ -144,10 +225,15 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
     // wrong: a triage that never returns automatable makes the ceiling 0% and
     // is satisfied by knowing nothing — the refuses-everything failure, one
     // layer up. This is the fixture that tells the two apart.
+    //
+    // `"Reports"`, not `"Save"`: this fixture used to click Save, and under a
+    // resolve-based verdict that row is HELD, because `sav(e|ing)` is a write word.
+    // The old triage could not see the write gate at all, so the change of control
+    // is the fixture catching up with what the verdict now includes.
     const triage = triageSheet(
       [
         rowOf('SI_5 / TC_1', 'Dashboard', [
-          { text: 'click the "Save" button', source: 'when', kind: 'action' },
+          { text: 'click the "Reports" link', source: 'when', kind: 'action' },
           { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
         ]),
       ],
@@ -176,7 +262,7 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
       ],
       CAPTURED,
     );
-    expect(triage.rows[0]!.reason).toBe('too-vague-to-verify');
+    expect(triage.rows[0]!.reason).toBe('no-readable-action');
     expect(triage.rows[0]!.evidence).not.toContain('user on the dashboard');
   });
 
@@ -194,8 +280,11 @@ test.describe('sheet triage names the reason and the action (T) @unit', () => {
     );
     const markdown = renderTriage(triage);
     expect(markdown).toContain('50.0%');
+    // ONE REMEDY PER REASON, both asserted. The table is derived from
+    // `REASON_REMEDY` now, so a reason counted with no action printed is a compile
+    // error — but that only holds if something checks that the remedies ARRIVE.
     expect(markdown).toContain('pnpm inspect');
-    expect(markdown).toContain('the row needs rewriting');
+    expect(markdown).toContain('these are the rows a run executes');
     expect(markdown).toContain('Capture worklist');
   });
 });
@@ -216,28 +305,53 @@ test.describe('the ceiling carries its own assumptions (T6) @unit', () => {
   const rows = [
     // Automatable on its clauses, but its module has never been captured.
     rowOf('SI_1 / TC_1', 'Workflow', [
-      { text: 'click the "Save" button', source: 'when', kind: 'action' },
+      { text: 'click the "Reports" link', source: 'when', kind: 'action' },
       { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
     ]),
     // Automatable and captured.
     rowOf('SI_2 / TC_1', 'Dashboard', [
-      { text: 'click the "Save" button', source: 'when', kind: 'action' },
+      { text: 'click the "Reports" link', source: 'when', kind: 'action' },
       { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
     ]),
   ];
 
-  test('T6: the two ceilings differ exactly by what a capture would unblock', () => {
-    // wrong: one number alone reads as the ceiling of the APPROACH, when it is
-    // the ceiling of today's coverage — and the difference here is a whole row.
+  test('T6: the second ceiling is WITHHELD, not guessed, while a module is uncaptured', () => {
+    // wrong: a `0` here reads as "the ceiling stays at nothing even with every
+    // screen captured" — a claim nobody has measured — and it is the exact shape
+    // this repo has corrected three times: a failure reported as an empty result.
+    //
+    // THIS EXPECTATION MOVED BY DECISION, not because a run disagreed. The second
+    // ceiling was a MEASUREMENT only because both numbers ran the same clause rules
+    // over the same clauses. `automatable` is now the resolver's verdict, which
+    // needs a captured state, and the rows this figure is about have none. Keeping
+    // the old rules for it would present two figures taken with different
+    // instruments as a comparison of capture coverage.
     const triage = triageSheet(rows, CAPTURED);
 
     expect(triage.ceiling.withCurrentCaptures).toBe(0.5);
+    expect(triage.ceiling.withAllModulesCaptured).toBeNull();
+    expect(triage.ceiling.withAllModulesCapturedWhy).toContain('not measurable');
+    expect(triage.ceiling.withAllModulesCapturedWhy).toContain('1 rows have no capture');
+  });
+
+  test('T6: with EVERY module captured it is a number again, and the reason goes away', () => {
+    // wrong: a field hard-wired to null would pass the test above and make the
+    // second ceiling permanently unavailable — the refuses-everything failure
+    // applied to a measurement. This is the only fixture that tells the two apart.
+    const everything: TriageInputs = {
+      capture: CAPTURE,
+      entryStateOf: new Map([
+        ['Dashboard', 'dashboard'],
+        ['Workflow', 'dashboard'],
+      ]),
+    };
+    const triage = triageSheet(rows, everything);
+
+    expect(triage.ceiling.withCurrentCaptures).toBe(1);
     expect(triage.ceiling.withAllModulesCaptured).toBe(1);
-    // Discriminating: the two are NOT equal on this fixture, so a result that
-    // simply reported the same figure twice would fail here.
-    expect(triage.ceiling.withAllModulesCaptured).toBeGreaterThan(
-      triage.ceiling.withCurrentCaptures,
-    );
+    // And no explanation, because there is nothing to explain. A sentence beside a
+    // number that exists is how a reader learns to ignore both.
+    expect(triage.ceiling.withAllModulesCapturedWhy).toBeNull();
   });
 
   test('T6: each number carries the coverage it was measured with', () => {
@@ -261,21 +375,172 @@ test.describe('the ceiling carries its own assumptions (T6) @unit', () => {
     // that says what it counts.
     expect(markdown).toContain('1 of 2 sheet module keys captured');
     expect(markdown).toContain('not the ceiling of this approach');
+    // The withheld number is printed as WORDS, so the row cannot be mistaken for a
+    // missing one — and the paragraph says why it is withheld rather than zero.
+    expect(markdown).toContain('not measurable');
+    expect(markdown).toContain('used to be a measurement and is now withheld');
+    expect(markdown).not.toContain('Once every module is captured** | **0.0%');
+  });
+});
+
+/**
+ * B1 — `automatable` IS what the run executes, or the word is a lie.
+ *
+ * Measured on the real workbook at the moment this was found: triage reported 27
+ * automatable rows beside the rendered sentence *"these are the rows a run
+ * executes"*, and the run executed **none** of them — 18 held, 9 refused.
+ *
+ * Both numbers were produced from the same imports. They shared `actionCapability`
+ * and `columnVerbConflict` precisely so they could not drift on a VERB, and they
+ * drifted on everything else: triage never asked whether the named element is in
+ * the capture, and never applied the whole-row rule.
+ *
+ * So the fix is not a better rule. It is having ONE rule — triage reads the
+ * resolver's verdict — and these tests are about that agreement rather than about
+ * any particular classification.
+ */
+test.describe('triage reports the run-s verdict, not its own (B1) @unit', () => {
+  const READ_ONLY_ROW = rowOf('SI_A / TC_1', 'Dashboard', [
+    { text: 'click the "Reports" link', source: 'when', kind: 'action' },
+    { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
+  ]);
+
+  test('B1a: a row whose every clause resolves against the capture is automatable', () => {
+    // wrong: a triage answering from clause text alone says automatable here AND
+    // for B1b, whose target is not in the capture at all — which is exactly the
+    // 27-versus-0 divergence this replaced.
+    const triage = triageSheet([READ_ONLY_ROW], CAPTURED);
+    expect(triage.rows[0]!.reason).toBe('automatable');
+    expect(triage.rows[0]!.evidence).toContain('resolved against "dashboard"');
   });
 
-  test('T6: a row that is unautomatable ANYWAY is not counted as unblockable', () => {
-    // wrong: crediting every uncaptured row to the second ceiling promises a
-    // capture will fix rows whose clauses could never be verified, and the
-    // delta measurement afterwards would then look like a failure.
+  test('B1b: the SAME row is not automatable when the element is not in the capture', () => {
+    // wrong: this is the silent half, and the only fixture that can tell a
+    // resolve-based verdict from a text-based one. The clauses are identical; only
+    // the capture differs — so a triage reading text gives the same answer twice,
+    // passes B1a, and is wrong about every real sheet.
+    const thin: TriageInputs = {
+      capture: { ...CAPTURE, states: [{ ...DASHBOARD, nodes: [node('button', 'Save')] }] },
+      entryStateOf: new Map([['Dashboard', 'dashboard']]),
+    };
+    const triage = triageSheet([READ_ONLY_ROW], thin);
+
+    expect(triage.rows[0]!.reason).toBe('no-capture-for-element');
+    expect(triage.ceiling.withCurrentCaptures).toBe(0);
+  });
+
+  test('B1c: ONE refused clause disqualifies the whole row, however many resolve', () => {
+    // wrong: counting a row on its resolvable clauses is how 254 steps on the real
+    // sheet belonged to rows the run then refused in full. A row is all or nothing,
+    // because half a row that goes green is a false pass.
     const triage = triageSheet(
       [
-        rowOf('SI_3 / TC_1', 'Workflow', [
-          { text: 'everything should look proper', source: 'then', kind: 'assert' },
+        rowOf('SI_B / TC_1', 'Dashboard', [
+          { text: 'click the "Reports" link', source: 'when', kind: 'action' },
+          { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
+          { text: 'do the needful', source: 'when', kind: 'action' },
         ]),
       ],
       CAPTURED,
     );
+    expect(triage.rows[0]!.reason).toBe('no-readable-action');
+    expect(triage.counts.automatable).toBe(0);
+  });
+
+  test('B1c: the same three clauses, all resolvable, ARE automatable', () => {
+    // wrong: a whole-row rule implemented as "never automatable above two clauses"
+    // would pass the test above. This is the case it must not refuse.
+    const triage = triageSheet(
+      [
+        rowOf('SI_B / TC_2', 'Dashboard', [
+          { text: 'click the "Reports" link', source: 'when', kind: 'action' },
+          { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
+          { text: 'verify "Reports" is visible', source: 'then', kind: 'assert' },
+        ]),
+      ],
+      CAPTURED,
+    );
+    expect(triage.rows[0]!.reason).toBe('automatable');
+  });
+
+  test('B1d: a row held by the write gate is its OWN answer — not automatable, not an obstacle', () => {
+    // wrong: folded into `automatable` it overstates what a run does, so the number
+    // stops equalling the executed rows and the whole agreement is gone. Folded
+    // into the obstacles it sends a QA to fix a row that is already correct.
+    const triage = triageSheet(
+      [
+        rowOf('SI_C / TC_1', 'Dashboard', [
+          { text: 'click the "Save" button', source: 'when', kind: 'action' },
+          { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
+        ]),
+      ],
+      CAPTURED,
+    );
+    expect(triage.rows[0]!.reason).toBe('automatable-but-held');
+    expect(triage.counts.automatable).toBe(0);
+    expect(triage.counts['automatable-but-held']).toBe(1);
     expect(triage.ceiling.withCurrentCaptures).toBe(0);
-    expect(triage.ceiling.withAllModulesCaptured).toBe(0);
+  });
+
+  test('B1e: triage-s automatable SET equals the set the executor runs', () => {
+    // wrong: with two implementations of one question, a SET comparison is the only
+    // thing that notices when they part. Every per-row test passed throughout the
+    // 27-versus-0 divergence, because each was right about its own row.
+    const rows = [
+      READ_ONLY_ROW,
+      rowOf('SI_D / TC_1', 'Dashboard', [
+        { text: 'click the "Save" button', source: 'when', kind: 'action' },
+        { text: 'verify "Employee directory" is visible', source: 'then', kind: 'assert' },
+      ]),
+      rowOf('SI_D / TC_2', 'Dashboard', [
+        { text: 'click the "Reports" link', source: 'when', kind: 'action' },
+        { text: 'do the needful', source: 'when', kind: 'action' },
+      ]),
+      rowOf('SI_D / TC_3', 'Dashboard', [
+        { text: 'click the "Nonexistent" link', source: 'when', kind: 'action' },
+      ]),
+      rowOf('SI_D / TC_4', 'Dashboard', [
+        { text: 'click the "Edit" button', source: 'when', kind: 'action' },
+      ]),
+      rowOf('SI_D / TC_5', 'Workflow', [
+        { text: 'click the "Reports" link', source: 'when', kind: 'action' },
+      ]),
+    ];
+
+    const saysAutomatable = triageSheet(rows, CAPTURED)
+      .rows.filter((row) => row.reason === 'automatable')
+      .map((row) => row.rowId)
+      .sort();
+
+    // The other side, from the resolver itself rather than from a second opinion
+    // about it: `executeAuthoredRows` reaches a step only past `row-unclear` and
+    // past the write gate, which is exactly the filter below.
+    const executorWouldRun = rows
+      .filter((row) => CAPTURED.entryStateOf.has(row.module))
+      .map((row) => resolveAuthoredRow(row, CAPTURE, CAPTURED.entryStateOf.get(row.module)!))
+      .filter(
+        (resolved) =>
+          resolved.refusals.length === 0 &&
+          resolved.steps.length > 0 &&
+          resolved.writeRisk !== 'creates-data',
+      )
+      .map((resolved) => resolved.rowId)
+      .sort();
+
+    expect(saysAutomatable).toEqual(executorWouldRun);
+    // And the fixture DISCRIMINATES: neither empty nor everything, so an
+    // implementation that agreed by returning nothing — or everything — fails.
+    expect(saysAutomatable).toEqual(['SI_A / TC_1']);
+    expect(saysAutomatable.length).toBeLessThan(rows.length);
+  });
+
+  test('B1f: a module absent from the entry-state map is no-capture, whatever its clauses', () => {
+    // wrong: triage used to be handed module NAMES while the run computed its own
+    // blocked set, so a module that was mapped but UNPROVABLE counted as captured
+    // here and was refused upfront there. The map's keys are the single source now,
+    // so the two cannot disagree about which screens exist.
+    const triage = triageSheet([rowOf('SI_E / TC_1', 'Workflow', READ_ONLY_ROW.clauses)], CAPTURED);
+    expect(triage.rows[0]!.reason).toBe('no-capture-for-module');
+    expect(triage.missingCaptures).toEqual([{ module: 'Workflow', rows: 1 }]);
   });
 });

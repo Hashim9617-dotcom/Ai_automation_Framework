@@ -4,6 +4,7 @@ import {
   resolveAuthoredRow,
   triageSheet,
   TRIAGE_OWNER,
+  type TriageInputs,
   type AuthoredClause,
   type AuthoredRow,
   type BoundedCapture,
@@ -75,6 +76,18 @@ const capture: BoundedCapture = {
   ],
   transitions: [],
   selection: { keywords: [], available: [], chosen: [], excluded: [] },
+};
+
+/**
+ * Triage resolves against the capture now (B1), so it needs the same one.
+ *
+ * `new Set(['Forms'])` used to be enough, because triage decided `automatable`
+ * from clause text. It is the resolver's verdict now, and a verdict needs the
+ * evidence the run would have had.
+ */
+const TRIAGE_INPUTS: TriageInputs = {
+  capture,
+  entryStateOf: new Map([['Forms', 'form']]),
 };
 
 /**
@@ -382,20 +395,30 @@ test.describe('triage and the run agree about state assertions (A5) @unit', () =
       ['verify the "Notes" field is read-only', 'then', 'unverifiable-assertion', 'platform'],
       ['checks the "Active" box', 'then', 'column-verb-conflict', 'qa'],
     ] as const) {
-      const triaged = triageSheet([rowOf(text, source, 'TA_1')], new Set(['Forms'])).rows[0]!;
+      const triaged = triageSheet([rowOf(text, source, 'TA_1')], TRIAGE_INPUTS).rows[0]!;
       expect(triaged.reason, text).toBe(reason);
       expect(triaged.reason, text).not.toBe('automatable');
       expect(TRIAGE_OWNER[triaged.reason], text).toBe(owner);
     }
   });
 
-  test('A5 (discriminating): a real state assertion IS automatable', () => {
+  test('A5 (discriminating): a real state assertion is NOT an obstacle', () => {
     // wrong: agreement is reached by refusing everything, which agrees perfectly
     // and automates nothing. This is the row that must come out the other way.
+    //
+    // `automatable-but-held`, not `automatable`, and the change is the verdict
+    // getting MORE honest rather than this row getting worse: `rowOf`'s action
+    // clause clicks `"Save"`, and `sav(e|ing)` is a write word. The old triage had
+    // no view of the write gate, so it called this automatable while the run would
+    // have held it — the 27-versus-0 divergence in miniature.
+    //
+    // It still discriminates, which is this test's whole job: a triage that refused
+    // everything could not produce an owner of `none`.
     const triaged = triageSheet(
       [rowOf('verify the "Active" checkbox is checked', 'then', 'TA_2')],
-      new Set(['Forms']),
+      TRIAGE_INPUTS,
     ).rows[0]!;
-    expect(triaged.reason).toBe('automatable');
+    expect(triaged.reason).toBe('automatable-but-held');
+    expect(TRIAGE_OWNER[triaged.reason]).toBe('none');
   });
 });

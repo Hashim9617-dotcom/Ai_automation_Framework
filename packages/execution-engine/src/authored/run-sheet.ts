@@ -7,6 +7,7 @@ import {
   loadModuleMap,
   newId,
   partitionMappedModules,
+  entryStateByModule,
   readFinalTestCases,
   readSheetGrid,
   resolveAuthoredRow,
@@ -205,22 +206,24 @@ export async function runSheet(options: RunSheetOptions): Promise<RunSheetResult
    * already refused it, which is the §Y half — this lookup is only reached once that
    * gate has passed, so a missing entry is a wiring fault and not an outcome.
    */
-  const newestStateAt = new Map<string, string>();
-  for (const state of options.capture.states) {
-    const route = (() => {
-      try {
-        const pathname = new URL(state.url).pathname;
-        return pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
-      } catch {
-        return state.url;
-      }
-    })();
-    newestStateAt.set(route, state.id);
-  }
+  /**
+   * ONE EXPRESSION FOR THE ROUTE -> STATE LOOKUP, shared with triage (B1).
+   *
+   * This was inlined here, and triage's `automatable` can only be the run's answer
+   * if it resolves against the run's state — so a second copy of this arithmetic
+   * would put the two back in a position to disagree while both looked right.
+   *
+   * The BLOCKED modules are removed afterwards rather than never added, so the map
+   * handed to triage holds exactly the modules this run will attempt. Triage then
+   * reports `no-capture-for-module` for precisely the rows this run refuses upfront,
+   * by construction rather than by a matching rule written twice.
+   */
+  const entryStateOf = entryStateByModule(map, options.capture);
+  for (const module of blocked.keys()) entryStateOf.delete(module);
 
   const resolved = runnableRows.map((row) => {
     const route = map[row.module]!.route.replace(/\/+$/, '') || '/';
-    const stateId = newestStateAt.get(route);
+    const stateId = entryStateOf.get(row.module);
     if (!stateId) {
       throw new Error(
         `${mapFile}, module "${row.module}": no captured state at route "${route}", yet the ` +
@@ -252,7 +255,11 @@ export async function runSheet(options: RunSheetOptions): Promise<RunSheetResult
     outputDir: options.outDir,
     sheetName: options.sheet,
     provenance: options.provenance,
-    triage: triageSheet(sheet.rows, new Set(Object.keys(map))),
+    // THE SAME CAPTURE AND THE SAME ENTRY STATES THIS RUN USED, so the triage's
+    // `automatable` count is the number of rows this run executed — not a second
+    // opinion about them. It was `new Set(Object.keys(map))`, which told triage every
+    // mapped module was fine, including the ones blocked three lines above.
+    triage: triageSheet(sheet.rows, { capture: options.capture, entryStateOf }),
     // EVERY unprovable entry, not only the ones that refused rows here. The two
     // sets differ on purpose: `blocked` decides what runs, this tells the reader
     // what is wrong with the map.

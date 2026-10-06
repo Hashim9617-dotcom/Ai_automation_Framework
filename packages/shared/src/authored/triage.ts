@@ -1,7 +1,7 @@
-import { actionCapability, columnVerbConflict, type AuthoredRow } from './final-test-cases';
-import { extractRole } from './resolver';
-import { extractTarget, unsupportedQualifier, unverifiableAssertion } from './resolve-authored';
-import { assessAuthoredWriteRisk } from './write-risk';
+import type { BoundedCapture } from '../generation/bounding';
+import type { AuthoredRow } from './final-test-cases';
+import type { RefusalReason } from './resolver';
+import { resolveAuthoredRow } from './resolve-authored';
 
 /**
  * Sheet triage: which rows can NEVER be automated, and why.
@@ -21,12 +21,15 @@ import { assessAuthoredWriteRisk } from './write-risk';
  * useless to everyone, because no single person can act on the merged list.
  */
 export type TriageReason =
-  /** Nobody has captured this screen. Someone runs `pnpm inspect` on it. */
+  /**
+   * Nobody has captured this screen. Someone runs `pnpm inspect` on it.
+   *
+   * THE ONLY REASON TRIAGE STILL DECIDES BY ITSELF, and the only one it can: a row
+   * whose module has no captured state cannot be resolved at all, so there is no
+   * resolver verdict to project. Every other reason below is read OFF the
+   * resolver's own refusal (B1).
+   */
   | 'no-capture-for-module'
-  /** Describes a page, URL or state outcome. Needs a page/state assertion. */
-  | 'outcome-not-element'
-  /** Too vague for anything to verify. The ROW needs rewriting — QA work. */
-  | 'too-vague-to-verify'
   /**
    * The clause names an action the platform cannot perform — file upload.
    *
@@ -64,26 +67,67 @@ export type TriageReason =
    */
   | 'qualifier-not-supported'
   /**
-   * The row will run, and whether it is HELD depends on the CAPTURE.
+   * The sheet never LABELLED this clause — no Given/When/Then column.
    *
-   * Measured before this existed: `triageSheet(rows, capturedModules)` is handed
-   * module NAMES only — `triage-sheet.ts` reads `state.url` out of every capture and
-   * never touches `state.nodes` — so triage cannot see a resolved ROLE, and rule B
-   * (hold every state-toggling role) is not a question it can answer.
-   *
-   * It is not the same as `automatable`, because the run may report `held`, and it
-   * is not an obstacle either. So it gets its own value rather than a promise
-   * neither side can keep.
-   *
-   * **The size of this bucket is why the widened word list had to land first.**
-   * Measured over 65 action clauses: 80% name no role at all, but only **18%** are
-   * undecidable once the write WORDS are checked too. Shipping rule B's triage
-   * label before rule D would have moved four fifths of the sheet into an
-   * unqualified maybe, which is a ceiling that says nothing.
+   * From the resolver's `clause-not-labelled`. Measured: 147 clauses on the real
+   * sheet, the first refusal on only 6 rows, so it is widespread and rarely the
+   * thing to fix first — a distinction that was invisible while three faults shared
+   * one code.
    */
-  | 'write-risk-unknown'
-  /** Nothing stands in the way. */
-  | 'automatable';
+  | 'clause-not-labelled'
+  /**
+   * No action this platform can perform could be read out of an action clause.
+   *
+   * From the resolver's `no-readable-action`. OURS. Distinct from
+   * `unsupported-action`, which NAMES the verb it cannot perform: that one goes on a
+   * capability backlog, this one has nothing to put on it.
+   */
+  | 'no-readable-action'
+  /**
+   * The clause names no element.
+   *
+   * From the resolver's `no-readable-target`. Measured on the real sheet: of the 118
+   * clauses that land here, ZERO carry a quoted name this platform failed to read,
+   * and the sheet quotes a control in 5 clauses out of 1452.
+   */
+  | 'no-readable-target'
+  /**
+   * The element the clause names is not in the capture at the module's route.
+   *
+   * From the resolver's `target-not-found`, and NOT the same as
+   * `no-capture-for-module`: that screen has never been walked, this one has and
+   * does not contain the named control. Merged, the `pnpm inspect` worklist would
+   * name screens that are already captured.
+   */
+  | 'no-capture-for-element'
+  /** The name matches several elements. The QA says which (`ambiguous-target`). */
+  | 'ambiguous-target'
+  /**
+   * NOTHING STANDS IN THE WAY — and this now means the run WILL execute the row.
+   *
+   * It used to be triage's own opinion, reached by text rules the resolver never
+   * saw. Measured on the real workbook at the moment that changed: triage called 27
+   * rows automatable beside the sentence *"these are the rows a run executes"*, and
+   * the run executed **none** of them — 18 were held and 9 refused.
+   *
+   * So the word is now earned the only way it can be: the row is resolved against
+   * the SAME capture and the SAME entry state the run uses, and it counts only if
+   * every clause resolved and nothing holds it.
+   */
+  | 'automatable'
+  /**
+   * The row resolves completely and the WRITE GATE holds it.
+   *
+   * Its own value, travelling beside `automatable` as a pair, because the two
+   * answer different questions and a single number cannot. `automatable` must equal
+   * what the run executes — that is the agreement B1 exists to create — and a held
+   * row is not executed. But it is not an obstacle either: nothing is wrong with
+   * the row, and `ALLOW_WRITES` is a policy decision somebody can take.
+   *
+   * Folded into `automatable` it would overstate what a run does; folded into the
+   * obstacles it would send a QA to fix a row that is already correct.
+   */
+  | 'automatable-but-held';
 
 /**
  * Who can act on each reason. READ by the renderer below, not carried for show.
@@ -94,19 +138,51 @@ export type TriageReason =
  */
 export const TRIAGE_OWNER = {
   'no-capture-for-module': 'capture',
-  'outcome-not-element': 'platform',
-  'too-vague-to-verify': 'qa',
+  'no-capture-for-element': 'capture',
   'unsupported-action': 'platform',
+  'no-readable-action': 'platform',
   'unverifiable-assertion': 'platform',
-  // The QA's, deliberately: this one is a sentence they can rewrite into a row
-  // that runs today, which none of the other platform-owned reasons are.
-  'column-verb-conflict': 'qa',
   'qualifier-not-supported': 'platform',
-  // The CAPTURE decides it, and pairing the module's capture is what resolves the
-  // uncertainty — so it is the capture's, not a fault of anybody's.
-  'write-risk-unknown': 'capture',
+  // The QA's, deliberately: these are sentences they can rewrite into a row that
+  // runs today, which none of the platform-owned reasons are.
+  'column-verb-conflict': 'qa',
+  'clause-not-labelled': 'qa',
+  'no-readable-target': 'qa',
+  'ambiguous-target': 'qa',
   automatable: 'none',
+  // Nobody's fault and nobody's work. The row is correct and complete; whether to
+  // set `ALLOW_WRITES` is a decision, not a defect.
+  'automatable-but-held': 'none',
 } as const satisfies Record<TriageReason, string>;
+
+/**
+ * THE RESOLVER'S CODE IS THE SOURCE, AND THIS IS THE ONLY TRANSLATION (B1).
+ *
+ * Total over `RefusalReason`, so a new refusal code cannot be added without
+ * deciding what triage calls it. That totality is the whole mechanism: the drift
+ * this replaced was triage answering the same question a second way, and the only
+ * way to keep two vocabularies honest is to make the compiler refuse an
+ * untranslated one.
+ *
+ * `entry-state-not-captured` maps to `no-capture-for-module` because that is what it
+ * is — the resolver could not find the state the row was handed. It is unreachable
+ * from triage in practice, since a module with no entry state is answered before any
+ * resolution is attempted, and it is mapped anyway rather than thrown on: a reason
+ * that cannot be produced costs nothing, and a `throw` in a classifier costs a run.
+ */
+const TRIAGE_REASON_FOR = {
+  'unparseable-step': 'no-readable-target',
+  'clause-not-labelled': 'clause-not-labelled',
+  'no-readable-action': 'no-readable-action',
+  'no-readable-target': 'no-readable-target',
+  'ambiguous-target': 'ambiguous-target',
+  'target-not-found': 'no-capture-for-element',
+  'entry-state-not-captured': 'no-capture-for-module',
+  'action-not-supported': 'unsupported-action',
+  'assertion-not-supported': 'unverifiable-assertion',
+  'column-verb-conflict': 'column-verb-conflict',
+  'qualifier-not-supported': 'qualifier-not-supported',
+} as const satisfies Record<RefusalReason, TriageReason>;
 
 export interface TriagedRow {
   rowId: string;
@@ -133,15 +209,44 @@ export interface CeilingPair {
   /** Today's honest figure, with exactly the captures that exist right now. */
   withCurrentCaptures: number;
   /**
-   * What it becomes once every module has been walked — the real PRODUCT
-   * ceiling, and the one worth planning against.
+   * What it becomes once every module has been walked — and it is NULL whenever
+   * any module has not been (B1).
    *
-   * An upper bound on text grounds: it re-classifies the no-capture rows by
-   * exactly the same clause rules as everything else, so it knows whether their
-   * clauses NAME an element. It cannot know whether that element will turn out
-   * to be in the capture, which is wall 2 and is not what this number claims.
+   * ## Why making the first ceiling honest cost the second one
+   *
+   * It used to be a measurement rather than an estimate, and the thing that made it
+   * one was that BOTH ceilings ran the same clause rules over the same clauses —
+   * nothing was extrapolated from the captured modules to the others.
+   *
+   * `automatable` is now the resolver's verdict, which needs a captured state to
+   * resolve against. For the rows this figure is about, that state does not exist.
+   * So there are two options and only one of them is honest: keep the old text-only
+   * rules for this number, and present two figures measured by different
+   * instruments as a comparison; or say it cannot be measured until the screens are
+   * walked.
+   *
+   * The first is the thing §14.4's whole argument forbids, and it is worse than it
+   * sounds: the pair exists so the two numbers can be COMPARED, and a comparison
+   * between a resolve-based figure and a text-based one is not a comparison of
+   * capture coverage at all.
+   *
+   * So: `null`, with `withAllModulesCapturedWhy` saying so in words. Never 0 — a 0
+   * would read as "the ceiling is nothing even with every screen captured", which
+   * is a claim nobody has measured.
    */
-  withAllModulesCaptured: number;
+  withAllModulesCaptured: number | null;
+  /**
+   * WHY the second ceiling is absent, when it is — never silence, never a 0.
+   *
+   * `null` here and a number there are the only two shapes, and a reader must be
+   * able to tell "we did not measure this" from "we measured it and it is nothing".
+   * Three states, three sentences, and this is the third one (`null` + "could not
+   * be computed") rather than the second ("computed, and it is 0%").
+   *
+   * It is `null` when the pair is complete, so a renderer cannot print an
+   * explanation for a number that exists.
+   */
+  withAllModulesCapturedWhy: string | null;
   /** The assumptions, carried beside the numbers rather than beneath them. */
   /**
    * SHEET MODULE KEYS, not screens — the count is over the sheet's Module
@@ -268,78 +373,66 @@ export function leftoverWords(clauseText: string): string[] {
   ];
 }
 
-/**
- * A clause that describes an OUTCOME rather than pointing at an element.
- *
- * Deliberately narrow. Every pattern here is a shape measured in the real
- * sheet, and a clause that merely fails to parse is NOT assumed to be one of
- * these — it falls to `too-vague-to-verify`, which asks a human to look.
- */
-const OUTCOME_SHAPE = [
-  /\b(?:user|users)\s+(?:is|are)?\s*(?:on|in|at|viewing)\b/i,
-  /\b(?:navigat\w+|redirect\w*|land(?:s|ed|ing)?)\s+(?:to|on)\b/i,
-  /\b(?:logged\s+in|logged\s+out|signed\s+in|signed\s+out)\b/i,
-  /\b(?:page|screen|portal|dashboard|url)\b.*\b(?:appear|open|load|display|show)\w*\b/i,
-  /\b(?:persist|remains?|retained|restored|saved)\b/i,
-  /\b(?:api|backend|database|server)\b/i,
-  // A STATE CHANGE is an outcome, not an element. Generic English verbs only —
-  // naming the things they act on would put this application's vocabulary into
-  // shared code, which the agnostic guard exists to stop.
-  /\b(?:created|deleted|removed|moved|updated|added|changed|renamed|uploaded|downloaded|archived|reset)\b/i,
-  /\bsuccessfully\b/i,
-];
-
-/** Prose with no verifiable claim in it at all. */
-const VAGUE_SHAPE = [
-  /\b(?:proper|properly|correct|correctly|clean|smooth|good|fine|nice)\b/i,
-  /\b(?:everything|anything|all the (?:ui|things|data))\b/i,
-  /\b(?:animation|allignment|alignment|look and feel|responsive)\w*\b/i,
-];
-
-const matches = (patterns: RegExp[], text: string): boolean =>
-  patterns.some((pattern) => pattern.test(text));
+/** What triage needs in order to answer the run's question rather than its own. */
+export interface TriageInputs {
+  /**
+   * The capture the run resolves against. THE SAME ONE, not an equivalent.
+   *
+   * A second capture would make `automatable` a claim about a different set of
+   * screens than the run's, which is the drift this whole change removes.
+   */
+  capture: BoundedCapture;
+  /**
+   * Module -> the entry state its rows resolve against, for the modules the run
+   * will actually run.
+   *
+   * Its `keys()` ARE the answer to "which modules are captured", so there is no
+   * second set to disagree with it. A module the run has BLOCKED — unmapped, or
+   * mapped with an unprovable anchor — must be absent, and then its rows come back
+   * `no-capture-for-module`, which is what the run reports for them too.
+   *
+   * Built by `entryStateByModule`, the same function `runSheet` uses.
+   */
+  entryStateOf: ReadonlyMap<string, string>;
+}
 
 /**
- * Classifies every row by what stands between it and automation.
+ * Classifies every row by what stands between it and automation (B1).
  *
- * Order matters and is deliberate — each reason is checked against the action a
- * human would take, cheapest and most certain first:
+ * ## It no longer has an opinion of its own, and that is the point
  *
- * 1. **No capture** beats everything. It is a fact about US, not the row, and
- *    it is the one reason that is *definitely* fixable — someone captures the
- *    screen. Judging a row's clauses before we have ever looked at its screen
- *    would blame the author for our own missing evidence.
- * 2. **Outcome, not element.** Buildable: a page/state assertion path.
- * 3. **Too vague.** Only what survives both — the row itself needs rewriting.
+ * This used to decide `automatable` from its own clause rules — `extractTarget`,
+ * shape patterns, a write-word check — none of which the resolver ever saw. The
+ * imports were shared so the two could not drift on a VERB, and they drifted on
+ * everything else instead: triage never asked whether the named element is in the
+ * capture, and never applied the whole-row rule.
+ *
+ * Measured at the moment that was found: triage reported 27 automatable rows beside
+ * the sentence *"these are the rows a run executes"*. The run executed **none** of
+ * them — 18 held, 9 refused. The sentence was false in both directions.
+ *
+ * So for a row whose module is captured, every verdict here comes from
+ * `resolveAuthoredRow` — the same call, the same capture, the same entry state.
+ * Triage is a PROJECTION of the resolver, and the only thing it still decides for
+ * itself is the one question the resolver cannot be asked: a row whose screen has
+ * never been walked has no state to resolve against.
+ *
+ * That removes the drift CLASS rather than this instance of it. There is no second
+ * implementation left to diverge.
  */
-export function triageSheet(
-  rows: AuthoredRow[],
-  capturedModules: ReadonlySet<string>,
-): TriageResult {
+export function triageSheet(rows: AuthoredRow[], inputs: TriageInputs): TriageResult {
   const triaged: TriagedRow[] = [];
   const missing = new Map<string, number>();
   const modules = new Set<string>();
-  /**
-   * How many rows would be automatable if every module had been captured.
-   *
-   * Computed for EVERY row, captured or not, by the identical clause rules —
-   * which is what makes the second ceiling a measurement rather than an
-   * estimate. Nothing is extrapolated from the captured modules to the others.
-   */
-  let automatableIfAllCaptured = 0;
 
   for (const row of rows) {
     const module = row.module || '(blank)';
     modules.add(module);
-    // Given clauses declare the entry state; they are never an obstacle to
-    // automating the row, so they are not evidence for or against it (§13.3).
-    const clauses = row.clauses.filter((clause) => clause.source !== 'given');
     const title = row.scenarioName || row.objective || row.rowId;
     const base = { rowId: row.rowId, sheetRow: row.sheetRow, module, title };
 
-    if (classifyByClauses(clauses).reason === 'automatable') automatableIfAllCaptured += 1;
-
-    if (!capturedModules.has(module)) {
+    const entryState = inputs.entryStateOf.get(module);
+    if (entryState === undefined) {
       missing.set(module, (missing.get(module) ?? 0) + 1);
       triaged.push({
         ...base,
@@ -349,30 +442,67 @@ export function triageSheet(
       continue;
     }
 
-    triaged.push({ ...base, ...classifyByClauses(clauses) });
+    const resolved = resolveAuthoredRow(row, inputs.capture, entryState);
+
+    /**
+     * THE WHOLE-ROW RULE, taken from the resolver rather than restated.
+     *
+     * `resolveAuthoredRow` returns `steps: []` the moment any clause refuses — a
+     * row is all or nothing, because half a row that goes green is a false pass.
+     * Reading `refusals.length === 0 && steps.length > 0` is that same rule, and
+     * reading it rather than re-deriving it is why the two cannot disagree.
+     */
+    if (resolved.refusals.length === 0 && resolved.steps.length > 0) {
+      const held = resolved.writeRisk === 'creates-data';
+      triaged.push({
+        ...base,
+        reason: held ? 'automatable-but-held' : 'automatable',
+        evidence: held
+          ? `resolves completely; the write gate holds it${
+              resolved.writeRiskWhy ? ` — ${resolved.writeRiskWhy}` : ''
+            }`
+          : `all ${resolved.steps.length} step(s) resolved against "${entryState}"`,
+      });
+      continue;
+    }
+
+    /**
+     * THE FIRST REFUSAL DECIDES, because that is the one the run reports.
+     *
+     * A row carrying several refusals is told about all of them in its `detail`;
+     * the triage table is one line per row and has to pick. Picking the first keeps
+     * triage's reason identical to the run's leading cause, which is the agreement
+     * being built here — any other choice would make the two tables disagree about
+     * the same row for no reader's benefit.
+     */
+    const first = resolved.refusals[0];
+    triaged.push({
+      ...base,
+      reason: first ? TRIAGE_REASON_FOR[first.why] : 'no-readable-target',
+      evidence: first ? first.reason : resolved.summary,
+    });
   }
 
-  const counts: Record<TriageReason, number> = {
-    'no-capture-for-module': 0,
-    'outcome-not-element': 0,
-    'too-vague-to-verify': 0,
-    'unsupported-action': 0,
-    'unverifiable-assertion': 0,
-    'column-verb-conflict': 0,
-    'qualifier-not-supported': 0,
-    'write-risk-unknown': 0,
-    automatable: 0,
-  };
+  const counts = Object.fromEntries(
+    (Object.keys(TRIAGE_OWNER) as TriageReason[]).map((reason) => [reason, 0]),
+  ) as Record<TriageReason, number>;
   for (const row of triaged) counts[row.reason] += 1;
 
   const total = triaged.length;
+  const uncaptured = [...modules].filter((module) => !inputs.entryStateOf.has(module)).length;
   return {
     rows: triaged,
     counts,
     ceiling: {
       withCurrentCaptures: total === 0 ? 0 : counts.automatable / total,
-      withAllModulesCaptured: total === 0 ? 0 : automatableIfAllCaptured / total,
-      modulesCaptured: [...modules].filter((m) => capturedModules.has(m)).length,
+      // NULL, never 0, whenever a module is missing — see the field's own note.
+      withAllModulesCaptured: uncaptured > 0 ? null : total === 0 ? 0 : counts.automatable / total,
+      withAllModulesCapturedWhy:
+        uncaptured > 0
+          ? `not measurable: ${counts['no-capture-for-module']} rows have no capture and this ` +
+            'figure is now resolve-based'
+          : null,
+      modulesCaptured: [...modules].filter((module) => inputs.entryStateOf.has(module)).length,
       modulesTotal: modules.size,
       rowsBlockedByMissingCapture: counts['no-capture-for-module'],
     },
@@ -383,146 +513,107 @@ export function triageSheet(
 }
 
 /**
- * Classifies one row's clauses, with no reference to whether a capture exists.
+ * What each reason MEANS and what to DO, both total over the union.
  *
- * Separated so BOTH ceilings run the same rules over the same clauses. If the
- * "if everything were captured" figure were computed by a second code path, the
- * two numbers could drift apart and the comparison between them would stop
- * meaning anything.
+ * Total for the §AE reason: the rendered table is derived from these, so a reason
+ * added without a meaning or a remedy does not compile rather than printing a row
+ * with a blank cell — or, as happened before, not printing the row at all.
  */
-function classifyByClauses(clauses: AuthoredRow['clauses']): {
-  reason: TriageReason;
-  evidence: string;
-} {
-  // AN ACTION WE CANNOT PERFORM STOPS THE ROW BEFORE ANYTHING ELSE IS ASKED.
-  //
-  // Same predicate the resolver refuses on (`actionCapability`), imported
-  // rather than restated: two verb lists drift, and a drifted list reads exactly
-  // like a correct one. The point of this branch is that triage and the run give
-  // the SAME answer — a ceiling that counts a row the run then refuses is the
-  // thing the comment below was written to prevent, and it had this hole in it.
-  //
-  // FIRST, ahead of the vague/outcome tests, and the precedence is deliberate:
-  // those two are somebody else's work, and telling a QA to rewrite a row we
-  // could not run even after they rewrote it spends their time on our gap. The
-  // cost of the choice, stated: a row that is BOTH unsupported and vague appears
-  // here now and in the QA's list later, once the capability lands.
-  const unsupported = clauses.find(
-    // A NAMED verb, not merely "not performable". The unnamed case is a clause
-    // nothing could read an action out of, and that belongs to the QA's
-    // `too-vague-to-verify` rather than to our capability backlog — the same
-    // split the resolver makes when it chooses between the two refusal reasons.
-    (clause) => clause.kind === 'action' && actionCapability(clause.text).verb !== undefined,
-  );
-  if (unsupported) {
-    return { reason: 'unsupported-action', evidence: unsupported.text };
-  }
+const REASON_MEANING = {
+  'no-capture-for-module': 'no capture for this module',
+  'no-capture-for-element': 'the named element is not in the capture of that screen',
+  'unsupported-action': 'names an action this platform cannot perform',
+  'no-readable-action': 'no action could be read out of the clause',
+  'unverifiable-assertion': 'claims a state this platform cannot read',
+  'qualifier-not-supported': 'names a position or a region',
+  'column-verb-conflict': 'the column and the clause’s own verb disagree',
+  'clause-not-labelled': 'no Given/When/Then column for this clause',
+  'no-readable-target': 'the clause names no element',
+  'ambiguous-target': 'the name matches several elements',
+  automatable: 'nothing in the way',
+  'automatable-but-held': 'resolves completely; the write gate holds it',
+} as const satisfies Record<TriageReason, string>;
 
-  // THE SAME TWO REFUSALS THE RESOLVER ADDED, ASKED WITH THE SAME PREDICATES.
-  //
-  // `columnVerbConflict` and `unverifiableAssertion` are imported, not restated,
-  // for the reason the branch above exists: a second copy of either rule drifts,
-  // and a drifted rule makes the ceiling promise rows the run refuses. That hole
-  // was closed once for upload (e3a8f76) and two new refusal reasons would have
-  // reopened it.
-  //
-  // Ahead of the vague/outcome tests, same precedence and same reasoning: a row
-  // we could not run even after the QA rewrote it does not belong in their list.
-  // The conflict case is the exception that proves the ordering is about cost
-  // rather than blame — it is owned by the QA and still sits here, because a
-  // sentence contradicting its own column is a more specific finding than "too
-  // vague", and the specific one is the one they can act on.
-  const conflicting = clauses.find((clause) => columnVerbConflict(clause) !== undefined);
-  if (conflicting) {
-    return { reason: 'column-verb-conflict', evidence: conflicting.text };
-  }
+const REASON_REMEDY = {
+  'no-capture-for-module': 'run `pnpm inspect` on that screen',
+  'no-capture-for-element': 'walk that screen again — the control was not recorded',
+  'unsupported-action': 'ours: the action is on the capability backlog',
+  'no-readable-action': 'ours: the grammar has only a click',
+  'unverifiable-assertion': 'ours: the property cannot be observed yet',
+  'qualifier-not-supported': 'ours: the locator cannot express it',
+  'column-verb-conflict': 'rewrite the clause to match its column — runs today',
+  'clause-not-labelled': 'put the clause in a Given, When or Then column',
+  'no-readable-target': 'name the control in quotes — `clicks the "Save" button`',
+  'ambiguous-target': 'say which one is meant',
+  automatable: 'these are the rows a run executes',
+  'automatable-but-held': 'decide whether to set `ALLOW_WRITES`; nothing is wrong with the row',
+} as const satisfies Record<TriageReason, string>;
 
-  // SAME ORDER AS THE RESOLVER, and the order is a diagnosis rather than a
-  // preference: `has value "HR"` carries two quoted names AND a value comparison,
-  // and the comparison is what the QA needs to hear. Asking the claim first for an
-  // assertion, and the qualifier first for an action, is exactly what
-  // `resolveAuthoredRow` does — so the two cannot report different reasons for the
-  // same clause.
-  const unverifiable = clauses.find(
-    (clause) => clause.kind === 'assert' && unverifiableAssertion(clause.text) !== undefined,
-  );
-  if (unverifiable) {
-    return { reason: 'unverifiable-assertion', evidence: unverifiable.text };
-  }
+/**
+ * The per-reason section of the report: a heading and the paragraph a reader acts on.
+ *
+ * TOTAL over every reason that gets a section — which is every reason EXCEPT the two
+ * `automatable` ones, whose rows the report lists in its own passed and held
+ * sections. `Omit` states that exclusion in the type, so dropping a reason from here
+ * is a compile error and not an omission nobody sees.
+ */
+const REASON_DETAIL = {
+  'no-capture-for-module': {
+    heading: 'Nobody has captured this screen',
+    action:
+      'No resolver can do anything with these until someone walks the screen. `pnpm inspect` on that route is the whole fix, and the capture worklist above is ordered by how many rows each screen would recover.',
+  },
+  'no-capture-for-element': {
+    heading: 'The screen is captured and the control is not in it',
+    action:
+      'NOT the same as having no capture, and the difference decides who acts: the screen has been walked, and the control the clause names was not recorded on it. Either the control appears only after an interaction nobody captured, or the clause names something that is not on that screen. Walking it again is the first thing to try.',
+  },
+  'unsupported-action': {
+    heading: 'An action the platform cannot perform yet',
+    action:
+      'The sentence is correct and the screen is captured. These name an action with no implementation — a file upload carries no file, a typed value has nowhere to go — so the run REFUSES them rather than clicking a button and reporting a pass. Nothing for the QA to change.',
+  },
+  'no-readable-action': {
+    heading: 'No action could be read out of the clause',
+    action:
+      'Ours, and distinct from the row above: there, we recognised the verb and cannot perform it, so it goes on a capability backlog. Here nothing recognisable was found at all, and there is nothing to put on one. The grammar has a click and these clauses do not name one.',
+  },
+  'unverifiable-assertion': {
+    heading: 'A state the platform cannot read yet',
+    action:
+      'The sentence is correct and names a real property of a real element — `empty`, `read-only`, `expanded` — and this platform can only read present, enabled, selected and checked. They are REFUSED rather than turned into "the element exists", which would pass as soon as the element is there. Nothing for the QA to change.',
+  },
+  'qualifier-not-supported': {
+    heading: 'A position or a region the platform cannot address',
+    action:
+      'The sentence is precise and this platform is not: it addresses an element by role and name, so an ordinal ("the second Edit"), a containing region ("in the row for Jane") or a second quoted name has nowhere to go. Measured against a real browser before these were refused: a clause scoped to one row clicked a DIFFERENT row and reported a pass. Nothing for the QA to change.',
+  },
+  'column-verb-conflict': {
+    heading: 'The column and the sentence disagree',
+    action:
+      'The Given/When/Then column says one thing and the sentence’s own verb says another — a click in a Then, an assertion verb in a When, or a `checks`/`ticks` clause that names no state to check. The column is never overruled, so these are refused rather than guessed. **These run today once the sentence is rewritten to match its column**, which makes them the fastest rows on this list to recover.',
+  },
+  'clause-not-labelled': {
+    heading: 'The sheet never said what this clause is',
+    action:
+      'No Given, When or Then column for this clause — usually the second half of an "&"-joined cell where only the first half got a column. The sentence may be perfectly good; nothing has said whether it is something to DO or something to CHECK, and guessing wrong makes a test that passes having verified nothing. **Adding the column is the whole fix.**',
+  },
+  'no-readable-target': {
+    heading: 'The clause names no element',
+    action:
+      'Nothing in these sentences says what to act on. Measured on this sheet: of the clauses that land here, NONE carries a quoted name the platform failed to read — a quoted name is trusted exactly as written, whatever its shape. **Naming the control in quotes — `clicks the "Save" button` — is the fix, and no parser change reaches these rows.**',
+  },
+  'ambiguous-target': {
+    heading: 'The name matches several elements',
+    action:
+      'The name in the clause matches more than one control on the captured screen, and picking one would be worse than refusing: the run would go green or red against an element nobody chose, and the row would keep its ambiguity forever because nothing would ever ask. **Say which one is meant** — the refusal names the candidates it found.',
+  },
+} as const satisfies Record<
+  Exclude<TriageReason, 'automatable' | 'automatable-but-held'>,
+  { heading: string; action: string }
+>;
 
-  const qualified = clauses.find((clause) => unsupportedQualifier(clause.text) !== undefined);
-  if (qualified) {
-    return { reason: 'qualifier-not-supported', evidence: qualified.text };
-  }
-
-  // AUTOMATABLE NEEDS A VERIFIABLE ASSERTION, not just a clickable step.
-  //
-  // "any clause resolves" is too lenient and flatters the ceiling: a row
-  // whose When resolves but whose Then is prose can be PERFORMED and cannot
-  // be VERIFIED. Running it proves nothing, and the platform already refuses
-  // exactly that at execution (`no-observable-check`). Counting it as
-  // automatable here would promise a row the run then refuses.
-  const asserts = clauses.filter((clause) => clause.kind === 'assert');
-
-  // MEANING IS DECIDED BEFORE RESOLVABILITY, and the order is the whole
-  // point. `extractTarget` will happily slice "record" out of *"the record
-  // should be created successfully"* and "ui" out of *"the ui should show a
-  // colour change"*. Both look like names and neither is one — asking "does
-  // it resolve?" first therefore classifies an outcome as automatable, which
-  // is (b) wearing a target's clothes (§13.4).
-  //
-  // A row is automatable only on the strength of an assertion that is BOTH
-  // resolvable AND a claim about an element — one genuinely checkable Then.
-  const checkable = asserts.find(
-    (clause) =>
-      extractTarget(clause.text) !== undefined &&
-      !matches(OUTCOME_SHAPE, clause.text) &&
-      !matches(VAGUE_SHAPE, clause.text),
-  );
-  const actionable = clauses.find((clause) => extractTarget(clause.text) !== undefined);
-
-  if (checkable && actionable) {
-    // NOTHING STANDS IN THE WAY OF RUNNING IT — but will it be HELD?
-    //
-    // Rule B holds every state-toggling ROLE, and the role comes from the capture,
-    // which triage is not given. So there are two honest answers here, not one:
-    // `automatable` when the clause's own text settles the write question, and
-    // `write-risk-unknown` when only the capture can.
-    //
-    // A clause settles it by naming a role (`the "Admin" checkbox`) or by carrying
-    // a write word (`clicks "Approve"`). Measured: that covers 82% of action
-    // clauses, which is what makes the remaining label a qualifier rather than a
-    // shrug over the whole sheet.
-    const undecided = clauses.find(
-      (clause) =>
-        clause.kind === 'action' &&
-        clause.source !== 'given' &&
-        extractRole(clause.text) === undefined &&
-        assessAuthoredWriteRisk({ actionClauses: [clause.text], targets: [] }).risk === 'read-only',
-    );
-    if (undecided) {
-      return { reason: 'write-risk-unknown', evidence: undecided.text };
-    }
-    return { reason: 'automatable', evidence: checkable.text };
-  }
-
-  // An unverifiable Then is what stops the row, whatever its When could do,
-  // so the assertions are what get classified.
-  const blocking = asserts.length > 0 ? asserts : clauses;
-
-  const vague = blocking.find((clause) => matches(VAGUE_SHAPE, clause.text));
-  if (vague) return { reason: 'too-vague-to-verify', evidence: vague.text };
-
-  const outcome = blocking.find((clause) => matches(OUTCOME_SHAPE, clause.text));
-  if (outcome) return { reason: 'outcome-not-element', evidence: outcome.text };
-
-  return {
-    reason: 'too-vague-to-verify',
-    evidence: blocking[0]?.text ?? clauses[0]?.text ?? '(no clauses)',
-  };
-}
-
-/** The triage as a report section. Three reasons, three audiences, never merged. */
+/** The triage as a report section. Each reason names one audience, never merged. */
 export function renderTriage(triage: TriageResult): string {
   const { counts, ceiling } = triage;
   const pct = (n: number) => `${((n / triage.rows.length) * 100).toFixed(1)}%`;
@@ -540,26 +631,61 @@ export function renderTriage(triage: TriageResult): string {
     '| --- | ---: | --- |',
     `| **With today's captures** | **${(ceiling.withCurrentCaptures * 100).toFixed(1)}%** | ` +
       `${ceiling.modulesCaptured} of ${ceiling.modulesTotal} sheet module keys captured |`,
-    `| **Once every module is captured** | **${(ceiling.withAllModulesCaptured * 100).toFixed(1)}%** | ` +
-      `all ${ceiling.modulesTotal} sheet module keys, same clause rules |`,
+    // NULL IS PRINTED AS A SENTENCE, NEVER AS A NUMBER AND NEVER AS SILENCE.
+    //
+    // A `0.0%` here would read as "the ceiling is nothing even with every screen
+    // captured", which nobody has measured; omitting the row would quietly turn the
+    // pair into the single quotable figure the pair exists to prevent.
+    ceiling.withAllModulesCaptured === null
+      ? `| **Once every module is captured** | **not measurable** | ` +
+        `${ceiling.withAllModulesCapturedWhy} |`
+      : `| **Once every module is captured** | **${(ceiling.withAllModulesCaptured * 100).toFixed(1)}%** | ` +
+        `all ${ceiling.modulesTotal} sheet module keys, resolved against the capture |`,
     '',
-    `${counts.automatable} of ${triage.rows.length} rows have nothing structural standing in the ` +
-      `way today. ${ceiling.rowsBlockedByMissingCapture} more are blocked only because nobody has ` +
-      'captured their screen yet.',
+    `${counts.automatable} of ${triage.rows.length} rows resolve completely and would be run. ` +
+      `${counts['automatable-but-held']} more resolve completely and are held by the write gate. ` +
+      `${ceiling.rowsBlockedByMissingCapture} are blocked only because nobody has captured their ` +
+      'screen yet.',
     '',
     '> **The first number is not the ceiling of this approach — it is the ceiling of',
-    '> today’s capture coverage.** The second is what to plan against. Quoting',
-    '> either without the other misstates the result in one direction or the other.',
+    '> today’s capture coverage.** Quoting it without its qualifier misstates the',
+    '> result, which is why the qualifier is in the same row of the same table.',
     '',
+    ...(ceiling.withAllModulesCaptured === null
+      ? [
+          '> **The second number used to be a measurement and is now withheld.** It was',
+          '> one because both ceilings ran the same clause rules; `automatable` is now the',
+          "> resolver's own verdict, and the rows this figure is about have no captured",
+          '> state to resolve against. Keeping the old rules for it would present two',
+          '> figures taken with different instruments as a comparison of capture',
+          '> coverage, which is not what it would be measuring.',
+          '',
+        ]
+      : []),
     '> This is not a failure. A sheet written for humans legitimately contains',
     '> things only a human can check. Knowing which, and why, is the point.',
     '',
     '| Rows | Why | What a human does |',
     '| ---: | --- | --- |',
-    `| ${counts.automatable} (${pct(counts.automatable)}) | nothing in the way | these are the rows a run executes |`,
-    `| ${counts['no-capture-for-module']} (${pct(counts['no-capture-for-module'])}) | no capture for this module | run \`pnpm inspect\` on that screen |`,
-    `| ${counts['outcome-not-element']} (${pct(counts['outcome-not-element'])}) | describes an outcome, not an element | needs a page/state assertion — buildable, not built |`,
-    `| ${counts['too-vague-to-verify']} (${pct(counts['too-vague-to-verify'])}) | too vague for anything to verify | the row needs rewriting — QA work |`,
+    /**
+     * EVERY REASON, FROM THE OWNER MAP — never a hand-written subset.
+     *
+     * Four reasons were listed here and nine existed, so five buckets were counted
+     * in `counts`, printed in no table, and read by nobody. That is §AE exactly: a
+     * hand-written list beside a derived set, where a missing entry silently drops
+     * a row from the only page a QA reads.
+     *
+     * Driving it off `TRIAGE_OWNER` makes the list derived, so a new reason appears
+     * here the moment it is given an owner — and it cannot be added without one.
+     */
+    ...(Object.keys(TRIAGE_OWNER) as TriageReason[])
+      .filter((reason) => counts[reason] > 0)
+      .sort((a, b) => counts[b] - counts[a])
+      .map(
+        (reason) =>
+          `| ${counts[reason]} (${pct(counts[reason])}) | ${REASON_MEANING[reason]} | ` +
+          `${REASON_REMEDY[reason]} |`,
+      ),
     '',
   ];
 
@@ -637,41 +763,19 @@ export function renderTriage(triage: TriageResult): string {
     lines.push('');
   };
 
-  sample(
-    'outcome-not-element',
-    'Describes an outcome, not an element',
-    'These name a page, a URL or a state rather than a control. They are automatable once page-level and state-level assertions exist — the work is ours, not the QA’s.',
-  );
-  sample(
-    'unsupported-action',
-    'An action the platform cannot perform yet',
-    'The sentence is correct and the screen is captured. These name a file upload, and an action step carries no file — so the run REFUSES them rather than clicking a button and reporting a pass. Nothing for the QA to change.',
-  );
-  sample(
-    'unverifiable-assertion',
-    'A state the platform cannot read yet',
-    'The sentence is correct and names a real property of a real element — `empty`, `read-only`, `expanded` — and this platform can only read present, enabled, selected and checked. They are REFUSED rather than turned into "the element exists", which would pass as soon as the element is there. Nothing for the QA to change.',
-  );
-  sample(
-    'write-risk-unknown',
-    'Runnable — and it may be HELD, depending on the capture',
-    'Nothing stands in the way of running these. Whether the platform HOLDS them is decided by the kind of control the clause lands on: a checkbox, radio, switch or option is a write when clicked, whatever it is called, and this list is computed from the sheet without a capture so it cannot know. **These are not blocked.** They are counted apart from `automatable` because the run may report them `held`, and a ceiling that promised otherwise would be promising something neither side can keep.',
-  );
-  sample(
-    'qualifier-not-supported',
-    'A position or a region the platform cannot address',
-    'The sentence is precise and this platform is not: it addresses an element by role and name, so an ordinal ("the second Edit"), a containing region ("in the row for Jane") or a second quoted name has nowhere to go. Measured against a real browser before these were refused: a clause scoped to one row clicked a DIFFERENT row and reported a pass. Nothing for the QA to change.',
-  );
-  sample(
-    'column-verb-conflict',
-    'The column and the sentence disagree',
-    'The Given/When/Then column says one thing and the sentence’s own verb says another — a click in a Then, an assertion verb in a When, or a `checks`/`ticks` clause that names no state to check. The column is never overruled, so these are refused rather than guessed. **These run today once the sentence is rewritten to match its column**, which makes them the fastest rows on this list to recover.',
-  );
-  sample(
-    'too-vague-to-verify',
-    'Too vague to verify',
-    'Nothing here states a checkable claim, so no tool can confirm or deny it. **The row itself needs rewriting**, and only its author can do that.',
-  );
-
+  /**
+   * EVERY REASON WITH ROWS GETS A SECTION, derived from the union (§AE).
+   *
+   * These were seven hand-written `sample(...)` calls beside a nine-member union,
+   * so two reasons were counted and never listed. The loop cannot miss one, and
+   * `REASON_DETAIL` is total, so a new reason without a paragraph does not compile.
+   *
+   * `automatable` and `automatable-but-held` are deliberately absent: the report
+   * lists the rows a run executed in its own passed/held sections, and repeating
+   * them here would be the same rows under two headings.
+   */
+  for (const reason of Object.keys(REASON_DETAIL) as Array<keyof typeof REASON_DETAIL>) {
+    sample(reason, REASON_DETAIL[reason].heading, REASON_DETAIL[reason].action);
+  }
   return lines.join('\n');
 }

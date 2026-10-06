@@ -4,6 +4,7 @@ import {
   resolveAuthoredRow,
   triageSheet,
   TRIAGE_OWNER,
+  type TriageInputs,
   type AuthoredClause,
   type AuthoredRow,
   type BoundedCapture,
@@ -93,6 +94,15 @@ const capture: BoundedCapture = {
   ],
   transitions: [],
   selection: { keywords: [], available: [], chosen: [], excluded: [] },
+};
+
+/**
+ * Triage resolves against the capture now (B1) — the SAME one these rows resolve
+ * against, so a reason it reports is the reason the run would report.
+ */
+const TRIAGE_INPUTS: TriageInputs = {
+  capture,
+  entryStateOf: new Map([['Employees', 'table']]),
 };
 
 /** The kind each column forces, exactly as `readFinalTestCases` assigns it. */
@@ -367,19 +377,25 @@ test.describe('triage and the run agree about qualifiers @unit', () => {
       ['verify the "Notes" field equals "10"', 'then', 'unverifiable-assertion', 'platform'],
       ['verify "Saved" is no longer visible', 'then', 'unverifiable-assertion', 'platform'],
     ] as const) {
-      const triaged = triageSheet([rowOf(text, source, 'TQ_1')], new Set(['Employees'])).rows[0]!;
+      const triaged = triageSheet([rowOf(text, source, 'TQ_1')], TRIAGE_INPUTS).rows[0]!;
       expect(triaged.reason, text).toBe(reason);
       expect(TRIAGE_OWNER[triaged.reason], text).toBe(owner);
     }
   });
 
-  test('(discriminating) a clause with no qualifier IS automatable', () => {
+  test('(discriminating) a clause with no qualifier is NOT an obstacle', () => {
     // wrong: agreement is reached by refusing everything, which agrees perfectly
     // and automates nothing. This is the row that must come out the other way.
+    //
+    // `automatable-but-held` since B1: `rowOf`'s action clause clicks `"Save"`, and
+    // the resolver's verdict — unlike the old text-only triage — includes the write
+    // gate. Owner `none` is what makes this still discriminating: a triage that
+    // refused everything could never produce it.
     const triaged = triageSheet(
       [rowOf('verify the "Done" heading is visible', 'then', 'TQ_2')],
-      new Set(['Employees']),
+      TRIAGE_INPUTS,
     ).rows[0]!;
-    expect(triaged.reason).toBe('automatable');
+    expect(triaged.reason).toBe('automatable-but-held');
+    expect(TRIAGE_OWNER[triaged.reason]).toBe('none');
   });
 });
