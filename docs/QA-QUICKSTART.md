@@ -26,13 +26,14 @@
 > and work against any target.
 
 This is the short version for a QA joining the project on Windows. It gets you to
-four things you can run today:
+the things you can run today:
 
 | you can                                      | command                                               |
 | -------------------------------------------- | ----------------------------------------------------- |
 | sign in once and save the session            | `pnpm auth`                                           |
 | walk the screens and record them             | `pnpm inspect`                                        |
 | ask which sheet rows could ever be automated | `pnpm triage "<path>" --app dms`                      |
+| check the map still matches the live app     | `pnpm verify-entries --app dms`                       |
 | check the whole repo is healthy              | `pnpm verify`                                         |
 | run the existing Playwright tests            | `pnpm test:demo` (no credentials), `pnpm test` (live) |
 
@@ -212,6 +213,60 @@ pnpm triage "C:/Users/you/Documents/Test case Sheet.xlsx" --app dms --out artifa
   refuses to track spreadsheets on purpose, and a workbook inside the folder is one
   `git add` away from being committed.
 
+### `pnpm verify-entries --app <application>` — is the capture still true?
+
+Opens each mapped screen in a real browser and checks that the element which proves
+that screen is still on it. **Read-only**: the only things it does to the page are
+navigate and count. There is no step executor in it and no way to turn writes on, and
+a test scans the script to keep it that way.
+
+```bash
+pnpm verify-entries --app dms
+```
+
+**`TEST_ENV` must be set** — in your `.env` (where §2 puts it) or in the shell. Unlike
+`pnpm triage`, this one opens a browser and so has to resolve an environment, and
+there is no default on purpose. On a clean checkout with no `.env` the command above
+refuses and tells you so; measured on a fresh clone, which is the only way that gets
+found. If you have not set up `.env` yet:
+
+```bash
+TEST_ENV=local pnpm verify-entries --app bundled-demo
+```
+
+This is the command that tells you a capture has gone stale. `pnpm triage` and
+`pnpm run-sheet` both believe the capture; this is the only thing that asks the
+application.
+
+- **Needs the saved session** (`pnpm auth` first) **and at least one capture**
+  (`pnpm inspect` first). Both are refusals with the command to run, not crashes.
+- **Refuses to start if `ALLOW_WRITES` is set**, even though it could not write
+  anything — a QA who set it is expecting writes, and silence would leave them
+  guessing.
+- Prints the application, environment and host it resolved **before it opens a
+  browser**. Two refusals come before that line — a missing `--app` and an
+  application with no module map — because neither needs an environment to answer.
+- One line per module: `verified`, or the stage that stopped it — `auth`,
+  `navigation`, `state-assert`.
+- A failing module writes a **screenshot and an aria snapshot** under
+  `artifacts/<app>/verify-entries/`, and prints their paths. That is the difference
+  between "the element is not there" and knowing whether it is absent, renamed, or
+  off-screen.
+
+**Exit codes:**
+
+|  exit | means                                                           |
+| ----: | --------------------------------------------------------------- |
+| **0** | every provable module verified                                  |
+| **1** | at least one module failed, **or** the command refused to start |
+
+Exit 1 covers both on purpose: either way you have something to read before trusting
+a run. The output distinguishes them — a refusal prints one sentence and no table.
+
+A real result, 6 Oct: **9 verified, 1 `state-assert`** — `File Explorer`, whose
+`/files` page no longer carries the tree the capture recorded. Nine modules proved by
+a heading verified; the one proved by a sidebar tree did not.
+
 ### `pnpm verify` — is the repo healthy?
 
 Formatting, lint, typecheck, unit tests, the demo suite, the API build and the API's
@@ -348,18 +403,71 @@ rather than refusing. That is a different shape and is left alone for now; use
 
 ---
 
-## 5. Not ready yet
+## 5. What this kit does and does not do
 
-Two things exist in the repo and are **not part of this kit**:
+Measured, not hoped. Every claim below was run before it was written.
 
-- **`pnpm run-sheet` — running the QA sheet end to end.** Not built yet. The pieces
-  are there and nothing invokes them, so there is no command to give you.
+### It does
+
+|                                                     | command                                        |
+| --------------------------------------------------- | ---------------------------------------------- |
+| install and check the repo                          | `pnpm install`, `pnpm verify`                  |
+| sign in once and save the session                   | `pnpm auth`                                    |
+| walk the screens and record them                    | `pnpm inspect`                                 |
+| add a second application                            | [ADD-AN-APPLICATION.md](ADD-AN-APPLICATION.md) |
+| check every module map entry against the live app   | `pnpm verify-entries --app <app>`              |
+| report which sheet rows could ever run, and why not | `pnpm triage "<path>" --app <app>`             |
+| run the bundled demo suite, no credentials          | `pnpm test:demo`                               |
+
+### It does NOT yet run a QA-written sheet
+
+`pnpm run-sheet` exists and works, and on the real DMS sheet it executes **0 of 470
+rows**. That is not a defect in the command — it is what the sheet is, measured — and
+it is the honest thing to know before planning around it.
+
+A row runs only if **all three** of these hold:
+
+1. **The tab is named `Final Test cases` and has the exact 22-column layout.** Not
+   nearly — exactly. A sheet with the right name and different headers is REFUSED,
+   because column positions come from the layout and reading it anyway populates
+   every row from the wrong columns.
+2. **Every step quotes the control's name** — `clicks the "Save employee" button`.
+   The DMS sheet quotes a control in **5 clauses out of 1452**, which is why its
+   number is 0.
+3. **The action is a click** (`click`, `press`, `tap`) **or a supported assertion**
+   (`present`, `enabled`, `selected`, `checked`).
+
+**Typing is not supported. Selecting from a dropdown is not supported. Uploading a
+file is not supported.** A row needing one of those is refused by name and appears in
+the report with the verb it was waiting for — it is never silently skipped.
+
+[WRITING-STEPS.md](WRITING-STEPS.md) is the one page on this, and every example in it
+is proven by a test rather than illustrated.
+
+### Not part of the kit
+
 - **The AI features** — `pnpm rca`, `pnpm heal`, `pnpm smoke:generation`. These call
   a paid model API and need a key this kit does not include. Without a key they fall
   back to a mock and tell you nothing useful, so they are left out rather than
   handed over half-working.
 
-Ask before using either. They are not blocked, they are just not yours to run yet.
+Ask before using those. They are not blocked, they are just not yours to run yet.
+
+---
+
+## 5a. Do not use `qa-kit-v0.2`
+
+> **`qa-kit-v0.2` predates commit `d5ccb34` and must not be used.**
+>
+> Before that commit the xlsx reader mis-parsed a cell Excel writes as
+> `<c r="I2" s="12"/>` — present, formatted, empty — which every real spreadsheet is
+> full of. The parser swallowed the next cell's value and **shifted every column
+> after it**, so ten of the 22 columns in the DMS workbook were attributed to the
+> wrong header. Six hundred tests passed over it, because the test fixtures wrote
+> nothing at all for an empty cell and no fixture ever contained the form that broke.
+>
+> Any number produced by v0.2 from a real `.xlsx` is unreliable, including every
+> figure in its own reports. Use `qa-kit-v0.3` or later.
 
 ---
 
@@ -367,34 +475,36 @@ Ask before using either. They are not blocked, they are just not yours to run ye
 
 Measured from `package.json`, not remembered. **The kit is the `yes` rows.**
 
-| script                                                        | what it does                                                        | live creds?  | API key? | can write to the app?                     | in the kit                 |
-| ------------------------------------------------------------- | ------------------------------------------------------------------- | ------------ | -------- | ----------------------------------------- | -------------------------- |
-| `auth`                                                        | one-time interactive sign-in, saves the session                     | **yes**      | no       | no (signs in only)                        | **yes**                    |
-| `inspect`                                                     | records the screens you navigate to                                 | **yes**      | no       | no (navigates only)                       | **yes**                    |
-| `triage <workbook>`                                           | reads a QA sheet, prints the ceilings                               | no           | no       | no                                        | **yes**                    |
-| `verify`                                                      | format, lint, typecheck, unit, demo, API build + internal API tests | no           | no       | no                                        | **yes**                    |
-| `test:unit`                                                   | logic tests, no browser                                             | no           | no       | no                                        | **yes**                    |
-| `test:demo`                                                   | the bundled demo app in a real browser                              | no           | no       | only the demo app                         | **yes**                    |
-| `test`                                                        | every project for the current `TEST_ENV`                            | yes on `app` | no       | `@write` tests only, and they are skipped | **yes**                    |
-| `test:regression`                                             | `@regression`-tagged tests                                          | yes on `app` | no       | as above                                  | **yes**                    |
-| `test:headed` / `test:ui`                                     | the same, visible / interactive                                     | yes on `app` | no       | as above                                  | **yes**                    |
-| `test:api`                                                    | the API project, including `@smoke`                                 | yes          | no       | no                                        | yes                        |
-| `test:api:internal`                                           | the API project minus `@smoke`                                      | no           | no       | no                                        | yes (inside `verify`)      |
-| `test:smoke:live`                                             | four browsers + API, `@smoke` only                                  | **yes**      | no       | no                                        | yes                        |
-| `test:report` / `test:trace`                                  | open a report / step through a trace                                | no           | no       | no                                        | **yes**                    |
-| `prepare:browsers`                                            | installs Chromium with OS deps                                      | no           | no       | no                                        | **yes**                    |
-| `clean`                                                       | deletes `artifacts/`, `dist/`                                       | no           | no       | no                                        | yes                        |
-| `format` / `format:check` / `lint` / `lint:fix` / `typecheck` | code hygiene                                                        | no           | no       | no                                        | yes (inside `verify`)      |
-| `check:api-deps`                                              | proves every compiled module resolves its dependencies              | no           | no       | no                                        | yes (inside `verify`)      |
-| `rca`                                                         | AI root-cause analysis of failures                                  | no           | **yes**  | no                                        | no                         |
-| `heal`                                                        | AI locator repair                                                   | no           | **yes**  | no                                        | **no — edits source**      |
-| `heal:review`                                                 | approve a healing proposal, one at a time                           | no           | no       | no                                        | **no — edits source**      |
-| `eval:healing`                                                | scores the healing engine                                           | no           | **yes**  | no                                        | no                         |
-| `smoke:generation`                                            | one real model call end to end                                      | no           | **yes**  | no                                        | no                         |
-| `eval:generation`                                             | scores grounding against a built-in fixture                         | no           | no       | no                                        | no (platform test)         |
-| `generate:review`                                             | review and emit generated specs                                     | no           | no       | no                                        | no (nothing to review yet) |
-| `api:dev` / `api:build` / `api:start`                         | the orchestration API                                               | no           | no       | no                                        | no                         |
-| `docker:up` / `docker:down`                                   | the docker compose stack                                            | no           | no       | no                                        | no                         |
+| script                                                        | what it does                                                         | live creds?  | API key? | can write to the app?                     | in the kit                 |
+| ------------------------------------------------------------- | -------------------------------------------------------------------- | ------------ | -------- | ----------------------------------------- | -------------------------- |
+| `auth`                                                        | one-time interactive sign-in, saves the session                      | **yes**      | no       | no (signs in only)                        | **yes**                    |
+| `inspect`                                                     | records the screens you navigate to                                  | **yes**      | no       | no (navigates only)                       | **yes**                    |
+| `triage <workbook>`                                           | reads a QA sheet, prints the ceilings                                | no           | no       | no                                        | **yes**                    |
+| `verify`                                                      | format, lint, typecheck, unit, demo, API build + internal API tests  | no           | no       | no                                        | **yes**                    |
+| `verify-entries --app <app>`                                  | opens each mapped screen and checks its proof element is still there | **yes**      | no       | no (navigates and counts)                 | **yes**                    |
+| `run-sheet --app <app> --sheet <name> <workbook>`             | runs a QA sheet end to end; 0 of 470 DMS rows run today              | **yes**      | no       | no (write-risky rows are HELD)            | yes — read §5 first        |
+| `test:unit`                                                   | logic tests, no browser                                              | no           | no       | no                                        | **yes**                    |
+| `test:demo`                                                   | the bundled demo app in a real browser                               | no           | no       | only the demo app                         | **yes**                    |
+| `test`                                                        | every project for the current `TEST_ENV`                             | yes on `app` | no       | `@write` tests only, and they are skipped | **yes**                    |
+| `test:regression`                                             | `@regression`-tagged tests                                           | yes on `app` | no       | as above                                  | **yes**                    |
+| `test:headed` / `test:ui`                                     | the same, visible / interactive                                      | yes on `app` | no       | as above                                  | **yes**                    |
+| `test:api`                                                    | the API project, including `@smoke`                                  | yes          | no       | no                                        | yes                        |
+| `test:api:internal`                                           | the API project minus `@smoke`                                       | no           | no       | no                                        | yes (inside `verify`)      |
+| `test:smoke:live`                                             | four browsers + API, `@smoke` only                                   | **yes**      | no       | no                                        | yes                        |
+| `test:report` / `test:trace`                                  | open a report / step through a trace                                 | no           | no       | no                                        | **yes**                    |
+| `prepare:browsers`                                            | installs Chromium with OS deps                                       | no           | no       | no                                        | **yes**                    |
+| `clean`                                                       | deletes `artifacts/`, `dist/`                                        | no           | no       | no                                        | yes                        |
+| `format` / `format:check` / `lint` / `lint:fix` / `typecheck` | code hygiene                                                         | no           | no       | no                                        | yes (inside `verify`)      |
+| `check:api-deps`                                              | proves every compiled module resolves its dependencies               | no           | no       | no                                        | yes (inside `verify`)      |
+| `rca`                                                         | AI root-cause analysis of failures                                   | no           | **yes**  | no                                        | no                         |
+| `heal`                                                        | AI locator repair                                                    | no           | **yes**  | no                                        | **no — edits source**      |
+| `heal:review`                                                 | approve a healing proposal, one at a time                            | no           | no       | no                                        | **no — edits source**      |
+| `eval:healing`                                                | scores the healing engine                                            | no           | **yes**  | no                                        | no                         |
+| `smoke:generation`                                            | one real model call end to end                                       | no           | **yes**  | no                                        | no                         |
+| `eval:generation`                                             | scores grounding against a built-in fixture                          | no           | no       | no                                        | no (platform test)         |
+| `generate:review`                                             | review and emit generated specs                                      | no           | no       | no                                        | no (nothing to review yet) |
+| `api:dev` / `api:build` / `api:start`                         | the orchestration API                                                | no           | no       | no                                        | no                         |
+| `docker:up` / `docker:down`                                   | the docker compose stack                                             | no           | no       | no                                        | no                         |
 
 Three things this table is worth reading for:
 

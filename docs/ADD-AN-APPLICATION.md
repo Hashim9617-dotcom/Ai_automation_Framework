@@ -151,6 +151,40 @@ Then write `module-map.json` from what the captures actually hold — a route a 
 recorded and an element that capture contains. Map only what is captured: an entry
 nobody can prove fails row by row later, and the whole-run check refuses for one.
 
+## 6a. Check the map against the LIVE app — `pnpm verify-entries`
+
+```bash
+TEST_ENV=contoso-prod pnpm verify-entries --app contoso
+```
+
+**`TEST_ENV` is required here**, naming the environment file from step 2 — unlike
+`pnpm triage`, this command opens a browser and so must resolve an environment, and
+there is no default. Without it the command refuses and says so. (It can come from
+your `.env` instead; it is written out here because that is the form that works on a
+machine which has not set one up.)
+
+**Do this immediately after writing `module-map.json`, and again whenever a run
+starts behaving oddly.** `module-map.json` is validated against the CAPTURE — the
+screens as you recorded them — and that is a fact about a recording. This is the only
+thing that asks the application whether the route still opens and the proof element is
+still on it, and a stale capture validates perfectly.
+
+Read-only: it navigates and counts, nothing else.
+
+|  exit | means                                                                                                          |
+| ----: | -------------------------------------------------------------------------------------------------------------- |
+| **0** | every provable module verified                                                                                 |
+| **1** | a module failed, **or** the command refused to start (no session, no capture, `ALLOW_WRITES` set, unknown app) |
+
+One line per module — `verified`, or the stage that stopped it: `auth`, `navigation`,
+`state-assert`. A failure writes a screenshot and an aria snapshot under
+`artifacts/<slug>/verify-entries/` and prints the paths, so you can see whether the
+element is absent, renamed or merely off-screen.
+
+A module that is in the map but **not provable against the capture** is not checked
+here at all, and is listed separately. Those are a map problem, not a live one — fix
+them before this command can tell you anything about them.
+
 ## 7. Your own specs — `tests/apps/<slug>/`
 
 Live browser projects collect `tests/apps/<application>/**`. Until that directory
