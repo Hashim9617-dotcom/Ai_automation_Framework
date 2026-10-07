@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { createEntryVerifier, type EntryPage } from '@aitp/execution-engine';
 import {
@@ -215,5 +218,106 @@ test.describe('an unreached module stops every row it owns (V2) @unit', () => {
     });
 
     expect(verifications).toBe(1);
+  });
+});
+
+/**
+ * A FAILING ENTRY CARRIES ITS EVIDENCE (E10).
+ *
+ * The step-level `target-not-on-page` has written a screenshot since 4d. The entry
+ * gate — which stops EVERY row in a module, not one — wrote nothing, and the fact
+ * is identical: the element the capture promised is not on the live page. The File
+ * Explorer failure on 6 Oct was one sentence, and separating "absent" from
+ * "renamed" from "off-screen" then took a day and a separate diagnostic.
+ *
+ * `aria`, not an accessibility snapshot: **`page.accessibility` does not exist in
+ * Playwright 1.62.1.** Reaching for it threw `Cannot read properties of undefined
+ * (reading 'snapshot')` in the first diagnostic. That is why the DEMO suite proves
+ * this against a real page — these stubs could declare any API at all and agree
+ * with themselves (`tests/demo/authored-entry.spec.ts`).
+ */
+test.describe('a failing entry carries its evidence (E10) @unit', () => {
+  /** A stub that CAN write evidence, so the writer has something to call. */
+  const capturingPage = (found: number, dir: string): { page: EntryPage; wrote: string[] } => {
+    const wrote: string[] = [];
+    const page = {
+      goto: async () => {},
+      getByRole: () => ({ count: async () => found }),
+      getByText: () => ({ count: async () => found }),
+      screenshot: async (options: { path: string }) => {
+        wrote.push(options.path);
+        mkdirSync(path.dirname(options.path), { recursive: true });
+        writeFileSync(options.path, 'png');
+        return Buffer.from('png');
+      },
+      ariaSnapshot: async () => '- heading "Register employee"',
+    } as unknown as EntryPage;
+    void dir;
+    return { page, wrote };
+  };
+
+  test('E10: a state-assert verdict carries screenshot and aria paths, and the files exist', async () => {
+    // wrong: the verdict is a sentence and nothing else — which is what it was, and
+    // what made "`/files` opened, tree Workspaces not on it" unactionable without
+    // writing a separate diagnostic to ask the three questions it leaves open.
+    const dir = mkdtempSync(path.join(tmpdir(), 'aitp-entry-evidence-'));
+    const { page, wrote } = capturingPage(0, dir);
+    const { verify } = createEntryVerifier({
+      map: MAP,
+      capture,
+      mapFile: 'm.json',
+      page,
+      signIn: async () => {},
+      artifactDir: dir,
+    });
+
+    const verdict = await verify('Employee registration');
+    expect(verdict.verified).toBe(false);
+    if (verdict.verified) throw new Error('unreachable');
+    expect(verdict.reason).toBe('state-assert');
+    expect(verdict.evidence).toBeDefined();
+    // PATHS THAT EXIST. A recorded path nothing wrote is the oldest bug in this
+    // repo, so the claim is checked on disk rather than in the object.
+    expect(existsSync(verdict.evidence!.screenshot)).toBe(true);
+    expect(existsSync(verdict.evidence!.aria)).toBe(true);
+    expect(readFileSync(verdict.evidence!.aria, 'utf8')).toContain('Register employee');
+    expect(wrote).toHaveLength(1);
+  });
+
+  test('E10: a VERIFIED entry writes nothing, and `auth` writes nothing either', async () => {
+    // wrong: a writer that fired on every verdict would pass the test above and fill
+    // an artifact directory with pictures of screens that were fine — and would then
+    // make `auth` write a picture of the login form, which says nothing about the
+    // module being verified. Both silences are the point.
+    const dir = mkdtempSync(path.join(tmpdir(), 'aitp-entry-evidence-'));
+    const { page, wrote } = capturingPage(1, dir);
+    const { verify } = createEntryVerifier({
+      map: MAP,
+      capture,
+      mapFile: 'm.json',
+      page,
+      signIn: async () => {},
+      artifactDir: dir,
+    });
+    expect((await verify('Employee registration')).verified).toBe(true);
+    expect(wrote).toEqual([]);
+
+    // AUTH: a failure before the page is anywhere. No evidence, by design.
+    const failing = capturingPage(0, dir);
+    const authVerify = createEntryVerifier({
+      map: MAP,
+      capture,
+      mapFile: 'm.json',
+      page: failing.page,
+      signIn: async () => {
+        throw new Error('rejected');
+      },
+      artifactDir: dir,
+    }).verify;
+    const verdict = await authVerify('Employee registration');
+    if (verdict.verified) throw new Error('unreachable');
+    expect(verdict.reason).toBe('auth');
+    expect(verdict.evidence).toBeUndefined();
+    expect(failing.wrote).toEqual([]);
   });
 });

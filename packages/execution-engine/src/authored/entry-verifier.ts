@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import {
   TEXT_ROLES,
   validateModuleMap,
@@ -33,11 +35,21 @@ import type { Page } from '@playwright/test';
  * sheet cell to this file.
  */
 
-/** The slice of `Page` this needs. Narrow, so a stub can stand in. */
+/**
+ * The slice of `Page` this needs. Narrow, so a stub can stand in.
+ *
+ * `screenshot` and `ariaSnapshot` are OPTIONAL for exactly that reason: adding them
+ * as required would break every stub in the suite, and a stub that had to implement
+ * them would be implementing the evidence writer it is meant to stand in for. A
+ * stub therefore collects no evidence, and the demo suite proves the real thing
+ * against a real page (E10).
+ */
 export interface EntryPage {
   goto: (url: string) => Promise<unknown>;
   getByRole: Page['getByRole'];
   getByText: Page['getByText'];
+  screenshot?: Page['screenshot'];
+  ariaSnapshot?: Page['ariaSnapshot'];
 }
 
 export interface EntryVerifierOptions {
@@ -61,6 +73,15 @@ export interface EntryVerifierOptions {
    * repeating it would report one problem once per screen.
    */
   signIn: () => Promise<void>;
+  /**
+   * Where a failing entry's evidence goes. Omitted means none is collected (E10).
+   *
+   * The CALLER's directory, never one chosen here: `runSheet` already has a per-run
+   * `outDir` under `artifacts/<app>/sheet-runs/<runId>/` and the screenshots a step
+   * failure writes go there. Two components choosing their own artifact roots is how
+   * the capture directories came to be pooled.
+   */
+  artifactDir?: string;
 }
 
 /**
@@ -83,6 +104,39 @@ export function createEntryVerifier(options: EntryVerifierOptions): {
   const validation = validateModuleMap(options.map, options.capture, options.mapFile);
 
   let signedIn: 'no' | 'yes' | { failed: string } = 'no';
+
+  /**
+   * Writes the evidence for ONE failing module, and never throws (E10).
+   *
+   * A verdict that became an exception because a screenshot could not be taken would
+   * turn a diagnosable `state-assert` into a crash — which is precisely what
+   * happened to the first File Explorer diagnostic, where a non-existent
+   * `page.accessibility` threw after the measurements and cost two of four passes.
+   * So the evidence is best-effort by construction: a failure to write it is
+   * reported in the detail and the verdict is unchanged.
+   *
+   * NOT called for `auth`. The page is the login screen there, and a picture of a
+   * login form tells nobody anything about the module that was being verified.
+   */
+  const collect = async (
+    module: string,
+  ): Promise<{ evidence?: { screenshot: string; aria: string }; note: string }> => {
+    const dir = options.artifactDir;
+    if (!dir || !options.page.screenshot || !options.page.ariaSnapshot) return { note: '' };
+    const slug = module.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+    const screenshot = path.join(dir, `entry-${slug}.png`);
+    const aria = path.join(dir, `entry-${slug}-aria.yaml`);
+    try {
+      mkdirSync(dir, { recursive: true });
+      await options.page.screenshot({ path: screenshot, fullPage: true });
+      // `ariaSnapshot`, because `page.accessibility` does not exist in Playwright
+      // 1.62.1 — checked against the installed types, not assumed.
+      writeFileSync(aria, await options.page.ariaSnapshot({ boxes: true }));
+      return { evidence: { screenshot, aria }, note: '' };
+    } catch (error) {
+      return { note: ` (evidence could not be written: ${(error as Error).message})` };
+    }
+  };
 
   const verify = async (module: string): Promise<EntryVerification> => {
     const entry = options.map[module];
@@ -115,10 +169,14 @@ export function createEntryVerifier(options: EntryVerifierOptions): {
     try {
       await options.page.goto(entry.route);
     } catch (error) {
+      const shot = await collect(module);
       return {
         verified: false,
         reason: 'navigation',
-        detail: `could not open "${entry.route}" for module "${module}": ${(error as Error).message}`,
+        detail:
+          `could not open "${entry.route}" for module "${module}": ${(error as Error).message}` +
+          shot.note,
+        ...(shot.evidence ? { evidence: shot.evidence } : {}),
       };
     }
 
@@ -149,14 +207,19 @@ export function createEntryVerifier(options: EntryVerifierOptions): {
     try {
       count = await locator.count();
     } catch (error) {
+      const shot = await collect(module);
       return {
         verified: false,
         reason: 'state-assert',
-        detail: `could not look for ${role} "${name}" on "${entry.route}": ${(error as Error).message}`,
+        detail:
+          `could not look for ${role} "${name}" on "${entry.route}": ${(error as Error).message}` +
+          shot.note,
+        ...(shot.evidence ? { evidence: shot.evidence } : {}),
       };
     }
 
     if (count === 0) {
+      const shot = await collect(module);
       return {
         verified: false,
         reason: 'state-assert',
@@ -170,7 +233,9 @@ export function createEntryVerifier(options: EntryVerifierOptions): {
           (selected === undefined
             ? ''
             : ' A route that shares its path with another module is reached with the wrong ' +
-              'tab open as easily as not at all.'),
+              'tab open as easily as not at all.') +
+          shot.note,
+        ...(shot.evidence ? { evidence: shot.evidence } : {}),
       };
     }
 

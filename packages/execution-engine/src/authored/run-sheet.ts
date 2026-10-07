@@ -154,6 +154,10 @@ export async function runSheet(options: RunSheetOptions): Promise<RunSheetResult
     mapFile,
     page: options.page,
     signIn: options.signIn,
+    // THE RUN'S OWN DIRECTORY, the same one a step failure's screenshot goes to. An
+    // entry failure stops every row in a module, so it is the one most worth having
+    // a picture of (E10).
+    artifactDir: options.outDir,
   });
 
   const blocked = new Map<string, string>();

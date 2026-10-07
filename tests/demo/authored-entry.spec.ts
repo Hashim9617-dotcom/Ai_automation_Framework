@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test, expect, createEntryVerifier } from '@aitp/execution-engine';
 import {
   executeAuthoredRows,
@@ -250,5 +253,72 @@ test.describe('the entry verifier against the real demo app @demo', () => {
     // which is the whole point of gating before the executor.
     expect(stepsRun).toBe(1);
     expect(outcome.tally.rowsRead).toBe(2);
+  });
+
+  /**
+   * THE EVIDENCE WRITER, AGAINST THE INSTALLED PLAYWRIGHT (E10).
+   *
+   * This test exists because of a specific mistake, not for completeness. The first
+   * File Explorer diagnostic called `page.accessibility.snapshot()` and threw
+   * `Cannot read properties of undefined (reading 'snapshot')`: **`page.accessibility`
+   * does not exist in Playwright 1.62.1.** Checked afterwards against the installed
+   * types — `ariaSnapshot` is on `Page` and on `Locator`, `accessibility` is nowhere.
+   *
+   * The unit tests cannot catch that. Their stub declares whatever API the stub
+   * author believed in, and agrees with itself — the mock-gateway failure, arriving
+   * through a page object. So the writer is exercised here, on a real page, where the
+   * only API that works is the one that exists.
+   *
+   * It matters more than a normal fidelity test would: an evidence writer that throws
+   * turns every failing entry into an exception, so the crash would land on exactly
+   * the runs that had something to report.
+   */
+  test('D4: a state-assert verdict writes real evidence files on a real page', async ({
+    page,
+    makePage,
+    env,
+  }) => {
+    // wrong: with `page.accessibility.snapshot()` — the call the first diagnostic
+    // made — this throws instead of returning a verdict, and every failing entry
+    // becomes a crash. A stub cannot tell the two apart, because a stub can declare
+    // either API.
+    const dir = mkdtempSync(path.join(tmpdir(), 'aitp-entry-evidence-demo-'));
+    const login = makePage(LoginPage);
+    const { verify } = createEntryVerifier({
+      map: MAP,
+      capture,
+      mapFile: MAP_FILE,
+      page,
+      signIn: signInOrThrow(login, env.users.admin!.username, env.users.admin!.password),
+      artifactDir: dir,
+    });
+
+    // The positive control FIRST, so the sign-in is known to have worked — a
+    // state-assert on a run that never signed in would be a different failure
+    // wearing the same verdict (§Y).
+    expect(await verify('Employee registration')).toEqual({ verified: true });
+
+    const verdict = await verify('Sign-in screen');
+    expect(verdict.verified).toBe(false);
+    if (verdict.verified) throw new Error('unreachable');
+    expect(verdict.reason).toBe('state-assert');
+    expect(verdict.detail).not.toContain('evidence could not be written');
+
+    expect(verdict.evidence).toBeDefined();
+    expect(existsSync(verdict.evidence!.screenshot)).toBe(true);
+    expect(existsSync(verdict.evidence!.aria)).toBe(true);
+
+    // NOT JUST PRESENT — a real snapshot of a real page. A writer that wrote an
+    // empty file, or the string "undefined", would satisfy `existsSync`.
+    expect(statSync(verdict.evidence!.screenshot).size).toBeGreaterThan(1000);
+    const aria = readFileSync(verdict.evidence!.aria, 'utf8');
+    expect(aria.length).toBeGreaterThan(20);
+    expect(aria).not.toContain('undefined');
+    // `boxes: true` is passed, so every line carries a bounding box — which is how
+    // an element rendered OFF-SCREEN would show itself, the question the File
+    // Explorer failure could not answer.
+    expect(aria).toContain('[box=');
+    // And it describes the page the run was actually on.
+    expect(aria).toMatch(/- (heading|button|textbox|link)/);
   });
 });

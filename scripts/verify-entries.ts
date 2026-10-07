@@ -138,11 +138,24 @@ async function main(): Promise<void> {
     });
     const page = await context.newPage();
 
+    /**
+     * EVIDENCE FOR A FAILING ENTRY, under the application's own artifact directory
+     * (E10).
+     *
+     * The command exists to tell you the capture has gone stale, and "`/files`
+     * opened, tree Workspaces not on it" was the whole of what it could say. A
+     * screenshot and an aria snapshot are the difference between that sentence and
+     * knowing whether the tree is absent, renamed, or off-screen — the three
+     * questions the File Explorer failure left open for a day.
+     */
+    const evidenceDir = path.join(root, 'artifacts', application, 'verify-entries');
+
     const { verify, validation } = createEntryVerifier({
       map,
       capture: source.capture,
       mapFile,
       page,
+      artifactDir: evidenceDir,
       /**
        * The saved session IS the sign-in, so this only checks it was not rejected.
        * A redirect to the login screen is the one thing a storage state cannot tell
@@ -201,7 +214,16 @@ async function main(): Promise<void> {
       const label = verdict.verified ? 'verified' : verdict.reason;
       verdicts.set(label, (verdicts.get(label) ?? 0) + 1);
       process.stdout.write(`${module.padEnd(32)} ${map[module]!.route.padEnd(30)} ${label}\n`);
-      if (!verdict.verified) details.push(`  ${module}: ${verdict.detail}`);
+      if (!verdict.verified) {
+        details.push(`  ${module}: ${verdict.detail}`);
+        // PATHS, never contents — the files hold real screens. Printed beside the
+        // reason, because a reader who has to go looking for them will not.
+        if (verdict.evidence) {
+          const rel = (file: string) => path.relative(root, file).split(path.sep).join('/');
+          details.push(`    screenshot: ${rel(verdict.evidence.screenshot)}`);
+          details.push(`    aria:       ${rel(verdict.evidence.aria)}`);
+        }
+      }
     }
 
     process.stdout.write(

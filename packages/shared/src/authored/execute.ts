@@ -224,6 +224,16 @@ export interface AuthoredRunResult {
 export interface RowEvidence {
   screenshot?: string;
   trace?: string;
+  /**
+   * An aria snapshot of the page, as a path (E10).
+   *
+   * `page.ariaSnapshot()`, NOT `page.accessibility.snapshot()` — the latter does not
+   * exist in Playwright 1.62.1 and reaching for it threw
+   * `Cannot read properties of undefined (reading 'snapshot')`. A screenshot shows
+   * what a human would see; this shows what a LOCATOR would see, which is the
+   * question every `state-assert` failure is about.
+   */
+  aria?: string;
   /** The clause that did not pass, verbatim. Always present. */
   failingClause: string;
 }
@@ -361,9 +371,31 @@ function statusForStepOutcome(
   return 'failed';
 }
 
-/** Verified, or the stage that stopped it. Never a bare boolean. */
+/**
+ * Verified, or the stage that stopped it. Never a bare boolean.
+ *
+ * ## The failure carries its evidence (E10)
+ *
+ * It used to be a reason and a sentence, and nothing else — while the step-level
+ * `target-not-on-page` wrote a screenshot for the identical fact. So "the element the
+ * capture promised is not on the live page" came with a picture when one row's step
+ * found it, and with nothing when the entry gate found it, where it stops EVERY row
+ * in the module. That asymmetry is backwards: the gate failure is the more expensive
+ * one.
+ *
+ * Optional, because the verifier can only write it when the caller gave it somewhere
+ * to write and the page can take a screenshot — a stub cannot. Absent therefore
+ * means "not collected", never "the page was fine".
+ */
 export type EntryVerification =
-  { verified: true } | { verified: false; reason: EntryFailure; detail: string };
+  | { verified: true }
+  | {
+      verified: false;
+      reason: EntryFailure;
+      detail: string;
+      /** Paths, never contents. Written on `state-assert` and `navigation` only. */
+      evidence?: { screenshot: string; aria: string };
+    };
 
 /**
  * Establishing and VERIFYING the state a module's rows start from.
@@ -607,6 +639,23 @@ export async function executeAuthoredRows(options: ExecuteOptions): Promise<Auth
         // TRANSLATION rather than a lookup, the routing name becomes a second
         // concept and gets a second field with its own name — not this one.
         detail: entry.detail,
+        /**
+         * THE ENTRY FAILURE'S OWN EVIDENCE, carried onto every row it stopped (E10).
+         *
+         * `failingClause` is the PROOF, not a clause, and that is the honest thing
+         * to put there: no clause of this row failed — none of them ran. The field
+         * is required and means "what did not pass", and for an entry failure that
+         * is the element the map promised.
+         */
+        ...(entry.evidence
+          ? {
+              evidence: {
+                screenshot: entry.evidence.screenshot,
+                aria: entry.evidence.aria,
+                failingClause: `entry state for module "${row.module}"`,
+              },
+            }
+          : {}),
       });
       continue;
     }
