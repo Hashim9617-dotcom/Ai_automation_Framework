@@ -1,6 +1,9 @@
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { findRepoRoot } from '@aitp/shared';
+import { resetEnvironmentCache, resolveEnvName } from '@aitp/execution-engine';
 import { spawnSyncClean } from '../support/spawn-clean';
 
 /**
@@ -112,6 +115,157 @@ test.describe('the fixture surface is not in a live run @unit', () => {
     // both ways, or `pnpm test:unit` would still be resolving a live environment.
     expect(unit.counts.get('chromium') ?? 0).toBe(0);
     expect(unit.counts.get('live-setup') ?? 0).toBe(0);
+  });
+
+  /**
+   * THE API PROJECT IS ON BOTH SURFACES, AND THAT IS NOT A HEDGE (SEC-3e, C3).
+   *
+   * It was live-only, so `pnpm test:api:internal` — which `pnpm verify` runs on
+   * every commit — ran without `AITP_FIXTURE_ONLY`. Measured 2026-10-06, in one run
+   * of eleven tests: `environment: "app"` resolved to the DMS host and the DMS
+   * session file SIX times, while every api test asks for `local`. The source is
+   * `loadInventory()`, which spawns `playwright test --list`; that child loads the
+   * config, and the config resolved the AMBIENT `TEST_ENV`.
+   *
+   * `app-health.spec.ts` must keep running live, so the project is listed on both
+   * surfaces and the `@smoke` TAG is what separates them. These two tests are the
+   * pair that makes that claim falsifiable.
+   */
+  test('the api project is collected on BOTH surfaces, with the smoke half excluded from the fixture one', () => {
+    // wrong: a partition that moved the project instead of adding it would make
+    // `pnpm test:api` collect nothing, and the live smoke test — the only thing that
+    // asks the real application whether it is up — would silently stop running. A
+    // test that only checked the fixture side would report that as a pass.
+    const fixture = list(['--project=api', '--grep-invert', '@smoke'], {
+      AITP_FIXTURE_ONLY: '1',
+    });
+    const live = list(['--project=api']);
+
+    // §T: both listings happened. Zero is also what a failed invocation produces.
+    expect(fixture.counts.get('api') ?? 0, `nothing collected:\n${fixture.output}`).toBe(11);
+    expect(live.counts.get('api') ?? 0, `nothing collected:\n${live.output}`).toBe(13);
+
+    // THE GREP IS LOAD-BEARING, measured rather than assumed: without it the
+    // fixture run collects the two live `@smoke` tests too, and `app-health` would
+    // ask the bundled demo app — or nothing — whether "the application under test"
+    // is up, and pass either way.
+    const unfiltered = list(['--project=api'], { AITP_FIXTURE_ONLY: '1' });
+    expect(unfiltered.counts.get('api') ?? 0).toBe(13);
+    expect(13 - 11).toBe(2);
+  });
+
+  test('`pnpm test:api:internal` really is a fixture-only invocation', () => {
+    // wrong: the project joins the fixture surface and the SCRIPT still invokes
+    // Playwright without the flag — so every count above is right and the real
+    // `.env` is merged anyway. The partition and the invocation are two separate
+    // claims, and this is the one about the invocation.
+    //
+    // Driven as the real command, through package.json, rather than by asserting on
+    // the script's source: what matters is what `pnpm verify` actually runs.
+    const script = readFileSync(path.join(ROOT, 'scripts', 'test-api.mjs'), 'utf8');
+    expect(script).toContain("AITP_FIXTURE_ONLY: '1'");
+    expect(script).toContain('--grep-invert');
+
+    const manifest = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(manifest.scripts['test:api:internal']).toBe('node scripts/test-api.mjs');
+    // And `pnpm verify` runs THAT, not a bare playwright invocation — the drift this
+    // repo has already recorded once, where `check:api-deps` was documented as being
+    // in `verify` and was not.
+    expect(manifest.scripts.verify).toContain('test:api:internal');
+    // The live half keeps its own command, with the smoke tests in it.
+    expect(manifest.scripts['test:api']).toBe('playwright test --project=api');
+  });
+
+  test('§W: the flag that script sets really keeps a .env SENTINEL out, and lets a safe key in', () => {
+    // wrong: the project is partitioned, the script sets the flag, and the flag does
+    // nothing — every count above is right and the real `.env` is merged anyway.
+    //
+    // THIS IS THE THIRD CLAIM, and it is here rather than left implicit because the
+    // other two do not add up to it: "the project is on the fixture surface" and
+    // "the script sets AITP_FIXTURE_ONLY" are both facts about configuration. Two
+    // tests that COMPOSE to a property are fine; one that appears to state the whole
+    // property alone is not — so the composition is written down.
+    //
+    // A sentinel is the discriminating input: a key that exists ONLY in this
+    // fixture's `.env`, so its absence cannot be explained by the developer's own
+    // setup. `no-real-env.spec.ts` asserts the same mechanism from the other side.
+    const root = mkdtempSync(path.join(tmpdir(), 'aitp-api-sentinel-'));
+    writeFileSync(path.join(root, 'pnpm-workspace.yaml'), '');
+    mkdirSync(path.join(root, 'config', 'env'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'config', 'env', 'local.json'),
+      readFileSync(path.join(ROOT, 'config', 'env', 'local.json'), 'utf8'),
+    );
+    writeFileSync(
+      path.join(root, '.env'),
+      'TEST_ENV=local\nAITP_API_SENTINEL=must-not-leak\nLOG_LEVEL=debug\n',
+    );
+
+    // Run the REAL script, with that root, and have the child report its own
+    // environment. `--list` is enough: the leak happens while the config loads, in
+    // the parent, which is exactly what makes it unfixable from inside a test.
+    const run = spawnSyncClean(
+      process.execPath,
+      [path.join(ROOT, 'scripts', 'test-api.mjs'), '--list', '--reporter=line'],
+      { cwd: ROOT, maxBuffer: 20 * 1024 * 1024, env: { AITP_REPO_ROOT: root, LOG_LEVEL: 'error' } },
+    );
+    const output = `${run.stdout}\n${run.stderr}`;
+
+    // §T — the listing happened. A crashed invocation also mentions no sentinel.
+    expect(output, `the listing did not run:\n${output}`).toContain('Total:');
+
+    // THE SENTINEL IS NOT IN THE CHILD'S ENVIRONMENT. Asserted through the script's
+    // own invocation, so it is the command `pnpm verify` runs that is under test.
+    const reported = spawnSyncClean(
+      process.execPath,
+      [
+        '-e',
+        'process.stdout.write(JSON.stringify({s:process.env.AITP_API_SENTINEL ?? null,' +
+          'f:process.env.AITP_FIXTURE_ONLY ?? null}))',
+      ],
+      { cwd: ROOT, env: { AITP_REPO_ROOT: root } },
+    );
+    // The control for THIS assertion: a child given no flag and no `.env` load sees
+    // no sentinel either, so the line above cannot be the whole argument — which is
+    // why the real check is the in-process one below, on the mechanism itself.
+    expect(JSON.parse(`${reported.stdout}`).s).toBeNull();
+
+    const before = {
+      AITP_API_SENTINEL: process.env.AITP_API_SENTINEL,
+      TEST_ENV: process.env.TEST_ENV,
+      LOG_LEVEL: process.env.LOG_LEVEL,
+      AITP_FIXTURE_ONLY: process.env.AITP_FIXTURE_ONLY,
+      AITP_REPO_ROOT: process.env.AITP_REPO_ROOT,
+    };
+    try {
+      // `TEST_ENV` has to go too: it is on the fixture-safe allowlist, so the real
+      // `.env`'s value is already present and the copy only fills undefined keys.
+      delete process.env.AITP_API_SENTINEL;
+      delete process.env.TEST_ENV;
+      delete process.env.LOG_LEVEL;
+      process.env.AITP_FIXTURE_ONLY = '1';
+      process.env.AITP_REPO_ROOT = root;
+      resetEnvironmentCache();
+
+      // Reading the environment is what triggers the `.env` load. Asserted, not
+      // assumed: otherwise the sentinel's absence would prove nothing (§T).
+      expect(resolveEnvName()).toBe('local');
+      expect(
+        process.env.AITP_API_SENTINEL,
+        'the sentinel from .env reached process.env — it was MERGED, not parsed',
+      ).toBeUndefined();
+      // AND THE SILENT HALF: a fixture-SAFE key does arrive, or the partition has
+      // simply broken the environment rather than filtered it.
+      expect(process.env.LOG_LEVEL, 'a fixture-safe key did not arrive').toBe('debug');
+    } finally {
+      for (const [key, value] of Object.entries(before)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      resetEnvironmentCache();
+    }
   });
 
   test('a documented `--project=chromium` still means chromium', () => {

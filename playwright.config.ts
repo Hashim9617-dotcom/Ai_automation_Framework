@@ -148,6 +148,38 @@ const fixtureProjects = [
     testMatch: '**/unit/**/*.spec.ts',
     use: {},
   },
+  /**
+   * THE API PROJECT'S BROWSERLESS HALF, on the fixture surface (SEC-3e).
+   *
+   * It was only in `liveProjects`, so `pnpm test:api:internal` — which `pnpm verify`
+   * runs on every commit — ran without `AITP_FIXTURE_ONLY`. Measured: the real
+   * `.env` was merged into the runner, and `environment: "app"` resolved to the DMS
+   * host and the DMS session file SIX times in one run.
+   *
+   * The source was never the api tests themselves (all of them ask for `local`). It
+   * is `loadInventory()`: it spawns `playwright test --list`, that child loads this
+   * file, and this file resolved the AMBIENT `TEST_ENV` rather than the environment
+   * the request asked for.
+   *
+   * **Third instance of one pattern**, and that is why it gets a partition rather
+   * than a patch: `NODE_PATH` inherited from the runner, `TEST_ENV` inherited by the
+   * inventory listing, and now the environment inherited by the listing's own config
+   * load. Every time, a child re-resolved the environment from ambient state instead
+   * of from what its caller asked for.
+   *
+   * It is listed on BOTH surfaces deliberately. `app-health.spec.ts` asks the real
+   * application whether it is up and must keep running live under `pnpm test:api`;
+   * `scripts/test-api.mjs` excludes it from the fixture run by its `@smoke` tag. The
+   * partition decides which ENVIRONMENT the project resolves, and the tag decides
+   * which TESTS want a live one — two different questions, so the grep is not
+   * redundant with the partition and removing it would collect a live smoke test
+   * into a fixture run.
+   */
+  {
+    name: 'api',
+    testMatch: '**/api/**/*.spec.ts',
+    use: {},
+  },
 ];
 
 /** The live surface. Every one of these resolves the real environment. */

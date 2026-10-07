@@ -15,7 +15,7 @@
     "test:smoke:live": "playwright test --project=chromium --project=firefox --project=webkit --project=mobile-chrome --project=api --grep @smoke",
     "test:regression": "playwright test --grep @regression",
     "test:api": "playwright test --project=api",
-    "test:api:internal": "playwright test --project=api --grep-invert @smoke",
+    "test:api:internal": "node scripts/test-api.mjs",
     "test:unit": "node scripts/test-unit.mjs",
     "test:demo": "node scripts/test-demo.mjs",
     "test:report": "playwright show-report artifacts/reports/html",
