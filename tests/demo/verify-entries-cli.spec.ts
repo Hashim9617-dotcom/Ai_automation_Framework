@@ -36,6 +36,17 @@ const TSX = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 function fixtureRoot(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'aitp-verify-entries-'));
   writeFileSync(path.join(root, 'pnpm-workspace.yaml'), '');
+  // THE MAINTAINER MARKER, because this root is not a released kit.
+  //
+  // Every QA-facing command checks `kit-manifest.json` first and refuses when it is
+  // absent — fail-closed, so deleting the manifest cannot be the way to turn the lock
+  // off. A fixture root has no manifest and is not meant to, so without this the
+  // check refuses here and this suite measures the LOCK instead of the CLI it is
+  // about (§Y: an earlier gate must be shown to have been passed, not skipped).
+  //
+  // The lock's own tests are `kit-integrity.spec.ts` and `kit-integrity-cli.spec.ts`,
+  // and the second one drives a real CLI with no marker on purpose.
+  writeFileSync(path.join(root, '.aitp-maintainer'), '');
   mkdirSync(path.join(root, 'config', 'env'), { recursive: true });
   copyFileSync(
     path.join(ROOT, 'config', 'env', 'local.json'),
@@ -283,6 +294,9 @@ test.describe('pnpm verify-entries, as a real process @demo', () => {
       mapFile,
       path.join(emptyRoot, 'config', 'apps', 'bundled-demo', 'module-map.json'),
     );
+    // Marked for the reason the main fixture root is: this root has no manifest, and
+    // without the marker it would refuse for the LOCK rather than for the session.
+    writeFileSync(path.join(emptyRoot, '.aitp-maintainer'), '');
     const noSession = run(emptyRoot, ['--app', 'bundled-demo']);
     expect(`${noSession.stderr}`).toContain('no saved session');
     expect(`${noSession.stderr}`).toContain('pnpm auth');
@@ -310,6 +324,7 @@ test.describe('pnpm verify-entries, as a real process @demo', () => {
     );
     mkdirSync(path.dirname(noCaptureSession), { recursive: true });
     copyFileSync(sessionFile, noCaptureSession);
+    writeFileSync(path.join(noCaptureRoot, '.aitp-maintainer'), '');
     const noCapture = run(noCaptureRoot, ['--app', 'bundled-demo']);
     expect(`${noCapture.stderr}`).toContain('no captures for application');
 

@@ -33,6 +33,9 @@ import {
   requireApplicationArg,
   resolveEnvName,
   runSheet,
+  assertKitIntegrity,
+  describeKitIntegrity,
+  maintainerMarkerPath,
 } from '@aitp/execution-engine';
 import { findRepoRoot, newId } from '@aitp/shared';
 
@@ -55,6 +58,20 @@ const hostOf = (url: string): string => {
 };
 
 async function main(): Promise<void> {
+  /**
+   * THE INTEGRITY CHECK RUNS FIRST — before `.env`, before a browser, before every
+   * other refusal in this file (C: kit lock).
+   *
+   * The position is the whole guarantee, and it moved the ALLOW_WRITES refusal to
+   * second place deliberately: that one was first because its answer depends on
+   * nothing else, and this one's depends on even less. A modified kit's ALLOW_WRITES
+   * message is not a message anybody should trust.
+   *
+   * `root` and the marker are computed here and passed in, never read inside the
+   * check (§AJ), which is what lets the tests hand it fixture directories.
+   */
+  const kitRoot = findRepoRoot();
+  const kit = assertKitIntegrity({ root: kitRoot, markerPath: maintainerMarkerPath(kitRoot) });
   /**
    * ALLOW_WRITES REFUSES THE RUN, before anything else.
    *
@@ -220,7 +237,14 @@ async function main(): Promise<void> {
       outDir,
       runId,
       provenance: {
-        target: `${application} at ${hostOf(env.baseUrl)} (environment "${env.name}")`,
+        // THE KIT VERSION AND THE INTEGRITY VERDICT, IN THE REPORT ITSELF.
+        //
+        // A report that does not carry this was produced by something that did not
+        // check — which is a different claim from "the check passed", and the only
+        // place the difference survives is the artifact somebody reads later.
+        target:
+          `${application} at ${hostOf(env.baseUrl)} (environment "${env.name}") — ` +
+          describeKitIntegrity(kit),
         proves: `these rows behaved this way against ${application} at the moment of this run`,
         doesNotProve:
           'that the capture still matches the application — it is ' +

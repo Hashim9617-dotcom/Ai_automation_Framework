@@ -45,3 +45,14 @@ Thumbs.db
 *.xlsm
 *.xls
 *.ods
+
+# MAINTAINER MODE MARKER.
+#
+# Its presence makes the kit integrity check skip, with a visible banner. It is a
+# FILE rather than an environment variable for ALLOW_WRITES's reason: a variable can
+# be set by a shell profile, a CI step or an agent running a command, and none of
+# those leave a trace anybody can check afterwards.
+#
+# Gitignored so it cannot travel in a clone or a `git archive`. `pnpm kit:release`
+# asserts its absence from the built zip rather than trusting this line.
+.aitp-maintainer

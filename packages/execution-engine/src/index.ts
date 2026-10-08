@@ -1,4 +1,5 @@
 export * from './config/application-arg';
+export * from './kit/integrity';
 export * from './config/environment';
 export * from './config/schema';
 export * from './locators/smart-locator';

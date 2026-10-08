@@ -50,8 +50,11 @@ import {
   stateSignature,
   suggestActions,
   type NameDivergence,
+  assertKitIntegrity,
+  maintainerMarkerPath,
 } from '@aitp/execution-engine';
 import {
+  findRepoRoot,
   rootLogger,
   slugify,
   type AccessibilityNode,
@@ -308,6 +311,21 @@ const BANNER = [
 ].join('\n');
 
 async function main(): Promise<void> {
+  /**
+   * THE INTEGRITY CHECK RUNS FIRST — before `.env`, before a browser, before
+   * anything else this command would otherwise refuse on (C: kit lock).
+   *
+   * The position is the whole guarantee. A modified kit must not get as far as
+   * reading a credential or opening the customer's application, so this cannot sit
+   * after the argument parsing that happens to be convenient — and it goes ahead of
+   * the ALLOW_WRITES refusal, which used to be first: a modified kit's ALLOW_WRITES
+   * message is not a message anybody should trust either.
+   *
+   * `root` and the marker are computed here and passed in, never read inside the
+   * check (§AJ), which is what lets the tests hand it fixture directories.
+   */
+  const kitRoot = findRepoRoot();
+  assertKitIntegrity({ root: kitRoot, markerPath: maintainerMarkerPath(kitRoot) });
   // No argument: fall back to the configured application, so switching targets
   // is a .env edit rather than a command you have to remember.
   const env = loadEnvironment();

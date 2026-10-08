@@ -6,6 +6,25 @@ context from git log.
 
 ---
 
+## `AGENTS.md` is for KIT USERS, not for this repo
+
+The QA kit ships `AGENTS.md` and `.cursor/rules/qa-kit-lock.mdc` — identical text —
+telling any AI assistant that the kit is read-only: help with the user's own config
+and with reading `docs/`, never edit framework code, never read `.env`, never try to
+make a "KIT MODIFIED" refusal go away.
+
+**Those rules do not apply here, and they say so on their first line:** they are
+addressed to a copy that does NOT contain `.aitp-maintainer`. This repo does contain
+it (gitignored), which is also what makes the integrity check skip with a visible
+banner so ordinary development is possible at all.
+
+Measured rather than assumed: Claude Code reads `CLAUDE.md` as its memory file and
+does not read `AGENTS.md`, so nothing in that file reaches this session anyway. It is
+noted here because a maintainer who found it and read it as binding would stop being
+able to work.
+
+---
+
 ## A script must assert its own effect before reporting success
 
 **This rule was earned twice in two sessions, both times by a script that

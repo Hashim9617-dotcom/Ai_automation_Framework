@@ -45,6 +45,18 @@ test.describe('a refusal reads as a refusal @unit', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'aitp-triage-refusal-'));
     try {
       writeFileSync(path.join(root, 'pnpm-workspace.yaml'), '');
+      // THE MAINTAINER MARKER, because this root is not a released kit.
+      //
+      // Every QA-facing command checks `kit-manifest.json` first and refuses when it is
+      // absent — fail-closed, so a deleted manifest cannot be the way to turn the lock
+      // off. A fixture root has no manifest and is not meant to, so without this the
+      // check refuses here and this test measures the LOCK instead of what it is about
+      // (§Y: an earlier gate must be shown to have been passed, not skipped).
+      //
+      // The marker is the supported way any unreleased copy runs, and it is what makes
+      // the maintainer's own repo workable. The lock's own tests live in
+      // `kit-integrity.spec.ts` and `kit-integrity-cli.spec.ts`.
+      writeFileSync(path.join(root, '.aitp-maintainer'), '');
       mkdirSync(path.join(root, 'artifacts'), { recursive: true });
       // THE EARLIER REFUSALS HAVE TO BE SATISFIED, or this measures one of them
       // instead. Both were met in order while writing this, each a clean refusal of

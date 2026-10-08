@@ -1,0 +1,75 @@
+# QA KIT — what Cursor's AI may not read or edit.
+#
+# Gitignore syntax: * (not /), ** (incl. /), ?, ! to un-ignore, # for a comment.
+# Verified against Cursor's own reference before this file was written.
+#
+# READ THIS BEFORE WIDENING ANYTHING: Cursor documents that "terminal commands and
+# MCP tools run outside of Cursor's file access controls, so they may still be able
+# to read ignored files". This file is therefore BEST-EFFORT, not a boundary. It is
+# layer one of three; the one that actually holds is kit-manifest.json, which makes
+# an edit to anything below refuse every QA-facing command and name the file.
+
+# ---------------------------------------------------------------------------
+# SECRETS AND OUTPUT. Nothing here should ever reach an AI chat.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+# .env.example is the TEMPLATE a QA copies — placeholder names, no values — and
+# Cursor has to be able to read it to help somebody fill one in. If a Cursor
+# version does not honour the negation, the only cost is that it cannot, which is
+# the safe direction to fail in.
+!.env.example
+
+artifacts/
+scratch/
+**/auth/
+*.xlsx
+*.xls
+**/trace.zip
+node_modules/
+
+# ---------------------------------------------------------------------------
+# THE FRAMEWORK. Locked: only the maintainer changes these.
+#
+# A QA never needs to edit any of it, and an AI assistant asked to "fix the error"
+# will try. Every path here is covered by kit-manifest.json.
+# ---------------------------------------------------------------------------
+packages/
+apps/
+scripts/
+tests/
+playwright.config.ts
+package.json
+pnpm-lock.yaml
+pnpm-workspace.yaml
+tsconfig.json
+tsconfig.base.json
+Jenkinsfile
+infra/
+.gitignore
+.gitattributes
+.prettierignore
+.prettierrc
+eslint.config.mjs
+.cursorignore
+.cursor/
+AGENTS.md
+CLAUDE.md
+kit-manifest.json
+
+# The worked example and the DMS environment. A QA adds their OWN slug beside these.
+config/apps/dms/
+config/apps/bundled-demo/
+config/env/app.json
+config/env/qa.json
+config/env/staging.json
+config/env/local.json
+
+# ---------------------------------------------------------------------------
+# DELIBERATELY READABLE
+#
+# docs/ — so Cursor can answer "what does this error mean?" from the documentation
+#         instead of from the code, which is the whole point of layer two.
+# config/apps/<your-slug>/ and config/env/<your-env>.json — the two things a QA
+#         creates. Those are what Cursor is for here.
+# ---------------------------------------------------------------------------

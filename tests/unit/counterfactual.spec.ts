@@ -83,6 +83,12 @@ const COVERED = [
   // Added 2026-10-06 with B1: the Command Box's three answers for a sheet ceiling,
   // where a WITHHELD second number must not read as a missing workbook.
   'tests/api/sheet-ceiling.spec.ts',
+  // Added 2026-10-08 with the kit lock: the integrity check, and the CLI ordering
+  // that is the whole guarantee. Both suites carry a counterfactual per test, and
+  // for the lock the counterfactual IS the specification — every one of them names
+  // the false pass it exists to prevent.
+  'tests/unit/kit-integrity.spec.ts',
+  'tests/demo/kit-integrity-cli.spec.ts',
 ];
 
 /**

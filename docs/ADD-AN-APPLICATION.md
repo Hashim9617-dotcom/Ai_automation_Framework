@@ -9,12 +9,43 @@ those steps cannot be checked for you.
 
 ---
 
+## 0. Where you type all of this
+
+**Open this kit folder in VS Code or Cursor, and use its built-in terminal**
+(`Terminal → New Terminal`). Every command on this page is run there, with the kit
+folder as the current directory. The terminal's prompt should end in the kit folder's
+name before you run anything.
+
+If you are in Cursor, read **"Using Cursor"** in
+[QA-QUICKSTART.md](QA-QUICKSTART.md) first — Privacy Mode on, and never paste `.env`
+or a password into a chat.
+
 ## 1. Choose a slug
 
-A lower-case slug — `contoso`, `globex`. It becomes a directory name and appears in
-paths, so pick it once and do not rename it.
+**A "slug" is just a short, lower-case, one-word name for your application** — the
+name of a NEW folder you are about to create. `synergystore`, `contoso`, `globex`.
 
-**Check it against the guard before you use it anywhere:**
+It is typed in exactly two places, and they must match:
+
+| where                                                       | what you type                   |
+| ----------------------------------------------------------- | ------------------------------- |
+| the folder name                                             | `config\apps\synergystore\`     |
+| the `"application"` field in your environment file (step 2) | `"application": "synergystore"` |
+
+`config\apps\dms\` is the worked example — look at it to see the shape, and **do not
+edit anything inside it.** Your folder sits beside it.
+
+It becomes a directory name and appears in paths, so pick it once and do not rename
+it.
+
+### Check it against the guard first
+
+**A "guard" here is a test that proves nothing in the framework is hard-wired to one
+particular application.** `packages/` and `apps/` are supposed to know nothing about
+DMS or about yours; this guard reads their source and fails if an application's name
+appears in it.
+
+Run it, and expect every test to pass:
 
 ```bash
 pnpm test:unit --grep app-agnostic
@@ -38,8 +69,35 @@ the step was actually run. Pick a slug, run that command, and read the answer.
 ## 2. The environment file — `config/env/<name>.json`
 
 The environment NAME and the application SLUG are different things: `app`, `qa` and
-`staging` are three environments of one application. Copy `config/env/app.json` and
-change `application`.
+`staging` are three environments of one application.
+
+> ### Create a NEW file. Never edit `config/env/app.json`.
+>
+> `app.json` is DMS's environment file. During the 8 October check a QA followed
+> "copy app.json and change application" by editing `app.json` itself, which points
+> the DMS environment at a different system — and the kit's integrity check now
+> refuses when that file changes, which is what it is for.
+>
+> Copy it to a new name and edit the copy:
+>
+> ```bash
+> copy config\env\app.json config\env\synergystore.json
+> ```
+>
+> Then edit `config\env\synergystore.json` only.
+
+> ### Then change `TEST_ENV` in `.env` to the new file's name, without `.json`
+>
+> ```
+> TEST_ENV=synergystore
+> ```
+>
+> **This step was missed during the 8 October check**, and the consequence was quiet:
+> `TEST_ENV` was still `app`, so every command used DMS's environment file while
+> `BASE_URL` pointed at the new system — and a synergystore login was saved under
+> `artifacts\dms\auth\app.json`. Nothing failed. The banner each command prints is
+> where you catch this: if it says `application : dms` and your own host, stop and fix
+> `TEST_ENV`.
 
 ```json
 {
@@ -66,7 +124,40 @@ Two rules this file is under, both earned:
 - **A second role is ABSENT, not blank.** Add a `user` entry only when you have one.
   A test that asks for a role the file does not define is refused by name.
 
-Add the variables to `.env`. They are yours and never leave your machine.
+### Your `.env`
+
+**Make it by copying `.env.example`.** Never from another application's `.env`, and
+never from another person's — a copied `.env` carries their credentials and their
+`TEST_ENV`.
+
+```bash
+copy .env.example .env
+```
+
+Then fill in only what you need:
+
+| variable                       | what to do                                                                                                                                                                  |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TEST_ENV`                     | the name of your new environment file, without `.json`                                                                                                                      |
+| `BASE_URL`                     | your application's URL                                                                                                                                                      |
+| `APP_USERNAME`, `APP_PASSWORD` | the login the tests sign in with                                                                                                                                            |
+| `API_BASE_URL`                 | **optional.** Only if the application's API is on a different host from its UI. If you do not know, leave it commented out — the environment file falls back to `BASE_URL`. |
+| `ANTHROPIC_API_KEY`            | **not needed for this kit. Leave it empty.** Nothing in the QA kit calls a model API; it is there for the maintainer's AI features, which are not part of the kit.          |
+
+> ### ⚠️ Never share `.env`, or anything in it
+>
+> Not in a chat message, not in an email, not in a screenshot, and **not in an AI
+> assistant's chat window** — not Cursor's, not any other.
+>
+> During the 8 October check a complete `.env`, including an API key and an admin
+> login, was pasted into a chat. Treat that as a credential leak: the password and the
+> key both have to be rotated.
+>
+> If somebody needs to help you with it, send them the **variable names** you are
+> unsure about, never a line from the file. `.env.example` is the safe thing to share
+> — it is the blank template.
+
+`.env` is gitignored, and it never leaves your machine unless you send it somewhere.
 
 ## 3. `config/apps/<slug>/`
 
@@ -127,6 +218,26 @@ Navigate to a screen, press Enter, name it, repeat. `q` to finish.
   application, environment and `baseUrl`.
 - Its closing message tells you NOT to paste the report anywhere for a real
   application. Follow that.
+
+> **Never click Save, Delete, Upload, Submit or Confirm while inspecting.** You are
+> signed in as a real user on a real system. `inspect` only records what you navigate
+> to — it clicks nothing itself — so anything that changes data during a capture was
+> changed by you.
+
+### Two things it prints that are not errors
+
+**"N name divergences"** — this is a **finding about the application you are
+capturing**, not a problem with the kit. It means N elements have an accessible name
+that differs from the text shown on screen: a button that reads "Save" to you and
+reports itself as "submit-btn" to a screen reader. Tests have to use the accessible
+name, so it is worth telling the app team about. Nothing is broken and nothing needs
+fixing before you continue.
+
+**`clicked ""` in the "What did you do?" menu** — an empty name means the element has
+no accessible name at all, so the kit has nothing to call it. Do not pick that option
+hoping it is close enough. Choose **"something else"** and describe what you did in
+your own words ("clicked the pencil icon in the row toolbar"). The description is what
+a human reads later; a blank name is what a tool could not read.
 
 > Needs the real system's credentials. Not verifiable from here.
 

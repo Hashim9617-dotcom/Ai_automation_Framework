@@ -1,0 +1,80 @@
+---
+description: QA kit is read-only. Help only with the user's own config and with reading docs.
+alwaysApply: true
+---
+# Rules for any AI assistant working in this folder
+
+**These rules are for someone RUNNING the QA kit.** The maintainer works in the source
+repository, which is the copy that contains a `.aitp-maintainer` file at its root; if
+that file is present, this page does not apply and the normal development workflow
+does.
+
+If you are an AI assistant and `.aitp-maintainer` is not there, everything below
+applies to you.
+
+---
+
+## This kit is read-only
+
+The person using it runs it. They do not change it. One maintainer changes it, in a
+different copy, deliberately.
+
+**You may:**
+
+- read anything in `docs/` and explain it;
+- help write or fix the user's own two files — `config/apps/<their-slug>/*.json` and
+  `config/env/<their-env>.json`;
+- explain an error, in plain words, using `docs/`;
+- help them compose the message they send to the maintainer.
+
+**You may not:**
+
+- edit, move, delete, rename, reformat or regenerate **any** other tracked file —
+  this includes `packages/`, `apps/`, `scripts/`, `tests/`, `playwright.config.ts`,
+  `package.json`, `pnpm-lock.yaml`, every `tsconfig*.json`, `infra/`, `.gitignore`,
+  `.gitattributes`, `.cursorignore`, `.cursor/`, this file, `kit-manifest.json`,
+  `config/apps/dms/`, `config/apps/bundled-demo/` and the four existing
+  `config/env/*.json` files;
+- run any command whose effect is to change those files. Including, and not limited
+  to: `sed -i`, `git checkout`, `git restore`, `git reset`, `git clean`, `git stash`,
+  `pnpm add`, `pnpm remove`, `pnpm update`, `pnpm install <package>`,
+  `prettier --write`, `eslint --fix`, `npm`/`yarn` equivalents, or a script you wrote
+  that writes to one of them;
+- read, open, print, echo, summarise or quote `.env`. Not once, not partially, not
+  "to check the format" — `.env.example` is the template and it has no values in it;
+- set `ALLOW_WRITES`, in a command, a file, a shell profile or anywhere else;
+- write to the QA's workbook. It is read-only input. Never open it for writing, never
+  "update the Status column";
+- paste the workbook, a capture, a report, a screenshot of the application, or
+  anything out of `artifacts/` into a chat or an external service.
+
+## When something fails
+
+**Explain it from `docs/`, and then stop.** Do not fix code. The right next action is
+almost always: tell the user to send the exact error text to **Hashim**.
+
+`docs/QA-QUICKSTART.md` and `docs/ADD-AN-APPLICATION.md` describe every command and
+what each refusal means. `docs/WRITING-STEPS.md` covers how to write a test step the
+framework can run. If the answer is not in those, say so — a guess that sends somebody
+editing framework code is worse than "I don't know".
+
+## If you see "KIT MODIFIED"
+
+That message means a locked file no longer matches `kit-manifest.json`. It is the
+kit's integrity check refusing, on purpose.
+
+**Never try to make it go away.** Do not edit `kit-manifest.json`, do not regenerate
+it, do not delete it, do not create `.aitp-maintainer`, do not pass a flag, do not
+set an environment variable, and do not suggest any of those. There is no supported
+way to skip it and inventing one would make every result the kit produces worthless.
+
+The recovery is in the message and it is the only one: re-extract the original zip,
+then copy back only `config/apps/<slug>/`, `config/env/<file>.json` and `.env`. Or
+contact Hashim.
+
+## Why it is written this way
+
+A QA reading a stack trace will reasonably ask an assistant to fix it, and an
+assistant that edits framework code produces a kit whose results nobody can trust —
+including the QA, who has no way to know. Refusing to help with code is not
+unhelpfulness here; it is the only way the test results stay worth anything.

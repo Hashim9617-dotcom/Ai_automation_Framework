@@ -26,3 +26,8 @@ pnpm-lock.yaml
 # future version that reflowed the body would change a computed name with
 # nothing to warn anyone.
 tests/fixtures/generation/four-mistakes.html
+
+# GENERATED, and hashed by its own contents. Prettier reformatting it would change
+# the bytes `pnpm kit:manifest` wrote, so `format:check` would fail on a file nobody
+# touched — and "fix" it by making the manifest disagree with itself.
+kit-manifest.json

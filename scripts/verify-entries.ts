@@ -38,6 +38,8 @@ import {
   loadEnvironment,
   requireApplicationArg,
   resolveEnvName,
+  assertKitIntegrity,
+  maintainerMarkerPath,
 } from '@aitp/execution-engine';
 import { findRepoRoot, loadModuleMap } from '@aitp/shared';
 
@@ -52,6 +54,20 @@ const hostOf = (url: string): string => {
 };
 
 async function main(): Promise<void> {
+  /**
+   * THE INTEGRITY CHECK RUNS FIRST — before `.env`, before a browser, before every
+   * other refusal in this file (C: kit lock).
+   *
+   * The position is the whole guarantee, and it moved the ALLOW_WRITES refusal to
+   * second place deliberately: that one was first because its answer depends on
+   * nothing else, and this one's depends on even less. A modified kit's ALLOW_WRITES
+   * message is not a message anybody should trust.
+   *
+   * `root` and the marker are computed here and passed in, never read inside the
+   * check (§AJ), which is what lets the tests hand it fixture directories.
+   */
+  const kitRoot = findRepoRoot();
+  assertKitIntegrity({ root: kitRoot, markerPath: maintainerMarkerPath(kitRoot) });
   /**
    * ALLOW_WRITES REFUSES FIRST, for the reason `pnpm run-sheet` refuses on it:
    * its answer depends on nothing else, so every later refusal would otherwise be

@@ -33,7 +33,12 @@ import {
   loadModuleMap,
   entryStateByModule,
 } from '@aitp/shared';
-import { loadCaptureFromDisk, requireApplicationArg } from '@aitp/execution-engine';
+import {
+  assertKitIntegrity,
+  loadCaptureFromDisk,
+  maintainerMarkerPath,
+  requireApplicationArg,
+} from '@aitp/execution-engine';
 
 /**
  * Module (sheet column 1) -> the captured route that IS that screen.
@@ -98,6 +103,21 @@ function pathMatchesRoute(capturedPath: string, route: string): boolean {
 }
 
 function main(): void {
+  /**
+   * THE INTEGRITY CHECK RUNS FIRST — before `.env`, before a browser, before
+   * anything else this command would otherwise refuse on (C: kit lock).
+   *
+   * The position is the whole guarantee. A modified kit must not get as far as
+   * reading a credential or opening the customer's application, so this cannot sit
+   * after the argument parsing that happens to be convenient — and it goes ahead of
+   * the ALLOW_WRITES refusal, which used to be first: a modified kit's ALLOW_WRITES
+   * message is not a message anybody should trust either.
+   *
+   * `root` and the marker are computed here and passed in, never read inside the
+   * check (§AJ), which is what lets the tests hand it fixture directories.
+   */
+  const kitRoot = findRepoRoot();
+  assertKitIntegrity({ root: kitRoot, markerPath: maintainerMarkerPath(kitRoot) });
   const workbook = process.argv[2];
   if (!workbook) throw new Error('usage: pnpm triage <workbook.xlsx> [--out <dir>]');
   const outIndex = process.argv.indexOf('--out');

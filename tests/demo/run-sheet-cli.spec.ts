@@ -148,6 +148,17 @@ const FIXTURE_ROWS: string[][] = [
 function fixtureRoot(): string {
   const root = mkdtempSync(path.join(tmpdir(), 'aitp-run-sheet-cli-'));
   writeFileSync(path.join(root, 'pnpm-workspace.yaml'), '');
+  // THE MAINTAINER MARKER, because this root is not a released kit.
+  //
+  // Every QA-facing command checks `kit-manifest.json` first and refuses when it is
+  // absent — fail-closed, so deleting the manifest cannot be the way to turn the lock
+  // off. A fixture root has no manifest and is not meant to, so without this the
+  // check refuses here and this suite measures the LOCK instead of the CLI it is
+  // about (§Y: an earlier gate must be shown to have been passed, not skipped).
+  //
+  // The lock's own tests are `kit-integrity.spec.ts` and `kit-integrity-cli.spec.ts`,
+  // and the second one drives a real CLI with no marker on purpose.
+  writeFileSync(path.join(root, '.aitp-maintainer'), '');
   mkdirSync(path.join(root, 'config', 'env'), { recursive: true });
   copyFileSync(
     path.join(ROOT, 'config', 'env', 'local.json'),

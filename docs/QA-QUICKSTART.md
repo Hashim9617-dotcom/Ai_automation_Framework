@@ -455,7 +455,96 @@ Ask before using those. They are not blocked, they are just not yours to run yet
 
 ---
 
-## 5a. Do not use `qa-kit-v0.2`
+## 5b. Using Cursor
+
+You will probably run these commands from Cursor's terminal, and Cursor's AI will
+offer to help. It can help with some things here and must not touch others.
+
+### Turn Privacy Mode on, before you open this folder
+
+Cursor → Settings → **Privacy Mode: on**. With it off, code from this folder can be
+retained by Cursor's services. This kit sits next to a customer's system; treat the
+folder as if it were the customer's own code.
+
+### What Cursor's AI may help with
+
+- **Your own two files** — `config/apps/<your-slug>/*.json` and
+  `config/env/<your-env>.json`. That is what it is useful for here.
+- **Reading the docs.** "What does `no-readable-target` mean?" is a good question to
+  ask it, and the answer is in `docs/`.
+
+### What to never ask it to do
+
+> **Never ask it to fix a framework error.** Send the error text to Hashim instead.
+
+If a command fails, the useful thing is the error, not a patch. An assistant that
+edits `packages/`, `scripts/`, `tests/` or `package.json` produces a kit whose
+results nobody can trust — including you, because there is no way to tell from the
+output. The kit is set up so that this is caught rather than prevented: see
+"KIT MODIFIED" below.
+
+`.cursorignore` and `.cursor/rules/qa-kit-lock.mdc` are already in the kit and tell
+Cursor's AI the same thing. **Do not rely on them alone** — Cursor's own
+documentation says that terminal commands and MCP tools run outside its file access
+controls, so an AI running a command can still reach a file it cannot read directly.
+
+### Never paste any of this into an AI chat
+
+Not Cursor's, not any other.
+
+| never paste                                | why                                              |
+| ------------------------------------------ | ------------------------------------------------ |
+| `.env`, or any line of it                  | it holds the admin login and, if set, an API key |
+| a password, in any form                    | —                                                |
+| the QA workbook, or rows from it           | its Test Data column holds live credentials      |
+| anything from `artifacts/`                 | captures and reports contain real customer data  |
+| a screenshot of the customer's application | same                                             |
+| `report.md`, `run.json`, a `trace.zip`     | a trace contains a working session token         |
+
+`.env.example` is safe — it is the blank template, with names and no values.
+
+### "KIT MODIFIED" — what it means and what to do
+
+Every command that touches the application or your sheet checks the kit's own files
+first. If one has changed, you get this:
+
+```
+KIT MODIFIED — refusing to run.
+...
+  changed   packages/shared/src/index.ts
+```
+
+That is the check working. A changed kit is not trustworthy, so it refuses rather
+than giving you a result you cannot rely on.
+
+**Do not try to fix it, and do not let an AI assistant try.** Nothing you can edit
+makes it pass honestly — not `kit-manifest.json`, not a flag, not an environment
+variable. There is no supported way to skip it.
+
+**Recovery, in order:**
+
+1. Note the file names it printed. Send them to Hashim.
+2. Re-extract the original `qa-kit-v0.4.zip` into a clean folder.
+3. Copy back **only** these, from your old folder:
+   - `config/apps/<your-slug>/`
+   - `config/env/<your-env>.json`
+   - `.env`
+4. `pnpm install`, then carry on.
+
+Do not copy `artifacts/` back — re-run `pnpm auth` and `pnpm inspect` instead. It is
+quick, and a capture from a modified kit is a capture you cannot vouch for.
+
+---
+
+## 5a. Which version to use
+
+| version           | status                                                                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **`qa-kit-v0.4`** | **current — use this**                                                                                                                |
+| `qa-kit-v0.3`     | superseded. No integrity check, no Cursor rules, and its docs describe `pnpm verify-entries` in a form that fails on a clean checkout |
+| `qa-kit-v0.2`     | **DO NOT HAND OUT** — see below                                                                                                       |
+
+### Do not use `qa-kit-v0.2`
 
 > **`qa-kit-v0.2` predates commit `d5ccb34` and must not be used.**
 >

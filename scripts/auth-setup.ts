@@ -22,8 +22,14 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { chromium, type Browser } from '@playwright/test';
-import { authStatePath, describeTargetBanner, loadEnvironment } from '@aitp/execution-engine';
-import { rootLogger } from '@aitp/shared';
+import {
+  assertKitIntegrity,
+  authStatePath,
+  describeTargetBanner,
+  loadEnvironment,
+  maintainerMarkerPath,
+} from '@aitp/execution-engine';
+import { findRepoRoot, rootLogger } from '@aitp/shared';
 
 const log = rootLogger.child('auth');
 
@@ -38,6 +44,21 @@ function waitForEnter(prompt: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  /**
+   * THE INTEGRITY CHECK RUNS FIRST — before `.env`, before a browser, before
+   * anything else this command would otherwise refuse on (C: kit lock).
+   *
+   * The position is the whole guarantee. A modified kit must not get as far as
+   * reading a credential or opening the customer's application, so this cannot sit
+   * after the argument parsing that happens to be convenient — and it goes ahead of
+   * the ALLOW_WRITES refusal, which used to be first: a modified kit's ALLOW_WRITES
+   * message is not a message anybody should trust either.
+   *
+   * `root` and the marker are computed here and passed in, never read inside the
+   * check (§AJ), which is what lets the tests hand it fixture directories.
+   */
+  const kitRoot = findRepoRoot();
+  assertKitIntegrity({ root: kitRoot, markerPath: maintainerMarkerPath(kitRoot) });
   const env = loadEnvironment();
   // THE TARGET, FIRST, BEFORE A BROWSER OPENS. A human is about to sign in to a real
   // system; the one check they can make is which one, and the one they cannot make
