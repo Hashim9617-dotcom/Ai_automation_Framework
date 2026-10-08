@@ -89,6 +89,10 @@ const COVERED = [
   // the false pass it exists to prevent.
   'tests/unit/kit-integrity.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
+  // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
+  // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
+  // test here names the false pass — or the cryptic refusal — it exists to prevent.
+  'tests/unit/kit-check-standalone.spec.ts',
 ];
 
 /**

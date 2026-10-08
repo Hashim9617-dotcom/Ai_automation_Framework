@@ -37,23 +37,23 @@
  * positive — a criterion satisfied by knowing nothing. The tamper half is the only
  * evidence the lock is load-bearing in the artifact actually being shipped.
  */
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = process.env.KIT_RELEASE_DIR ?? path.join(path.dirname(ROOT), 'qa-kit-release');
-
-/** Run inside a tsx child against `KIT_VERIFY_ROOT`. Prints `OK …` or `REFUSED …`. */
-const VERIFY_SNIPPET = `
-import { verifyKitIntegrity, describeKitIntegrity } from '@aitp/execution-engine';
-import path from 'node:path';
-const root = process.env.KIT_VERIFY_ROOT;
-const result = verifyKitIntegrity({ root, markerPath: path.join(root, '.aitp-maintainer') });
-process.stdout.write(result.ok ? 'OK ' + describeKitIntegrity(result) : 'REFUSED ' + result.detail);
-`;
 
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
 const die = (message) => {
@@ -194,39 +194,84 @@ try {
     { stdio: 'pipe' },
   );
 
-  const check = (where, expect) => {
-    // The extracted kit's OWN copy of the checker, run as a child so nothing from this
-    // process's module cache or environment can influence the answer.
-    const script = path.join(temp, 'scripts', 'kit-manifest.mjs');
-    if (!existsSync(script)) die('the extracted kit has no scripts/kit-manifest.mjs');
-    const result = execFileSync(
-      process.execPath,
-      [path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), '-e', VERIFY_SNIPPET],
-      { cwd: ROOT, encoding: 'utf8', env: { ...process.env, KIT_VERIFY_ROOT: where } },
-    ).trim();
-    const ok = result.startsWith('OK');
-    console.log(
-      `  ${ok === expect ? 'as expected' : '** WRONG   '}  ${where === temp ? 'extracted' : where}: ${result.split('\n')[0]}`,
-    );
-    return ok === expect;
+  /**
+   * Runs THE EXTRACTED KIT'S OWN `scripts/kit-check.mjs`, with plain `node`.
+   *
+   * This used to run the in-engine checker through the SOURCE repo's `tsx` and
+   * `node_modules`, which is the wrong instrument twice over: it was not the code a
+   * QA's command runs, and — the reason v0.4 shipped with the bug — it resolved
+   * `@aitp/execution-engine` from a tree where that package still existed, so a
+   * renamed package folder in the extraction could not have been noticed.
+   *
+   * `node <temp>/scripts/kit-check.mjs` is exactly what `pnpm auth` runs first. No
+   * tsx, no node_modules, nothing borrowed from here.
+   */
+  const check = (label, expect) => {
+    const script = path.join(temp, 'scripts', 'kit-check.mjs');
+    if (!existsSync(script)) die('the extracted kit has no scripts/kit-check.mjs');
+    const result = spawnSync(process.execPath, [script], {
+      cwd: temp,
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH ?? '' },
+    });
+    const text = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    const first = text.split('\n').find((line) => line.trim() !== '') ?? '(no output)';
+    const passed = result.status === 0;
+    const asExpected = passed === expect;
+    console.log(`  ${asExpected ? 'as expected ' : '** WRONG    '} ${label}`);
+    console.log(`      exit ${result.status}  |  ${first.trim()}`);
+    return { asExpected, text, first: first.trim(), status: result.status };
   };
 
   console.log('\nextracted copy:');
-  if (!check(temp, true)) die('the extracted kit FAILED its own integrity check.');
+  if (!check('clean', true).asExpected) {
+    die('the extracted kit FAILED its own integrity check.');
+  }
 
-  // ---- 6. one byte changed must REFUSE ----
+  /**
+   * ---- 6a. A RENAMED LOCKED FOLDER must say KIT MODIFIED ----
+   *
+   * THE v0.4 BUG, as an acceptance test. Renaming `packages/execution-engine` made
+   * `pnpm auth` die with `Cannot find module '@aitp/execution-engine'` and
+   * `MODULE_NOT_FOUND` — fail-closed, but with no `KIT MODIFIED`, no banner and no
+   * named path, which is the message that invites an AI assistant to repair the kit.
+   *
+   * Checked first and separately from the byte change below, because it is the only
+   * one of the two that the previous release flow could not have caught.
+   */
+  const engine = path.join(temp, 'packages', 'execution-engine');
+  if (!existsSync(engine)) die('expected packages/execution-engine in the extraction');
+  renameSync(engine, path.join(temp, 'packages', 'execution-engineer'));
+  const renamed = check('renamed packages/execution-engine -> execution-engineer', false);
+  if (!renamed.asExpected) {
+    die('a RENAMED locked folder still passed. This is the v0.4 bug and it must not ship.');
+  }
+  if (!renamed.text.includes('KIT MODIFIED')) {
+    die('the renamed folder refused WITHOUT saying KIT MODIFIED — the v0.4 message bug.');
+  }
+  if (renamed.text.includes('MODULE_NOT_FOUND')) {
+    die("the refusal is still Node's module error rather than the kit's own message.");
+  }
+  renameSync(path.join(temp, 'packages', 'execution-engineer'), engine);
+  if (!check('restored', true).asExpected) die('restoring the folder did not restore the kit.');
+
+  // ---- 6b. one byte changed must REFUSE ----
   const victim = path.join(temp, 'packages', 'shared', 'src', 'index.ts');
   if (!existsSync(victim)) die('expected packages/shared/src/index.ts in the extraction');
   writeFileSync(victim, `${readFileSync(victim, 'utf8')}\n// tampered by kit:release\n`);
-  console.log('tampered copy (one line added to packages/shared/src/index.ts):');
-  if (!check(temp, false)) {
+  const tampered = check('one line added to packages/shared/src/index.ts', false);
+  if (!tampered.asExpected) {
     die(
       'a TAMPERED kit still passed its integrity check. The lock is not load-bearing in ' +
         'this zip and it must not be handed over.',
     );
   }
 
+  // ---- 7. the zip's own fingerprint, for the handover record ----
+  const sha = createHash('sha256').update(readFileSync(zip)).digest('hex');
   console.log(`\nqa-kit-v${version}.zip is clean, complete, verified and tamper-evident.`);
+  console.log(`  bytes   ${readFileSync(zip).length}`);
+  console.log(`  sha256  ${sha}`);
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }

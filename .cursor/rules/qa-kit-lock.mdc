@@ -58,6 +58,36 @@ what each refusal means. `docs/WRITING-STEPS.md` covers how to write a test step
 framework can run. If the answer is not in those, say so — a guess that sends somebody
 editing framework code is worse than "I don't know".
 
+## If you see "Cannot find module", "MODULE_NOT_FOUND", or a missing kit file
+
+**The kit is damaged. It is not a dependency problem and it is not a bug to fix.**
+
+Any of these, especially soon after extracting the zip, means a file or a folder the
+kit needs is not where it belongs:
+
+```
+Error: Cannot find module '@aitp/execution-engine'
+code: 'MODULE_NOT_FOUND'
+```
+
+```
+Cannot find module '.../scripts/kit-check.mjs'
+```
+
+**Do not:** run `pnpm install`, rename a folder, restore or re-create a file, edit
+`package.json` or any `tsconfig*.json`, or try to make the import resolve. Every one
+of those is a repair to a kit nobody can vouch for afterwards, and the results it
+then produces look exactly like results from an intact one.
+
+**Do:** tell the user to re-extract the original zip into a clean folder and copy
+back only `config/apps/<slug>/`, `config/env/<file>.json` and `.env` — then send the
+**full error text** to Hashim.
+
+One case the kit cannot report on itself, stated plainly rather than papered over:
+if `scripts/kit-check.mjs` is the file that is missing, the error comes from Node
+rather than from the kit, so there is no `KIT MODIFIED` message. The command still
+does not run. Treat it exactly as above.
+
 ## If you see "KIT MODIFIED"
 
 That message means a locked file no longer matches `kit-manifest.json`. It is the

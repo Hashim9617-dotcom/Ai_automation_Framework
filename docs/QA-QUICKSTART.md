@@ -503,6 +503,41 @@ Not Cursor's, not any other.
 
 `.env.example` is safe — it is the blank template, with names and no values.
 
+### "Cannot find module" — the kit is damaged, not broken
+
+If a command fails with any of these — especially just after you extracted the zip —
+a file or a folder the kit needs is not where it belongs:
+
+```
+Error: Cannot find module '@aitp/execution-engine'
+code: 'MODULE_NOT_FOUND'
+```
+
+```
+Cannot find module 'C:\...\scripts\kit-check.mjs'
+```
+
+**This is not a missing dependency and `pnpm install` will not fix it.**
+
+> **Do not** rename a folder, restore a file, edit `package.json` or any
+> `tsconfig*.json`, run `pnpm install`, or ask an AI assistant to make the import
+> resolve. All of those repair a kit nobody can vouch for afterwards — and the
+> results it then produces look exactly like results from an intact one.
+
+**Do this instead:**
+
+1. Copy the **full error text** and send it to Hashim.
+2. Re-extract the original `qa-kit-v0.4.1.zip` into a clean folder.
+3. Copy back **only** `config/apps/<your-slug>/`, `config/env/<your-env>.json` and
+   `.env`.
+4. `pnpm install`, then carry on.
+
+**One case the kit cannot report on itself**, and it is better that you know than
+that we imply otherwise: `scripts/kit-check.mjs` is the file that runs the integrity
+check before every command. If _that_ file is the one missing, the error comes from
+Node rather than from the kit, so you will **not** see a `KIT MODIFIED` message. The
+command still refuses to run. Treat it exactly as above.
+
 ### "KIT MODIFIED" — what it means and what to do
 
 Every command that touches the application or your sheet checks the kit's own files
@@ -524,7 +559,7 @@ variable. There is no supported way to skip it.
 **Recovery, in order:**
 
 1. Note the file names it printed. Send them to Hashim.
-2. Re-extract the original `qa-kit-v0.4.zip` into a clean folder.
+2. Re-extract the original `qa-kit-v0.4.1.zip` into a clean folder.
 3. Copy back **only** these, from your old folder:
    - `config/apps/<your-slug>/`
    - `config/env/<your-env>.json`
@@ -538,11 +573,12 @@ quick, and a capture from a modified kit is a capture you cannot vouch for.
 
 ## 5a. Which version to use
 
-| version           | status                                                                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **`qa-kit-v0.4`** | **current — use this**                                                                                                                |
-| `qa-kit-v0.3`     | superseded. No integrity check, no Cursor rules, and its docs describe `pnpm verify-entries` in a form that fails on a clean checkout |
-| `qa-kit-v0.2`     | **DO NOT HAND OUT** — see below                                                                                                       |
+| version             | status                                                                                                                                                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`qa-kit-v0.4.1`** | **current — use this**                                                                                                                                                                                                                                  |
+| `qa-kit-v0.4`       | superseded, and **never distributed**. Renaming a locked folder made it die with `Cannot find module` instead of `KIT MODIFIED`: the integrity check lived inside the package it was protecting, so module resolution failed before the check could run |
+| `qa-kit-v0.3`       | superseded. No integrity check, no Cursor rules, and its docs describe `pnpm verify-entries` in a form that fails on a clean checkout                                                                                                                   |
+| `qa-kit-v0.2`       | **DO NOT HAND OUT** — see below                                                                                                                                                                                                                         |
 
 ### Do not use `qa-kit-v0.2`
 

@@ -43,7 +43,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The kit version this manifest describes. Bumped by hand, with the release. */
-const KIT_VERSION = '0.4';
+const KIT_VERSION = '0.4.1';
 
 /**
  * Paths a QA creates, which therefore cannot be locked.
