@@ -158,8 +158,27 @@ const text = `${JSON.stringify(manifest, null, 2)}\n`;
 const target = path.join(ROOT, 'kit-manifest.json');
 
 if (process.argv.includes('--check')) {
-  const current = existsSync(target) ? readFileSync(target, 'utf8') : '';
-  if (current === text) {
+  /**
+   * COMPARES WHAT THE MANIFEST CLAIMS ABOUT THE TREE, not the whole file.
+   *
+   * `commit` and `generatedAt` change on every run — `commit` is the HEAD the
+   * manifest was generated FROM, so it is one behind by construction: the release
+   * flow regenerates, then commits. A byte comparison therefore reports STALE
+   * immediately after every release commit, which would make `kit:release` unable
+   * to pass and would train somebody to ignore the word.
+   *
+   * The question worth asking is whether the hash list still describes this tree, so
+   * that is the question asked: kitVersion, lockedPrefixes and files.
+   */
+  const describes = (m) =>
+    JSON.stringify({ kitVersion: m.kitVersion, lockedPrefixes: m.lockedPrefixes, files: m.files });
+  let current = null;
+  try {
+    current = JSON.parse(readFileSync(target, 'utf8'));
+  } catch {
+    current = null;
+  }
+  if (current && describes(current) === describes(manifest)) {
     console.log(`kit-manifest.json is current — ${locked.length} locked file(s).`);
     process.exit(0);
   }

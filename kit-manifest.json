@@ -1,7 +1,7 @@
 {
   "kitVersion": "0.4",
-  "commit": "fcb286c7e822b32d264ab9617cff8cdd947eb78d",
-  "generatedAt": "2026-10-08T06:40:21.650Z",
+  "commit": "07b27930e09907a8699c3a719ef1fa6bf9504350",
+  "generatedAt": "2026-10-08T06:40:56.350Z",
   "lockedPrefixes": [
     ".claude",
     ".cursor",
@@ -189,7 +189,7 @@
     "scripts/heal-review.ts": "5e066c0962143e134c56c830901e5248ba6475d7ab7b2ae5f2cd234316f4edfb",
     "scripts/heal.ts": "14dd84dfcae571e83dea0251161a53fae10f5672dee18a0813ceebf2358d1852",
     "scripts/inspect-app.ts": "2772a9211e046ec16051168c983fc3ca44e110ea935a5c25051a520acc4419dc",
-    "scripts/kit-manifest.mjs": "be6ee60f26bfd8a6bb2dce1fd1a470250e302be610a9967c979ca67883e1bcc4",
+    "scripts/kit-manifest.mjs": "a97884a32472dc4ee6d2b85562b3a9b09e3760574a60b2cf548096c22a4dc303",
     "scripts/kit-release.mjs": "fc28bb192e8093bbdae11f8dca9e2f745c3cdd12145bd4c90b66dfcc219a9c7f",
     "scripts/migrate-captures.ts": "e0baee0a383ee37b7ec0763096745ee247cd9d99cc545d280a329fdd47c7fb8b",
     "scripts/run-sheet.ts": "526575fee1ca7e2b25595e51f5498871d2eb1c8694e0ed7acad64482655517a5",
