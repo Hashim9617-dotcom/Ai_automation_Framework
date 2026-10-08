@@ -63,7 +63,10 @@ const die = (message) => {
 
 /** MUST NOT be in the zip. Each is a secret, a credential, or a lock bypass. */
 const FORBIDDEN = [
-  { label: '.env (any)', test: (f) => f === '.env' || (f.startsWith('.env.') && f !== '.env.example') },
+  {
+    label: '.env (any)',
+    test: (f) => f === '.env' || (f.startsWith('.env.') && f !== '.env.example'),
+  },
   { label: '.aitp-maintainer', test: (f) => f === '.aitp-maintainer' },
   { label: 'artifacts/', test: (f) => f.startsWith('artifacts/') },
   { label: 'scratch/', test: (f) => f.startsWith('scratch/') },
@@ -119,29 +122,77 @@ git('archive', '--format=zip', `--output=${zip}`, tag);
 console.log(`\nzip:  ${zip}`);
 
 // ---- 4. audit the entry list, BOTH directions ----
-const entries = execFileSync('tar', ['-tf', zip], { encoding: 'utf8' })
-  .split('\n')
-  .map((line) => line.trim().replace(/\/$/, ''))
-  .filter(Boolean);
+/**
+ * The zip's entry names, read from its own central directory.
+ *
+ * NOT `tar -tf`, which is what this used and which fails on Windows: GNU tar reads
+ * `C:\Users\…` as a remote host and answers "Cannot connect to C: resolve failed".
+ * Found by running the release flow, not by reading it. A zip's central directory is
+ * four fields and a loop, and parsing it here takes a platform dependency out of the
+ * one script whose whole job is to be trustworthy on the maintainer's machine.
+ */
+function zipEntries(file) {
+  const buffer = readFileSync(file);
+  let eocd = -1;
+  for (let i = buffer.length - 22; i >= 0; i--) {
+    if (buffer.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) die(`${file} has no zip end-of-central-directory record.`);
+  const count = buffer.readUInt16LE(eocd + 10);
+  let offset = buffer.readUInt32LE(eocd + 16);
+  const names = [];
+  for (let i = 0; i < count; i++) {
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) die('malformed zip central directory');
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const name = buffer.toString('utf8', offset + 46, offset + 46 + nameLength);
+    // A directory entry ends in a slash; the audit compares plain paths.
+    names.push(name.endsWith('/') ? name.slice(0, -1) : name);
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  // Asserts its own effect: a reader that found nothing would make every audit below
+  // vacuously clean, which is the worst possible false pass in this file.
+  if (names.length !== count) die('read a different number of entries than the zip declares');
+  if (names.length === 0) die('the zip has no entries');
+  return names;
+}
+
+const entries = zipEntries(zip);
 
 console.log(`      ${entries.length} entries`);
 
 const found = [];
 for (const rule of FORBIDDEN) {
   const hits = entries.filter((entry) => rule.test(entry));
-  console.log(`  ${hits.length === 0 ? 'NO ' : '** '} ${rule.label}${hits.length ? `: ${hits.slice(0, 5).join(', ')}` : ''}`);
+  console.log(
+    `  ${hits.length === 0 ? 'NO ' : '** '} ${rule.label}${hits.length ? `: ${hits.slice(0, 5).join(', ')}` : ''}`,
+  );
   if (hits.length > 0) found.push(rule.label);
 }
 if (found.length > 0) die(`the zip contains ${found.join(', ')}. It must not be handed over.`);
 
 const missing = REQUIRED.filter((file) => !entries.includes(file));
-for (const file of REQUIRED) console.log(`  ${missing.includes(file) ? '** MISSING' : 'YES      '} ${file}`);
+for (const file of REQUIRED)
+  console.log(`  ${missing.includes(file) ? '** MISSING' : 'YES      '} ${file}`);
 if (missing.length > 0) die(`the zip is missing ${missing.join(', ')}.`);
 
 // ---- 5. the extracted copy must PASS ----
 const temp = mkdtempSync(path.join(tmpdir(), 'qa-kit-verify-'));
 try {
-  execFileSync('tar', ['-xf', zip, '-C', temp], { stdio: 'pipe' });
+  // Expand-Archive rather than tar, for the same Windows path reason as above.
+  execFileSync(
+    'powershell',
+    [
+      '-NoProfile',
+      '-Command',
+      `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${temp}' -Force`,
+    ],
+    { stdio: 'pipe' },
+  );
 
   const check = (where, expect) => {
     // The extracted kit's OWN copy of the checker, run as a child so nothing from this
@@ -154,7 +205,9 @@ try {
       { cwd: ROOT, encoding: 'utf8', env: { ...process.env, KIT_VERIFY_ROOT: where } },
     ).trim();
     const ok = result.startsWith('OK');
-    console.log(`  ${ok === expect ? 'as expected' : '** WRONG   '}  ${where === temp ? 'extracted' : where}: ${result.split('\n')[0]}`);
+    console.log(
+      `  ${ok === expect ? 'as expected' : '** WRONG   '}  ${where === temp ? 'extracted' : where}: ${result.split('\n')[0]}`,
+    );
     return ok === expect;
   };
 
@@ -177,4 +230,3 @@ try {
 } finally {
   rmSync(temp, { recursive: true, force: true });
 }
-
