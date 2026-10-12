@@ -46,12 +46,61 @@ things needs an install first, and a design that needs a _compiler_ needs a
 multi-gigabyte one. Both §1 and §2 are chosen so that only the smallest of those
 installs is required.
 
+### 0.1 Re-measured 2026-10-12, after the Postgres install
+
+The §1 decision was acted on. Re-measured rather than assumed, and **two of the
+three facts differ from what was reported to me**, which is why the table above
+is amended here instead of edited in place — a measurement that quietly changes
+cannot be checked against what was believed at the time.
+
+| Question                 | Answer                                                                                                                                                                                                                             | How                                                                                               |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Postgres service         | **`postgresql-x64-17`, Running, Automatic**                                                                                                                                                                                        | `Get-Service`                                                                                     |
+| **Version**              | **PostgreSQL 17.11** — not the 16 this doc specified                                                                                                                                                                               | `psql --version` from `C:\Program Files\PostgreSQL\17\bin`                                        |
+| `psql` on PATH           | **no** — it lives in the install's `bin`, which winget did not add to PATH                                                                                                                                                         | `Get-Command psql`                                                                                |
+| Port 5432 reachable      | `127.0.0.1` ✅ `::1` ✅ **`192.168.1.16` (LAN) ✅**                                                                                                                                                                                | TCP connect to each                                                                               |
+| **`listen_addresses`**   | **`'*'`** — the socket binds `0.0.0.0` and `::`, **not loopback only**                                                                                                                                                             | `postgresql.conf`; confirmed by `Get-NetTCPConnection -LocalPort 5432` showing `0.0.0.0` and `::` |
+| `pg_hba.conf` host rules | **`127.0.0.1/32` and `::1/128` only**, both `scram-sha-256`                                                                                                                                                                        | `pg_hba.conf`                                                                                     |
+| Firewall rule for 5432   | **none specifically**                                                                                                                                                                                                              | `Get-NetFirewallPortFilter`                                                                       |
+| `.env` is gitignored     | **yes** — `.gitignore:27`, and `git ls-files .env` is empty                                                                                                                                                                        | `git check-ignore -v .env`                                                                        |
+| **`DATABASE_URL`**       | **ABSENT** — not in `.env`, no `.env.local` exists, not in the process environment, not in User or Machine scope, and nothing under `config/` mentions it. `.env` was last written **21 Sep 2026**, three weeks before the install | `grep -c`, `[Environment]::GetEnvironmentVariables`, file mtime                                   |
+
+**The listener is a real finding and it is not what the install was believed to
+do.** `listen_addresses = '*'` is the EnterpriseDB installer's default, so the
+database accepts a TCP connection from the LAN — measured, not inferred. What
+stops that being an exposed database is `pg_hba.conf`, which permits only
+`127.0.0.1/32` and `::1/128`, so a non-loopback connection is refused at
+authentication rather than at the socket.
+
+That is fail-closed, and it is one layer thinner than it should be: the port
+answers, so the service is discoverable and its version is probeable, and a
+later well-meaning `pg_hba` edit — the file people reach for when a colleague
+cannot connect — is the only thing between that and a reachable database. Exactly
+the shape B0 corrected in the API: `app.listen(port)` bound `::` and the fix was
+to bind loopback rather than to rely on a layer above. The remedy is one line:
+
+```conf
+# C:\Program Files\PostgreSQL\17\data\postgresql.conf
+listen_addresses = '127.0.0.1'
+```
+
+then restart the service. **Recommended**, and it costs nothing here — every
+consumer in this design is on the same host.
+
 ---
 
 ## 1. Database — Postgres via Prisma
 
-**Decision: PostgreSQL 16, accessed through Prisma, with `RunRepository` and the
+**Decision: PostgreSQL, accessed through Prisma, with `RunRepository` and the
 in-memory implementation both kept. Recommended.**
+
+> **Installed version: 17.11**, not the 16 this section originally named (§0.1).
+> Nothing in the design depends on the difference and Prisma supports both, so
+> the version is recorded rather than pinned — but no migration may assume 16,
+> and the CI sidecar in this section should move to `postgres:17-alpine` so the
+> two halves cannot drift apart. A pipeline testing a different major version
+> than the one developers run is a difference that shows up as one failing
+> constraint, months later.
 
 **Why.** The data model is already written down and already relational —
 `infra/prisma/schema.prisma` has been checked in and unused since Phase 1, and
@@ -120,7 +169,7 @@ The Jenkinsfile already runs its whole build inside a Docker agent
 natural there even though it is unavailable on the laptop:
 
 ```groovy
-docker.image('postgres:16-alpine').withRun('-e POSTGRES_PASSWORD=ci -e POSTGRES_DB=aitp_ci') { db ->
+docker.image('postgres:17-alpine').withRun('-e POSTGRES_PASSWORD=ci -e POSTGRES_DB=aitp_ci') { db ->
   docker.image('mcr.microsoft.com/playwright:…').inside("--link ${db.id}:db") {
     sh 'pnpm prisma migrate deploy'
     sh 'pnpm verify'
@@ -689,18 +738,23 @@ verification that never met the conditions it claimed to verify.
 
 Top ten for **this layer**, each with the control that addresses it.
 
-| #   | Threat                                                                                                                        | Control                                                                                                                                                                                             |
-| --- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Unauthenticated run trigger against a live customer system** — the largest finding in the Part 0 audit, and reachable today | Global `APP_GUARD`, default deny, `@Public()` only for health, login and invite-accept. Proven by a test that adds an unannotated route and asserts 401 (§5)                                        |
-| 2   | Credential stuffing / brute force                                                                                             | Argon2id cost (§2), per-username and per-IP throttling with lockout, counters in the database not in memory (§3)                                                                                    |
-| 3   | Session theft via XSS in the dashboard                                                                                        | `HttpOnly` cookie, so script cannot read it; `SameSite=Strict`; CSP and output encoding are B3's half and are named as such                                                                         |
-| 4   | CSRF on a state-changing route                                                                                                | `SameSite=Strict` **plus** a mandatory `Origin`/`Sec-Fetch-Site` check that **fails closed** when neither header is present (§3)                                                                    |
-| 5   | Privilege escalation through role or scope confusion                                                                          | One `can()` function, default deny, Manager cannot grant or invite Owner, every denial audited with its reason. Table-driven tests covering every cell including every deny (§10, B1d)              |
-| 6   | Session fixation, or a session that never dies                                                                                | New token on login; idle **and** absolute expiry, the absolute one never extended; revoke-all on password change, role change and disable (§3)                                                      |
-| 7   | User enumeration via login, invite or reset                                                                                   | Identical status, body **and timing** — an unknown user still runs an Argon2id verify against a dummy hash (§3)                                                                                     |
-| 8   | Audit tampering, by an attacker or by a well-meaning bug                                                                      | Database `GRANT INSERT, SELECT` only; no update or delete method exists to call (§6)                                                                                                                |
-| 9   | Secret or credential leaking into a log, an SSE frame or a report                                                             | Wire `redactSecrets` into the API's Nest logger (**it is not today** — only the repo's own logger redacts); `reveal()` is the single audited path to plaintext; B0's `metadata` caps already landed |
-| 10  | A database leak yielding usable sessions                                                                                      | Only the SHA-256 of the session token is stored, so digests are not cookies; passwords are Argon2id; **no plaintext secret exists in B1 at all**, because the store refuses until B4                |
+| #   | Threat                                                                                                                                                                                                   | Control                                                                                                                                                                                                                                                                                                                                    |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **Unauthenticated run trigger against a live customer system** — the largest finding in the Part 0 audit, and reachable today                                                                            | Global `APP_GUARD`, default deny, `@Public()` only for health, login and invite-accept. Proven by a test that adds an unannotated route and asserts 401 (§5)                                                                                                                                                                               |
+| 2   | Credential stuffing / brute force                                                                                                                                                                        | Argon2id cost (§2), per-username and per-IP throttling with lockout, counters in the database not in memory (§3)                                                                                                                                                                                                                           |
+| 3   | Session theft via XSS in the dashboard                                                                                                                                                                   | `HttpOnly` cookie, so script cannot read it; `SameSite=Strict`; CSP and output encoding are B3's half and are named as such                                                                                                                                                                                                                |
+| 4   | CSRF on a state-changing route                                                                                                                                                                           | `SameSite=Strict` **plus** a mandatory `Origin`/`Sec-Fetch-Site` check that **fails closed** when neither header is present (§3)                                                                                                                                                                                                           |
+| 5   | Privilege escalation through role or scope confusion                                                                                                                                                     | One `can()` function, default deny, Manager cannot grant or invite Owner, every denial audited with its reason. Table-driven tests covering every cell including every deny (§10, B1d)                                                                                                                                                     |
+| 6   | Session fixation, or a session that never dies                                                                                                                                                           | New token on login; idle **and** absolute expiry, the absolute one never extended; revoke-all on password change, role change and disable (§3)                                                                                                                                                                                             |
+| 7   | User enumeration via login, invite or reset                                                                                                                                                              | Identical status, body **and timing** — an unknown user still runs an Argon2id verify against a dummy hash (§3)                                                                                                                                                                                                                            |
+| 8   | Audit tampering, by an attacker or by a well-meaning bug                                                                                                                                                 | Database `GRANT INSERT, SELECT` only; no update or delete method exists to call (§6)                                                                                                                                                                                                                                                       |
+| 9   | Secret or credential leaking into a log, an SSE frame or a report                                                                                                                                        | Wire `redactSecrets` into the API's Nest logger (**it is not today** — only the repo's own logger redacts); `reveal()` is the single audited path to plaintext; B0's `metadata` caps already landed                                                                                                                                        |
+| 10  | A database leak yielding usable sessions                                                                                                                                                                 | Only the SHA-256 of the session token is stored, so digests are not cookies; passwords are Argon2id; **no plaintext secret exists in B1 at all**, because the store refuses until B4                                                                                                                                                       |
+| 11  | **The database itself is reachable off-host.** Measured 2026-10-12: `listen_addresses = '*'`, so 5432 answers on the LAN address, holding every session, password hash and audit row this design creates | `pg_hba.conf` permits only `127.0.0.1/32` and `::1/128`, so a non-loopback connection is refused at authentication. That is one layer, and the port still answers — so set `listen_addresses = '127.0.0.1'` and restart (§0.1). Same correction B0 made to the API, for the same reason: bind loopback rather than rely on the layer above |
+
+Eleven, not ten, because the eleventh arrived with the install rather than with
+the code — and a threat list that only grows when someone edits a source file
+would have missed it.
 
 ### Explicitly NOT covered by B1
 
@@ -846,13 +900,54 @@ Two of the three are settled. The third was returned as an unfilled template and
 is what B1b is blocked on. The questions as originally asked are kept below the
 answers, because an answer with the question deleted stops being checkable.
 
-### 11.1 Postgres — STILL OPEN, and B1b is blocked on it
+### 11.1 Postgres — ANSWERED (winget), but B1b is still blocked, on `DATABASE_URL`
 
-The instruction came back as the literal placeholder
-`<FILL: winget installed | portable zip | waiting on IT>`, so no answer was
-given. Re-measured 2026-10-12, after B1a: **Postgres is still absent** — no
-service, `psql` not on PATH, `C:\Program Files\PostgreSQL` absent,
-`127.0.0.1:5432` **ECONNREFUSED**.
+**Answered 2026-10-12: installed via winget.** Confirmed by measurement, and the
+server is up — `postgresql-x64-17` Running, 17.11, answering on `127.0.0.1:5432`
+(§0.1).
+
+**`DATABASE_URL` does not exist anywhere**, which is the one thing the rest of
+B1b cannot proceed without. Checked, all negative: not in `.env` (whose mtime is
+**21 Sep 2026**, three weeks before the install), no `.env.local` on disk, not in
+the running process environment, not in the User or Machine environment scopes,
+and nothing under `config/` mentions it.
+
+It cannot be reconstructed from here, and that is not a limitation to work
+around. Building one means knowing a role and a password; the superuser password
+was set during the install and is not recorded in this tree, and **inventing or
+setting a database password is not something this layer may do** — the same rule
+that keeps the first-Owner bootstrap off an environment variable (§4). There is
+also no passwordless route: on Windows the `local` lines in `pg_hba.conf` are
+inert, so there is no peer-authenticated socket to fall back to.
+
+**To unblock, in `.env` (gitignored, confirmed at `.gitignore:27`):**
+
+```dotenv
+DATABASE_URL=postgresql://aitp:<password>@127.0.0.1:5432/aitp?schema=public
+```
+
+Recommended shape, and why each part: a **dedicated `aitp` role** rather than
+`postgres`, so the application never holds superuser rights and so §6's
+`GRANT INSERT, SELECT`-only on the audit table is expressible at all — a
+superuser cannot be restricted by a grant. A **dedicated `aitp` database**, so a
+`prisma migrate reset` during development cannot reach anything else.
+`127.0.0.1` explicitly rather than `localhost`, which resolves to `::1` first on
+Windows and would then depend on the second `pg_hba` line.
+
+Creating them, once, from an elevated shell (the password is typed at the prompt,
+never passed as an argument where it would land in shell history):
+
+```powershell
+$env:PATH += ';C:\Program Files\PostgreSQL\17\bin'
+psql -U postgres -h 127.0.0.1 -c "CREATE ROLE aitp LOGIN PASSWORD '<choose one>';"
+psql -U postgres -h 127.0.0.1 -c "CREATE DATABASE aitp OWNER aitp;"
+```
+
+The earlier re-measurement, kept because it is what made the winget branch the
+recommended one: before the install this shell was **not elevated** though the
+account **is** in local Administrators, so a UAC prompt could not be answered
+non-interactively — the install was available to the user and not to the tooling.
+That is still true of the role creation above.
 
 Also measured, because it decides whether the winget branch is even available:
 this shell is **not elevated**, though the account **is** in the local

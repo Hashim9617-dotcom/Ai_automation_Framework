@@ -1,7 +1,7 @@
 {
   "kitVersion": "0.4.1",
-  "commit": "1f38bce1ab2f681362c0ed7a1ad70ac3ea3d8d41",
-  "generatedAt": "2026-10-12T09:11:49.359Z",
+  "commit": "dc6bfc968d6044dd06259a324029282f9ec987ba",
+  "generatedAt": "2026-10-12T09:47:22.217Z",
   "lockedPrefixes": [
     ".claude",
     ".cursor",
@@ -79,7 +79,7 @@
     "docs/WHERE-WE-ARE.md": "2622eb900ddafd2a849409ac84e0026068c45ce140360fc49fd7b9c00a5aa150",
     "docs/WRITING-STEPS.md": "87e12fa844ba4f11d432b7a422e22b37dc479ded1da4467a8121d67ecf26e2a6",
     "docs/architecture-decisions.md": "5561c03f7cbace3bcade3133ddd6d162ae75cd7aed1cc99b017048a4f8a30406",
-    "docs/design/B1-auth-and-data.md": "8600c2baa11789e1055fa703fbc10d802701a64fd042ee086a44f24ef84d126f",
+    "docs/design/B1-auth-and-data.md": "e8c52c9e5f75a3223e56f6f36918e2d45f6220550ab451bf9451692c1a80ba71",
     "docs/dms-findings.md": "ba5095e294c5f88fa714f7a909a287f3221822b0e3fb59e96c0e9336b6fa08ff",
     "docs/dms-report-for-app-team.docx": "730ee5fb0752fa31939ede613911b7955217917113b885c6daba301982456f93",
     "docs/dms-report-for-app-team.md": "e31744ea18ddf888925df6057408da5d7556b7000c93e3c53a8322a8da33c482",
