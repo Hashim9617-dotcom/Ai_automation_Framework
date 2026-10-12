@@ -840,7 +840,151 @@ audit rows written for allow and for deny.)
 
 ---
 
-## 11. Decisions I need from you
+## 11. Decisions — answered 2026-10-12
+
+Two of the three are settled. The third was returned as an unfilled template and
+is what B1b is blocked on. The questions as originally asked are kept below the
+answers, because an answer with the question deleted stops being checkable.
+
+### 11.1 Postgres — STILL OPEN, and B1b is blocked on it
+
+The instruction came back as the literal placeholder
+`<FILL: winget installed | portable zip | waiting on IT>`, so no answer was
+given. Re-measured 2026-10-12, after B1a: **Postgres is still absent** — no
+service, `psql` not on PATH, `C:\Program Files\PostgreSQL` absent,
+`127.0.0.1:5432` **ECONNREFUSED**.
+
+Also measured, because it decides whether the winget branch is even available:
+this shell is **not elevated**, though the account **is** in the local
+Administrators group. So `winget install PostgreSQL.PostgreSQL.16` would raise a
+UAC prompt that a non-interactive session cannot answer — the install is
+available to the user and not to the tooling.
+
+Per the standing instruction ("do steps that need no database first and STOP at
+the first one that does"), **B1b stops at its own step 1.** The ordered scope in
+§10 begins with _"Postgres installed per §1"_, and every later step is shaped by
+it: the schema wants `prisma validate` to be meaningful, `PrismaRunRepository`
+cannot be executed against anything, and `prisma migrate dev` needs a server. The
+in-memory half could be written first, but the repository shapes follow the
+schema, so writing them first invites rework rather than avoiding it.
+
+**What each branch does next, so the restart is one command:**
+
+| Answer               | First action                                                                                                                                                                                                                                                |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **winget installed** | From an elevated shell: `winget install PostgreSQL.PostgreSQL.16`, then `DATABASE_URL` in `.env`, then B1b proceeds in §10's order                                                                                                                          |
+| **portable zip**     | Extract the EnterpriseDB binaries-only zip, `pg_ctl -D <datadir> init`, then `start`; add a `pnpm db:up` so it is one command and not a remembered ritual                                                                                                   |
+| **waiting on IT**    | B1b stays blocked. The useful work that needs no database is **B1c's pure half** — `PasswordHasher` and the PHC round-trip (§11.2), which is unit-testable with no server at all. Say the word and that is done out of order, with its own pre-registration |
+
+### 11.2 Hashing — `@node-rs/argon2`, with three conditions. ACCEPTED
+
+Argon2id at §2's parameters. The three conditions, and what each costs:
+
+**(a) The dependency lives in `apps/api`, not the root.** Accepted, and it turns
+out this is **already enforced rather than merely intended**:
+`scripts/check-api-deps.mjs` resolves every bare specifier in every compiled
+`apps/api` file from that file's own directory, and its failure message is
+literally _"Add them to apps/api/package.json"_. It is gate SEC-3c inside
+`pnpm verify`. So a hashing import that reached the root instead would turn
+`verify` red rather than passing review — the condition has a test, which is the
+only form a convention survives in.
+
+**(b) PHC strings behind a `PasswordHasher` interface.** Accepted. Argon2's
+encoded output is already a PHC string
+(`$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`), which carries the algorithm and
+every parameter inside the value — so a verify never has to be told which
+algorithm produced it, and a stored hash with weaker parameters than current
+policy is detectable and re-hashable on next login (§2). The interface:
+
+```ts
+export interface PasswordHasher {
+  /** Returns a PHC string. The algorithm and its parameters live INSIDE it. */
+  hash(plaintext: string): Promise<PasswordHash>;
+  /** Constant-time. Reads the parameters out of the stored value, never from config. */
+  verify(stored: PasswordHash, plaintext: string): Promise<boolean>;
+  /** True when `stored` was produced under weaker parameters than current policy. */
+  needsRehash(stored: PasswordHash): boolean;
+}
+```
+
+`needsRehash` is on the interface rather than left to the caller because
+otherwise raising the cost protects only accounts created afterwards, and nothing
+would say so. A second implementation (`ScryptPasswordHasher`) is then a swap at
+one binding, which is the escape hatch 11.2's own rejected alternative asked for.
+
+**(c) Effect on `kit-manifest.json` and the lockfile.** Measured in shape, not
+guessed:
+
+- `pnpm-lock.yaml` and `apps/api/package.json` are **both inside locked kit
+  prefixes** (`pnpm-lock.yaml` is listed explicitly; `apps` covers the other). So
+  adding the dependency makes `kit-manifest.json` stale and it must be
+  regenerated **in the same commit** — the rule B0 established, and which this
+  session has now seen bite twice, the second time because a locked file was
+  edited _after_ the regeneration.
+- `@node-rs/argon2` resolves platform binaries as **optional** dependencies
+  (`@node-rs/argon2-win32-x64-msvc` and siblings). Those land in `node_modules`,
+  which is neither tracked nor locked, but every one of them appears in
+  `pnpm-lock.yaml` — so the lockfile grows by roughly a dozen entries and its
+  hash changes. That is one manifest line; it is not a kit version bump.
+- `.node` binaries do **not** enter the manifest: it is built from
+  `git ls-files`, and `node_modules` is gitignored. The kit therefore still ships
+  no binary — it ships a lockfile that will fetch one.
+
+### 11.3 Ingest token — APPROVED, and it collides with B0's own tripwire
+
+The design is accepted as specified: 256-bit random, only its hash stored, valid
+for one `runId`, expiring when the run ends, never logged, and a test proving a
+token for run A is rejected for run B.
+
+**But `AITP_INGEST_TOKEN` cannot simply be added, and this is measured.** B0's
+`child-env.ts` carries a tripwire over the name of anything that may reach a
+child: `/(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION)/i`.
+`AITP_INGEST_TOKEN` contains `TOKEN`, so `buildChildEnv` **throws on both
+paths** — verified 2026-10-12:
+
+```
+on the ALLOWLIST: THROWS -> the child-env allowlist names AITP_INGEST_TOKEN …
+as an OVERRIDE:   THROWS -> the overrides for this spawn names AITP_INGEST_TOKEN …
+```
+
+This is the tripwire working. It was built so that a careless widening of the
+allowlist fails loudly, and the first deliberate widening is indistinguishable
+from a careless one _by name alone_. Two consequences:
+
+**It belongs in the OVERRIDES, not the inherited allowlist.** The instruction
+said allowlist, and the allowlist is for variables inherited from the API's own
+environment — which this one never is. It is minted per run, at run creation, by
+the API; the parent process never holds it. Putting it on the inherited allowlist
+would be dead config that also opens a door: it would let an
+`AITP_INGEST_TOKEN` exported in the operator's shell reach every child, which is
+precisely the inheritance B0 closed.
+
+**The exemption must stay an allowlist of exemptions.** The wrong fix is to
+narrow the pattern (it would stop catching real secrets); the wrong fix is also
+to rename the variable to dodge the detector (same effect, hidden). The right
+shape is a second, explicit set — exactly one member, override-path only:
+
+```ts
+/** Names a spawn may set DELIBERATELY, despite looking secret-shaped. */
+const INTENDED_SECRET_OVERRIDES = new Set(['AITP_INGEST_TOKEN']);
+```
+
+Checked only for overrides, never for inherited keys, so the inherited path stays
+completely closed to anything secret-shaped. It needs both halves of §W: a test
+that `AITP_INGEST_TOKEN` passes as an override, and a test that it still **throws
+on the allowlist** and that any other secret-shaped override still throws.
+
+**Not implemented in B1b, deliberately.** Nothing mints or validates the token
+until B1d (§5 assigns `POST /api/events` to it). Adding the exemption now would
+weaken a tripwire for a variable that no code produces or consumes — strictly
+worse than landing the exemption, the minting, the validation and the A-rejected-
+for-B test together. Carried to **B1d**, where its pre-registered api delta grows
+by 2 (the A/B rejection, and an expired token refused) and unit by 2 (the two
+tripwire halves).
+
+---
+
+## The questions as originally asked
 
 **1. Postgres on the dev machine: winget system install, or portable zip?**
 winget (`PostgreSQL.PostgreSQL.16`) gives a real Windows service that survives
