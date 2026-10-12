@@ -143,6 +143,10 @@ function scan(): ScanResult {
     'tests/api/command-box.spec.ts',
     // B0: boots three APIs, and spawns one raw child on purpose — see SANCTIONED.
     'tests/api/api-hardening.spec.ts',
+    // Spawns two real Playwright runs under an env `buildChildEnv` constructed —
+    // which is the thing under test there, so `buildChildEnv` is the sanctioned
+    // helper rather than `spawnClean`, whose merge would defeat the point.
+    'tests/api/child-env-real-run.spec.ts',
     'tests/unit/invisible-characters.spec.ts',
     'tests/unit/no-workbooks.spec.ts',
     'tests/unit/no-unscrubbed-spawn.spec.ts',

@@ -96,6 +96,12 @@ const COVERED = [
   'tests/unit/cors-origins.spec.ts',
   'tests/unit/child-env.spec.ts',
   'tests/api/api-hardening.spec.ts',
+  // Added 2026-10-12 with the B0 debt it settles: every other child-env test
+  // proves the RULE without launching a browser, so all of them would stay green
+  // over an allowlist missing something a real run needs. Its counterfactual says
+  // exactly that, and its control is what proves the environment it constructs is
+  // the one the child received.
+  'tests/api/child-env-real-run.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
