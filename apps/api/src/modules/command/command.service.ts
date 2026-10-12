@@ -21,6 +21,8 @@ import {
   type RunTarget,
   type SheetRowRef,
 } from '@aitp/shared';
+import { isKnownEnvironment } from '../../common/request-schemas';
+import { buildChildEnv } from '../runs/child-env';
 import { RunsService } from '../runs/runs.service';
 
 const execFileAsync = promisify(execFile);
@@ -34,7 +36,26 @@ export const commandRequestSchema = z.object({
    * then generation. Pinning one is a deliberate choice a caller can express.
    */
   source: z.enum(['auto', 'existing', 'sheet', 'generate']).default('auto'),
-  environment: z.string().default('qa'),
+  /**
+   * Validated the same way `POST /api/runs` validates it, and for the same
+   * reason: this door enqueues a run, so an allowlist that covered only the
+   * other entry point would be bypassable through this one. Slug shape first
+   * (it blocks `..`), then the file must exist.
+   */
+  environment: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9][a-z0-9-]*$/, {
+      message:
+        'environment must be a lower-case slug such as "qa" — it names a file under config/env/',
+    })
+    .refine((name) => isKnownEnvironment(name), {
+      message:
+        'no such environment: there is no config/env/<name>.json for it. This is a ' +
+        'configuration gap, not a malformed request',
+    })
+    .default('qa'),
   browsers: z.array(z.enum(['chromium', 'firefox', 'webkit'])).default(['chromium']),
   /** Resolve the command and return the plan without executing it. */
   dryRun: z.boolean().default(false),
@@ -411,9 +432,18 @@ export class CommandService {
    * one, so the caller is told nothing at all instead.
    */
   private async listOnSurface(environment: string, fixtureSurface: boolean): Promise<string> {
-    const env: NodeJS.ProcessEnv = { ...process.env, TEST_ENV: environment };
-    if (fixtureSurface) env.AITP_FIXTURE_ONLY = '1';
-    else delete env.AITP_FIXTURE_ONLY;
+    // THE SAME ALLOWLIST THE RUN PATH USES. This was `{ ...process.env, … }`, so a
+    // listing child saw every credential this process holds. `AITP_FIXTURE_ONLY` is
+    // not on the allowlist, which is what used to need the `delete` below: an
+    // inherited `1` would make every live listing empty, and now it cannot be
+    // inherited at all. Setting it stays an explicit override.
+    const env = buildChildEnv({
+      parent: process.env,
+      overrides: {
+        TEST_ENV: environment,
+        ...(fixtureSurface ? { AITP_FIXTURE_ONLY: '1' } : {}),
+      },
+    });
 
     const { stdout } = await execFileAsync(
       process.execPath,

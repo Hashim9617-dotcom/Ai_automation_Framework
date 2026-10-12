@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Module, Param, Post, Query, UsePipes } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { runRequestSchema, type RunRequest } from '@aitp/shared';
+import { type RunRequest } from '@aitp/shared';
+import { runRequestApiSchema } from '../../common/request-schemas';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { EventsModule } from '../events/events.module';
 import { InMemoryRunRepository, RunRepository } from './run.repository';
@@ -12,9 +13,17 @@ import { RunsService } from './runs.service';
 class RunsController {
   constructor(private readonly runs: RunsService) {}
 
-  /** Schedule a suite. Returns immediately with a queued run. */
+  /**
+   * Schedule a suite. Returns immediately with a queued run.
+   *
+   * `runRequestApiSchema`, not the bare `runRequestSchema`: this boundary adds
+   * the bounds an HTTP request needs (string and array caps) and the one check
+   * that matters most — `environment` must name a file under `config/env/`,
+   * because that field is what decides which system a run drives and it was
+   * free text.
+   */
   @Post()
-  @UsePipes(new ZodValidationPipe(runRequestSchema))
+  @UsePipes(new ZodValidationPipe(runRequestApiSchema))
   create(@Body() request: RunRequest) {
     return this.runs.enqueue(request);
   }

@@ -88,6 +88,14 @@ const COVERED = [
   // for the lock the counterfactual IS the specification — every one of them names
   // the false pass it exists to prevent.
   'tests/unit/kit-integrity.spec.ts',
+  // Added 2026-10-12 with B0, the four-item security hotfix. Each counterfactual
+  // names the reachable defect it replaced rather than describing the fix, and
+  // the bind one cites the direct measurement that `listen(port)` accepts a
+  // connection on `::1` — which is what makes that assertion fail on the old code
+  // rather than merely report something different.
+  'tests/unit/cors-origins.spec.ts',
+  'tests/unit/child-env.spec.ts',
+  'tests/api/api-hardening.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every

@@ -142,16 +142,36 @@ test.describe('the fixture surface is not in a live run @unit', () => {
     const live = list(['--project=api']);
 
     // §T: both listings happened. Zero is also what a failed invocation produces.
-    expect(fixture.counts.get('api') ?? 0, `nothing collected:\n${fixture.output}`).toBe(11);
-    expect(live.counts.get('api') ?? 0, `nothing collected:\n${live.output}`).toBe(13);
+    //
+    // DERIVED, not two literals. These were `toBe(11)` and `toBe(13)`, which the
+    // test three above this one already warns against in so many words — "a test
+    // that has to be edited every time a test is added gets edited without being
+    // read". B0 added fourteen api tests on 2026-10-12 and both numbers broke at
+    // once, which is the prediction coming true rather than a surprise.
+    //
+    // What this test is ABOUT survives the suite growing: both surfaces collect
+    // the project, and the grep removes exactly the live `@smoke` pair.
+    const fixtureCount = fixture.counts.get('api') ?? 0;
+    const liveCount = live.counts.get('api') ?? 0;
+    expect(fixtureCount, `nothing collected:\n${fixture.output}`).toBeGreaterThan(0);
+    expect(liveCount, `nothing collected:\n${live.output}`).toBeGreaterThan(0);
 
     // THE GREP IS LOAD-BEARING, measured rather than assumed: without it the
     // fixture run collects the two live `@smoke` tests too, and `app-health` would
     // ask the bundled demo app — or nothing — whether "the application under test"
     // is up, and pass either way.
     const unfiltered = list(['--project=api'], { AITP_FIXTURE_ONLY: '1' });
-    expect(unfiltered.counts.get('api') ?? 0).toBe(13);
-    expect(13 - 11).toBe(2);
+
+    // The two surfaces hold the SAME set of api files, so an unfiltered fixture
+    // listing must equal the live one. That is the "on both surfaces" half, and it
+    // is the assertion the literals used to make by coincidence.
+    expect(unfiltered.counts.get('api') ?? 0).toBe(liveCount);
+    // And the grep removes exactly the two `@smoke` tests — a real subtraction now,
+    // where `expect(13 - 11).toBe(2)` was arithmetic on literals and could not fail.
+    expect(
+      liveCount - fixtureCount,
+      'the @smoke grep did not remove exactly the two live smoke tests',
+    ).toBe(2);
   });
 
   test('`pnpm test:api:internal` really is a fixture-only invocation', () => {

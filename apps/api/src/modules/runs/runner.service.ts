@@ -11,6 +11,7 @@ import {
 import { renderRunSummaryHtml } from '@aitp/reporting-engine';
 import { RunStatus, findRepoRoot, type Run, type RunRequest } from '@aitp/shared';
 import { EventsService } from '../events/events.service';
+import { buildChildEnv } from './child-env';
 
 /**
  * Executes a Playwright suite as a child process.
@@ -49,16 +50,23 @@ export class RunnerService {
     // builds every multi-test grep by joining titles with it. The legitimate and
     // the dangerous character sets overlap, so there is no set to allow.
     const playwrightCli = require.resolve('@playwright/test/cli');
+    // AN ALLOWLIST, NOT `...process.env`. The spread handed the child every
+    // variable this process held — the LLM key, the application password, and
+    // `ALLOW_WRITES`, which is the one switch that lets a run create real records
+    // in a live customer system. No request body could set it; nothing had to.
+    // See child-env.ts.
     const child = spawn(process.execPath, [playwrightCli, ...args], {
       cwd: this.repoRoot,
-      env: {
-        ...process.env,
-        TEST_ENV: run.request.environment,
-        AITP_RUN_ID: run.id,
-        AITP_LIVE_ENDPOINT: `http://127.0.0.1:${apiPort}/api/events`,
-        CI: 'true',
-        FORCE_COLOR: '0',
-      },
+      env: buildChildEnv({
+        parent: process.env,
+        overrides: {
+          TEST_ENV: run.request.environment,
+          AITP_RUN_ID: run.id,
+          AITP_LIVE_ENDPOINT: `http://127.0.0.1:${apiPort}/api/events`,
+          CI: 'true',
+          FORCE_COLOR: '0',
+        },
+      }),
     });
     this.active.set(run.id, child);
 
