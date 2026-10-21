@@ -102,6 +102,12 @@ const COVERED = [
   // exactly that, and its control is what proves the environment it constructs is
   // the one the child received.
   'tests/api/child-env-real-run.spec.ts',
+  // Added 2026-10-21 with B1b. The repository contract is one suite over six
+  // stores, so its counterfactuals are about what a SINGLE store getting one
+  // thing wrong would produce — which is the reason the suite is shared rather
+  // than six hand-written ones. The DATABASE_URL pair say what the obvious
+  // message would have leaked.
+  'tests/unit/persistence.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every

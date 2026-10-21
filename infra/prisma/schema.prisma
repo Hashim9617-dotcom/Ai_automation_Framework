@@ -1,10 +1,29 @@
-// Phase 2 persistence. Checked in now so the shape of the data is settled while
-// the in-memory repository is still the active implementation:
-//   apps/api/src/modules/runs/run.repository.ts
+// B1b persistence. The data model the API reads and writes at runtime.
 //
-// To activate:
-//   pnpm add -D prisma && pnpm add @prisma/client   (in apps/api)
-//   pnpm exec prisma migrate dev --schema infra/prisma/schema.prisma
+// Design: docs/design/B1-auth-and-data.md. §1 decides Postgres via Prisma and
+// keeps `RunRepository` with BOTH implementations; §3 the session shape; §6 the
+// append-only audit log.
+//
+// ## Two roles, and why this file cannot create itself
+//
+// Measured 2026-10-21: the `aitp` database is owned by `aitp_owner`, the `public`
+// schema by `pg_database_owner`, and the application role in `DATABASE_URL`
+// (`aitp_app`) has USAGE but NOT CREATE — a `CREATE TABLE` probe is refused with
+// "permission denied for schema public".
+//
+// That is correct rather than a problem. §6 needs the audit table granted
+// INSERT and SELECT only, and a role that can CREATE TABLE could drop and
+// recreate it — so the application role must not own the schema. Migrations run
+// as the owner, through `directUrl`; the runtime connects as the application
+// role, through `url`.
+//
+// To apply:
+//   MIGRATE_DATABASE_URL=<owner role>   # not DATABASE_URL — see above
+//   pnpm db:deploy
+//
+// `pnpm db:migration` authors a migration with NO database connection at all
+// (`migrate diff --from-empty`), so the SQL is reviewable before anything is
+// granted.
 
 generator client {
   provider = "prisma-client-js"
@@ -12,20 +31,222 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // The RUNTIME connection: the application role, which cannot change the schema.
   url      = env("DATABASE_URL")
+  //
+  // NOT `directUrl = env("MIGRATE_DATABASE_URL")`, which is the idiomatic way to
+  // give migrations a different connection and was tried first. Prisma resolves
+  // every env() in the datasource before it will load the schema AT ALL, so a
+  // missing MIGRATE_DATABASE_URL broke `validate`, `generate` and
+  // `migrate status` — read-only commands that have no business needing a
+  // privileged credential. Measured: `Environment variable not found:
+  // MIGRATE_DATABASE_URL` from `prisma validate`.
+  //
+  // So the two-role split lives in `pnpm db:deploy`, which REQUIRES
+  // MIGRATE_DATABASE_URL and passes it as DATABASE_URL to that one command. One
+  // variable for ordinary work, a second only for the privileged operation — and
+  // the refusal for its absence is ours, so it can name the measured cause
+  // instead of Prisma's generic env error.
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Identity. Shapes only — B1c owns hashing and sessions, B1d owns authorization.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A person who can sign in to the dashboard.
+model User {
+  id          String   @id @default(uuid())
+  /// Lower-cased at the repository boundary, so uniqueness is case-insensitive
+  /// without a functional index. The address as TYPED is not kept: nothing reads
+  /// it, and two columns that must agree are two columns that can disagree.
+  email       String   @unique
+  displayName String?
+  /// NULL for an SSO user, who has no password to store (§8). Not an empty
+  /// string, which a verify would accept.
+  passwordHash String?
+  /// Which AuthProvider authenticates this user. 'local' today (§8).
+  authProviderId String @default("local")
+  /// The provider's own id for this user. NULL for local.
+  externalId  String?
+  disabledAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships Membership[]
+  sessions    Session[]
+  invitesSent Invite[] @relation("InviteCreatedBy")
+
+  @@index([authProviderId, externalId])
+}
+
+/// An application a user has a role on. Owner is `all` and needs no row.
+model Membership {
+  id            String      @id @default(uuid())
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  /// NULL together with scope 'all' — a grant over the whole installation.
+  applicationId String?
+  /// Owner | Manager | ExecutiveViewer | QA | CIService.
+  ///
+  /// A String and not a Prisma enum, deliberately: B1d owns the role vocabulary
+  /// and the `can()` function that is its single authority (§5). An enum here
+  /// would be a second source for that list, defined a batch before the first
+  /// one exists. B1d may tighten it, and if it does it owes a test that the two
+  /// agree (§AE).
+  role          String
+  /// own | app | all.
+  scope         String
+  createdAt     DateTime    @default(now())
+
+  @@unique([userId, applicationId, role])
+  @@index([applicationId])
+}
+
+/// A signed-in session. §3: only the HASH of the token is ever stored.
+model Session {
+  /// SHA-256 of the 32-byte opaque token, hex. The token itself is never stored,
+  /// so a database leak yields digests and not usable cookies (§3).
+  tokenHash         String   @id
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+  createdAt         DateTime @default(now())
+  lastSeenAt        DateTime @default(now())
+  /// Sliding. Pushed forward by activity, at most once a minute.
+  idleExpiresAt     DateTime
+  /// Hard cap from createdAt. Activity NEVER extends this (§3).
+  absoluteExpiresAt DateTime
+  createdIp         String?
+  createdUserAgent  String?
+  revokedAt         DateTime?
+  revokedReason     String?
+
+  @@index([userId])
+  @@index([absoluteExpiresAt])
+}
+
+/// A single-use invitation. There is no self-registration anywhere (§4).
+model Invite {
+  /// SHA-256 of the invite token, for the same reason as Session.tokenHash.
+  tokenHash     String   @id
+  email         String
+  role          String
+  scope         String
+  applicationId String?
+  createdBy     User     @relation("InviteCreatedBy", fields: [createdById], references: [id])
+  createdById   String
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  revokedAt     DateTime?
+
+  @@index([email])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit. §6: APPEND-ONLY, enforced by the database grant and not by this file.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Who did what, when, from where.
+///
+/// Append-only is a GRANT, not a convention: the application role gets INSERT
+/// and SELECT on this table and nothing else, so there is no UPDATE or DELETE to
+/// call even by accident. The repository interface having no mutating method is
+/// the convenience; the grant is the control.
+///
+///   GRANT INSERT, SELECT ON "AuditEvent" TO aitp_app;
+///
+/// The quoting is required — Prisma names the table as the model is spelled.
+model AuditEvent {
+  id            String   @id @default(uuid())
+  at            DateTime @default(now())
+
+  /// NULL when a failed login names an address with no user.
+  actorUserId   String?
+  /// The actor AS THEY WERE at write time. An id alone stops saying who acted
+  /// once a user is renamed, re-scoped or deleted — a hash cannot explain itself
+  /// (§6). The id decides; these explain, and are never used to look anything up.
+  actorEmail    String?
+  actorRole     String?
+  actorScope    String?
+  /// Set instead of actorUserId when the actor is a pipeline.
+  actorTokenId  String?
+
+  action        String
+  subjectType   String?
+  subjectId     String?
+  applicationId String?
+  /// allowed | denied | failed. Denials are recorded as deliberately as
+  /// successes: a log of only what worked cannot answer "has anyone been probing
+  /// this", which is most of what an audit log is for.
+  outcome       String
+
+  ip            String?
+  userAgent     String?
+  requestId     String?
+
+  /// Redacted before it arrives. Never a secret, a password or a token.
+  detail        Json     @default("{}")
+
+  @@index([at])
+  @@index([actorUserId, at])
+  @@index([applicationId, at])
+  @@index([action, at])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Applications and runs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One application under test. The filesystem registry (config/apps/<slug>/)
+/// remains the source of truth for module maps; this row is the identity the
+/// dashboard, memberships and runs key on.
+model Application {
+  id        String   @id @default(uuid())
+  /// The same lower-case slug `environmentSchema.application` validates, so a
+  /// row and a config directory cannot disagree about which application this is.
+  slug      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+  runs        Run[]
+}
+
+/// One suite invocation. Realigned to the canonical `Run` in
+/// packages/shared/src/types/run.ts, which this model had drifted behind.
 model Run {
   id          String    @id
   status      String
-  environment String
+
+  // ── request (RunRequest), flattened so environment and status are indexable
   command     String?
   grep        String?
+  environment String
   browsers    String[]
+  headed      Boolean   @default(false)
+  workers     Int?
+  retries     Int?
   metadata    Json      @default("{}")
+
+  // ── WHERE IT RAN (SEC-2). Added in B1b; the model had no target at all, so a
+  //    label that resolved somewhere it should not have was unauditable.
+  //
+  //    TWO states here, not the canonical type's three. `null` means "the
+  //    producer knew about targets and was given none"; a RunTarget means
+  //    recorded. The third — "written before the field existed" — is a property
+  //    of an old run.json on disk and cannot arise in a row this schema writes,
+  //    so it is not represented. A value that cannot occur is a state nothing
+  //    can test.
+  target      Json?
+
   createdAt   DateTime  @default(now())
   startedAt   DateTime?
   finishedAt  DateTime?
+
+  // ── summary (RunSummary), flattened
   total       Int       @default(0)
   passed      Int       @default(0)
   failed      Int       @default(0)
@@ -33,38 +254,59 @@ model Run {
   flaky       Int       @default(0)
   durationMs  Int       @default(0)
   passRate    Float     @default(0)
+
   artifacts   Json      @default("{}")
   error       String?
+  /// Filled by an out-of-band pass (`pnpm heal`), never by the run itself.
+  healingProposals Json?
+
+  application   Application? @relation(fields: [applicationId], references: [id])
+  applicationId String?
+
   results     TestRun[]
 
   @@index([createdAt])
   @@index([environment, status])
+  @@index([applicationId, createdAt])
 }
 
+/// One test result inside a run.
 model TestRun {
-  id         String   @id @default(uuid())
-  run        Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
-  runId      String
-  title      String
-  file       String
-  project    String
-  tags       String[]
-  outcome    String
-  durationMs Int
-  retry      Int      @default(0)
-  errorMsg   String?
-  errorStack String?
-  /// Filled by the Phase 2 root-cause analyzer.
-  rootCause  String?
-  steps      Json     @default("[]")
-  attachments Json    @default("[]")
+  id          String   @id @default(uuid())
+  run         Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runId       String
+  /// Playwright's own test id, kept so a result can be matched across runs.
+  testId      String?
+  title       String
+  file        String
+  project     String
+  tags        String[]
+  outcome     String
+  durationMs  Int
+  retry       Int      @default(0)
+  errorMsg    String?
+  errorStack  String?
+  /// The whole RootCauseAnalysis, not a sentence. Was `rootCause String?`, which
+  /// could hold the conclusion but not its category, confidence or evidence —
+  /// and §ADR-011 requires an uncertain verdict to be presentable as uncertain.
+  rca         Json?
+  /// FailureContext: console errors, page errors, failed requests, the DOM
+  /// snapshot, locator telemetry and the healing gate verdicts.
+  context     Json?
+  steps       Json     @default("[]")
+  attachments Json     @default("[]")
 
   @@index([runId])
   @@index([title, outcome])
 }
 
-/// Healing history: which locator candidates rot, and what the AI replaced them with.
-/// This is the training signal for the self-healing engine.
+// ─────────────────────────────────────────────────────────────────────────────
+// Pre-existing models, unchanged. Not in B1b's scope; kept because the data
+// model they describe is settled and deleting it is not persistence work.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Healing history: which locator candidates rot, and what the AI replaced them
+/// with. This is the training signal for the self-healing engine.
 model LocatorEvent {
   id           String   @id @default(uuid())
   key          String
