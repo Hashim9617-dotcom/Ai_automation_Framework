@@ -22,7 +22,7 @@
 import { spawnSync } from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
-import { readEnvFile } from './read-env-file';
+import { conflictingEnvKeys, readEnvFile } from './read-env-file';
 import { findRepoRoot } from '@aitp/shared';
 import { resolveDatabaseUrl } from '../apps/api/src/config/database';
 
@@ -36,6 +36,7 @@ const EXIT = {
   unreachable: 11,
   notMigrated: 12,
   notImplemented: 13,
+  conflictingEnv: 14,
 } as const;
 
 function refuse(code: number, lines: string[]): never {
@@ -44,7 +45,27 @@ function refuse(code: number, lines: string[]): never {
 }
 
 async function main(): Promise<void> {
-  const envFile = readEnvFile(path.join(ROOT, '.env'));
+  const ENV_FILE = path.join(ROOT, '.env');
+
+  // ── 0. Does `.env` say one thing, or two? ────────────────────────────────────
+  //
+  // Checked FIRST, because every answer below is read from it. Found on
+  // 2026-10-21: `AITP_DB_OWNER_URL` was present twice with different passwords,
+  // and dotenv is LAST-WINS — measured — so the broken one silently decided. A
+  // report whose inputs are ambiguous is worse than no report.
+  const conflicts = conflictingEnvKeys(ENV_FILE);
+  if (conflicts.length > 0) {
+    refuse(EXIT.conflictingEnv, [
+      '.env assigns the same key more than once, with DIFFERENT values:',
+      '',
+      ...conflicts.map((entry) => `  ${entry.key} on lines ${entry.lines.join(' and ')}`),
+      '',
+      'Reading is LAST-WINS, so the last one silently decides. Delete the line you',
+      'did not mean. No tie-break is applied here on purpose.',
+    ]);
+  }
+
+  const envFile = readEnvFile(ENV_FILE);
 
   // ── 1. Is there a connection string, and is it usable? ───────────────────────
   //
@@ -109,7 +130,7 @@ async function main(): Promise<void> {
         .filter((line) => line.trim())
         .slice(0, 12),
       '',
-      'To apply it:  pnpm db:deploy   (needs MIGRATE_DATABASE_URL — see below)',
+      'To apply it:  pnpm db:deploy   (reads AITP_DB_OWNER_URL from .env)',
     ]);
   }
   console.log('Migrations: up to date');

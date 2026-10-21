@@ -18,12 +18,15 @@
 // role, through `url`.
 //
 // To apply:
-//   MIGRATE_DATABASE_URL=<owner role>   # not DATABASE_URL — see above
+//   AITP_DB_OWNER_URL=<owner role> in .env   # not DATABASE_URL — see above
 //   pnpm db:deploy
 //
 // `pnpm db:migration` authors a migration with NO database connection at all
 // (`migrate diff --from-empty`), so the SQL is reviewable before anything is
-// granted.
+// granted. The GRANTS for the application role are a migration of their own
+// (`..._b1b_grants_for_app_role`), applied by `db:deploy` as the owner rather
+// than printed for a human: a grant somebody has to remember is a grant that
+// eventually is not issued.
 
 generator client {
   provider = "prisma-client-js"
@@ -34,16 +37,16 @@ datasource db {
   // The RUNTIME connection: the application role, which cannot change the schema.
   url      = env("DATABASE_URL")
   //
-  // NOT `directUrl = env("MIGRATE_DATABASE_URL")`, which is the idiomatic way to
+  // NOT `directUrl = env("AITP_DB_OWNER_URL")`, which is the idiomatic way to
   // give migrations a different connection and was tried first. Prisma resolves
   // every env() in the datasource before it will load the schema AT ALL, so a
-  // missing MIGRATE_DATABASE_URL broke `validate`, `generate` and
+  // missing owner URL broke `validate`, `generate` and
   // `migrate status` — read-only commands that have no business needing a
   // privileged credential. Measured: `Environment variable not found:
-  // MIGRATE_DATABASE_URL` from `prisma validate`.
+  // <the owner key>` from `prisma validate`.
   //
   // So the two-role split lives in `pnpm db:deploy`, which REQUIRES
-  // MIGRATE_DATABASE_URL and passes it as DATABASE_URL to that one command. One
+  // AITP_DB_OWNER_URL and passes it as DATABASE_URL to that one command. One
   // variable for ordinary work, a second only for the privileged operation — and
   // the refusal for its absence is ours, so it can name the measured cause
   // instead of Prisma's generic env error.

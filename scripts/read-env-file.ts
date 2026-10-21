@@ -32,22 +32,72 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 
-/** Every `KEY=value` found, last one winning. */
-export function readEnvFile(file: string): Record<string, string> {
-  if (!existsSync(file)) return {};
-  const out: Record<string, string> = {};
-  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
-    const trimmed = line.trim();
+interface Assignment {
+  key: string;
+  value: string;
+  /** 1-based, so a refusal can tell a human which line to delete. */
+  line: number;
+}
+
+/** Every `KEY=value` in order, with its line number. Internal. */
+function assignments(file: string): Assignment[] {
+  if (!existsSync(file)) return [];
+  const out: Assignment[] = [];
+  for (const [index, raw] of readFileSync(file, 'utf8').split(/\r?\n/).entries()) {
+    const trimmed = raw.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
     const eq = trimmed.indexOf('=');
     if (eq <= 0) continue;
     const key = trimmed.slice(0, eq).trim();
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
     // Surrounding quotes are a quoting convention, not part of the value.
-    out[key] = trimmed
+    const value = trimmed
       .slice(eq + 1)
       .trim()
       .replace(/^(["'])([\s\S]*)\1$/, '$2');
+    out.push({ key, value, line: index + 1 });
   }
   return out;
+}
+
+/** Every `KEY=value` found, last one winning — which is what dotenv does too. */
+export function readEnvFile(file: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const { key, value } of assignments(file)) out[key] = value;
+  return out;
+}
+
+/**
+ * Keys assigned more than once with DIFFERENT values, and the lines they are on.
+ *
+ * ## Why this exists
+ *
+ * Found on 2026-10-21: `AITP_DB_OWNER_URL` appeared twice in `.env`, at lines 56
+ * and 58, with different passwords. Measured, because it decides everything:
+ * dotenv and this reader are both **LAST-WINS**, and line 58 was the one that
+ * FAILED authentication. So the working credential was present, sitting two
+ * lines above the broken one that silently won — and the failure surfaces as
+ * "password authentication failed", which reads as a wrong password rather than
+ * as two of them.
+ *
+ * A duplicate with the SAME value is not reported: it is untidy and it cannot
+ * change an outcome. A duplicate with different values is two sources
+ * disagreeing, which `requireApplicationArg` already establishes has no safe
+ * tie-break — so the caller refuses and names both lines rather than picking.
+ *
+ * **Line numbers only, never values.** A refusal about a credential must not
+ * print the credential, and "they differ" is the whole finding.
+ */
+export function conflictingEnvKeys(file: string): Array<{ key: string; lines: number[] }> {
+  const byKey = new Map<string, Assignment[]>();
+  for (const entry of assignments(file)) {
+    byKey.set(entry.key, [...(byKey.get(entry.key) ?? []), entry]);
+  }
+  const conflicts: Array<{ key: string; lines: number[] }> = [];
+  for (const [key, entries] of byKey) {
+    if (entries.length < 2) continue;
+    if (new Set(entries.map((entry) => entry.value)).size < 2) continue;
+    conflicts.push({ key, lines: entries.map((entry) => entry.line) });
+  }
+  return conflicts;
 }

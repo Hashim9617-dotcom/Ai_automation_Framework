@@ -29,6 +29,36 @@ blob-report/
 .env.*.local
 !.env.example
 
+# Credential dumps. A real one appeared at the repo root on 2026-10-21 —
+# "postgresql password.txt", 32 bytes, UNIGNORED — and `git add -A` would have
+# committed it. It was caught by looking, which works until the once it does not.
+#
+# These patterns cover the shapes a credential arrives in: a note someone saved,
+# a key file, a cloud-provider dump. They are NOT a control on their own —
+# `git add -f` bypasses an ignore rule, and a rule nobody checks is a rule that
+# has quietly stopped applying — so `tests/unit/credential-files.spec.ts` is the
+# half that fails loudly. Same pairing as the workbook rules below.
+*password*.txt
+*password*.json
+*passwords*
+*secret*.txt
+*secret*.json
+*credential*.txt
+*credential*.json
+*.pem
+*.key
+*.pfx
+*.p12
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+.pgpass
+# Exceptions: these are code and documentation, not credentials. Narrow on
+# purpose — a broad `!*.ts` would re-admit a file called `my-password.ts`.
+!**/*.key.ts
+!**/*.key.d.ts
+
 # Editors / OS
 .idea/
 .vscode/*

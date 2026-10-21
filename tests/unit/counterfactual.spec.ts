@@ -108,6 +108,11 @@ const COVERED = [
   // than six hand-written ones. The DATABASE_URL pair say what the obvious
   // message would have leaked.
   'tests/unit/persistence.spec.ts',
+  // Added 2026-10-21: the credential guard, whose counterfactual IS the incident
+  // — an unignored `postgresql password.txt` sat in the repo root and `git add -A`
+  // would have committed it. Both halves planted, because over a clean tree a
+  // detector that matches nothing and one that works look identical.
+  'tests/unit/credential-files.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every

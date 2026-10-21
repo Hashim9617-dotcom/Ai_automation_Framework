@@ -1,4 +1,9 @@
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test, expect } from '@playwright/test';
+import { findRepoRoot } from '@aitp/shared';
+import { conflictingEnvKeys, readEnvFile } from '../../scripts/read-env-file';
 import {
   maskDatabaseUrl,
   requireDatabaseUrl,
@@ -38,6 +43,19 @@ import { RunStatus, type Run } from '@aitp/shared';
  * So the two halves compose to the property and neither states it alone (§L):
  * green here means the contract holds in memory, and nothing more.
  */
+
+const ROOT = findRepoRoot();
+
+/** Every `.ts` under a directory. Used by D3 to enumerate rather than remember. */
+function walkTs(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkTs(full));
+    else if (entry.name.endsWith('.ts')) out.push(full);
+  }
+  return out;
+}
 
 const ISO = (minute: number): string =>
   new Date(Date.UTC(2026, 9, 21, 12, minute, 0)).toISOString();
@@ -447,5 +465,93 @@ test.describe('DATABASE_URL has three answers and no default @unit', () => {
     // And the masker's own FAILURE path does not echo its input, which is where
     // a "return the original on error" would have leaked it.
     expect(maskDatabaseUrl(`garbage ${SECRET}`)).not.toContain(SECRET);
+  });
+});
+
+test.describe('the owner credential stays out of the runtime @unit', () => {
+  test('D3: no code under apps/api reads AITP_DB_OWNER_URL', () => {
+    // wrong: the API process holding the owner URL means the runtime can change
+    // its own schema — which makes every grant in
+    // `..._b1b_grants_for_app_role/migration.sql` removable by the thing they
+    // restrict, including the REVOKE that is §6's only real control. One
+    // `process.env.AITP_DB_OWNER_URL` anywhere under apps/api would do it, and
+    // nothing else in the suite would notice.
+    //
+    // Enumerated from the FILESYSTEM, not a hand-written list: a file nobody
+    // remembers to add is a file that is ungoverned, and that changes a verdict
+    // rather than degrading a message (§AE).
+    const files = walkTs(path.join(ROOT, 'apps', 'api', 'src'));
+
+    // §T — the walk had a subject. Measured 2026-10-21: 14 source files.
+    expect(files.length, 'the walk read no apps/api source at all').toBeGreaterThan(8);
+
+    const offenders = files.filter((file) => /AITP_DB_OWNER_URL/.test(readFileSync(file, 'utf8')));
+    expect(
+      offenders.map((file) => path.relative(ROOT, file).split(path.sep).join('/')),
+      'these read the OWNER credential from runtime code. Only scripts/db-deploy.ts\n' +
+        'may, and it passes it to one child command rather than holding it:',
+    ).toEqual([]);
+
+    // Discriminating, and this is the half that matters: the scan must be
+    // capable of FINDING the string. Over a tree that does not contain it, a
+    // detector that works and one whose regex never matches are the same output.
+    const planted = '/* AITP_DB_OWNER' + '_URL */';
+    expect(/AITP_DB_OWNER_URL/.test(planted), 'the pattern cannot match its own target').toBe(true);
+
+    // And the one place that IS allowed to read it does, or the rule above is
+    // being satisfied by nobody using the variable at all.
+    const deployer = readFileSync(path.join(ROOT, 'scripts', 'db-deploy.ts'), 'utf8');
+    expect(deployer, 'db-deploy.ts does not read the owner key — the rule guards nothing').toMatch(
+      /AITP_DB_OWNER_URL/,
+    );
+  });
+
+  test('D4: two assignments of one key in .env are REFUSED, not tie-broken', () => {
+    // wrong: this happened. `AITP_DB_OWNER_URL` was in `.env` twice, lines 56
+    // and 58, with different passwords — and reading is LAST-WINS (measured for
+    // both dotenv and this repo's reader), so the line that silently won was the
+    // one that FAILED authentication, with the working credential two lines
+    // above it. The symptom is "password authentication failed", which reads as
+    // one wrong password rather than as two of them.
+    //
+    // Picking whichever authenticates would be credential-guessing;
+    // `requireApplicationArg` already settles the general case — two sources
+    // disagreeing have no safe tie-break.
+    const dir = mkdtempSync(path.join(tmpdir(), 'aitp-env-dup-'));
+    try {
+      const file = path.join(dir, '.env');
+
+      // THE CATCHING HALF: same key, different values.
+      writeFileSync(file, 'A=1\nAITP_DB_OWNER_URL=one\nB=2\nAITP_DB_OWNER_URL=two\n', 'utf8');
+      const conflicts = conflictingEnvKeys(file);
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]!.key).toBe('AITP_DB_OWNER_URL');
+      // The LINE NUMBERS are the actionable part — "delete line 4", not "fix your .env".
+      expect(conflicts[0]!.lines).toEqual([2, 4]);
+      // And no value is reported, because a refusal about a credential must not
+      // print the credential.
+      expect(JSON.stringify(conflicts)).not.toContain('one');
+      expect(JSON.stringify(conflicts)).not.toContain('two');
+
+      // THE SILENT HALF, and the case the assertion above is written against. A
+      // detector that flagged every repeated key would refuse a tidy-but-
+      // duplicated file, and one that flagged any multi-key file would refuse
+      // every .env there is.
+      writeFileSync(file, 'A=1\nAITP_DB_OWNER_URL=same\nAITP_DB_OWNER_URL=same\n', 'utf8');
+      expect(conflictingEnvKeys(file), 'an identical duplicate cannot change an outcome').toEqual(
+        [],
+      );
+
+      writeFileSync(file, 'A=1\nB=2\nC=3\n', 'utf8');
+      expect(conflictingEnvKeys(file)).toEqual([]);
+
+      // Last-wins is the behaviour the refusal exists because of, so it is
+      // pinned here rather than assumed — if the reader ever became first-wins,
+      // every message about it would be wrong.
+      writeFileSync(file, 'K=first\nK=second\n', 'utf8');
+      expect(readEnvFile(file).K, 'the reader is no longer last-wins').toBe('second');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
