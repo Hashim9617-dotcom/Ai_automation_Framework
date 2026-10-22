@@ -75,7 +75,14 @@ try {
 
 const result = spawnSync(
   process.execPath,
-  [cli, 'test', '--project=api', '--grep-invert', '@smoke', ...process.argv.slice(2)],
+  // TWO exclusions, for two different reasons.
+  //
+  // `@smoke` asks the real application under test whether it is up, so it needs
+  // a live environment. `@db` needs a PostgreSQL server, and `pnpm verify` runs
+  // on every commit on a developer machine and must not require one — which is
+  // why the in-memory repositories stay and why the unit suite binds them
+  // (docs/design/B1-auth-and-data.md §1). `pnpm test:db` runs the @db half.
+  [cli, 'test', '--project=api', '--grep-invert', '@smoke|@db', ...process.argv.slice(2)],
   { stdio: 'inherit', env },
 );
 

@@ -113,6 +113,11 @@ const COVERED = [
   // would have committed it. Both halves planted, because over a clean tree a
   // detector that matches nothing and one that works look identical.
   'tests/unit/credential-files.spec.ts',
+  // Added 2026-10-22 with the Postgres half: the one property the in-memory
+  // store cannot have. Every counterfactual here names what the Map would do,
+  // which is why H1 is the only assertion in the batch that distinguishes
+  // storage from memory at all.
+  'tests/api/run-history.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every

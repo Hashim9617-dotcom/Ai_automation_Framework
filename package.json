@@ -49,8 +49,9 @@
     "verify-entries": "node scripts/kit-check.mjs && tsx scripts/verify-entries.ts",
     "kit:manifest": "node scripts/kit-manifest.mjs",
     "kit:release": "node scripts/kit-release.mjs",
-    "db:validate": "node apps/api/node_modules/prisma/build/index.js validate --schema infra/prisma/schema.prisma",
-    "db:status": "node apps/api/node_modules/prisma/build/index.js migrate status --schema infra/prisma/schema.prisma",
+    "db:validate": "pnpm --filter @aitp/api exec prisma validate",
+    "db:status": "pnpm --filter @aitp/api exec prisma migrate status",
+    "db:generate": "pnpm --filter @aitp/api exec prisma generate",
     "db:migration": "node scripts/db-migration.mjs",
     "db:deploy": "tsx scripts/db-deploy.ts",
     "test:db": "tsx scripts/test-db.ts"

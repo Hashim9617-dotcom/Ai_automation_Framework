@@ -49,6 +49,7 @@ import { conflictingEnvKeys, readEnvFile } from './read-env-file';
 // here resolves the root the same way, so there is one answer to "where is the
 // repo" rather than two.
 const ROOT = findRepoRoot(__dirname);
+const API_DIR = path.join(ROOT, 'apps', 'api');
 const ENV_FILE = path.join(ROOT, '.env');
 const OWNER_KEY = 'AITP_DB_OWNER_URL';
 
@@ -123,13 +124,18 @@ delete env[OWNER_KEY];
 const result = spawnSync(
   process.execPath,
   [
-    path.join(ROOT, 'apps', 'api', 'node_modules', 'prisma', 'build', 'index.js'),
+    path.join(API_DIR, 'node_modules', 'prisma', 'build', 'index.js'),
     'migrate',
     'deploy',
     '--schema',
-    path.join(ROOT, 'infra', 'prisma', 'schema.prisma'),
+    path.join(API_DIR, 'prisma', 'schema.prisma'),
   ],
-  { cwd: ROOT, stdio: 'inherit', env },
+  // `cwd: API_DIR`, not the repo root. Prisma resolves its own CLI and the
+  // generated client starting from the CWD and the schema's directory, and from
+  // the ROOT it finds neither — measured: `prisma generate` answered with
+  // `Command failed: pnpm add prisma@6.19.3 -D`, i.e. it tried to install itself
+  // at the root, which is exactly where the dependency must not be.
+  { cwd: API_DIR, stdio: 'inherit', env },
 );
 
 if (result.error) {

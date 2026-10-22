@@ -2,14 +2,17 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { findRepoRoot } from '@aitp/shared';
-import { conflictingEnvKeys, readEnvFile } from '../../scripts/read-env-file';
+import { RunStatus, findRepoRoot, type Run } from '@aitp/shared';
 import {
   maskDatabaseUrl,
   requireDatabaseUrl,
   resolveDatabaseUrl,
 } from '../../apps/api/src/config/database';
 import { InMemoryRunRepository } from '../../apps/api/src/modules/runs/run.repository';
+import {
+  APPEND_ONLY_TABLES,
+  FORBIDDEN_ON_APPEND_ONLY,
+} from '../../apps/api/src/modules/persistence/append-only';
 import {
   InMemoryApplicationRepository,
   InMemoryAuditRepository,
@@ -18,30 +21,33 @@ import {
   InMemorySessionRepository,
   InMemoryUserRepository,
 } from '../../apps/api/src/modules/persistence/in-memory';
+import { conflictingEnvKeys, readEnvFile } from '../../scripts/read-env-file';
+import {
+  CONTRACT,
+  ISO,
+  define,
+  type ContractRunners,
+  type ErasedSubject,
+} from '../support/repository-contract';
 import type {
   ApplicationRow,
   InviteRow,
-  KeyedStore,
   MembershipRow,
   SessionRow,
   UserRow,
 } from '../../apps/api/src/modules/persistence/repositories';
-import { RunStatus, type Run } from '@aitp/shared';
 
 /**
- * The persistence layer: where the data lives, and the contract every store
- * keeps.
+ * The persistence layer, against the IN-MEMORY implementations.
  *
- * `docs/design/B1-auth-and-data.md` §1. **This suite runs against the
- * IN-MEMORY implementations only**, which is what lets `pnpm verify` need no
- * database. The same assertions are what `pnpm test:db` will run against
- * Postgres once the schema is applied — one suite, two implementations, which is
- * the only thing that catches a divergence between them. An in-memory
- * repository written by the same author as the code it serves is a stub that
- * cannot falsify itself.
+ * `docs/design/B1-auth-and-data.md` §1. The assertions themselves live in
+ * `tests/support/repository-contract.ts` and are called from here with the
+ * in-memory stores, and from `pnpm test:db` with the Prisma ones. **One suite,
+ * two implementations** — the only thing that catches a divergence, because a
+ * stub written by the author of the code it serves cannot falsify itself.
  *
- * So the two halves compose to the property and neither states it alone (§L):
- * green here means the contract holds in memory, and nothing more.
+ * So green here means the contract holds in memory, and nothing more. The other
+ * half is `pnpm test:db`, and neither states the property alone (§L).
  */
 
 const ROOT = findRepoRoot();
@@ -57,42 +63,6 @@ function walkTs(dir: string): string[] {
   return out;
 }
 
-const ISO = (minute: number): string =>
-  new Date(Date.UTC(2026, 9, 21, 12, minute, 0)).toISOString();
-
-/**
- * A repository under contract, described structurally.
- *
- * Structural rather than by a shared base class, because `RunRepository`
- * predates this suite and §1 says its interface stays exactly as it is — so it
- * is included here without being modified to know about it.
- */
-interface Subject<T> {
-  name: string;
-  make: () => KeyedStore<T>;
-  /** A row with the given key and creation time, otherwise plausible. */
-  row: (key: string, createdAt: string) => T;
-  keyOf: (row: T) => string;
-}
-
-/**
- * Each subject is TYPED, not cast (§AD).
- *
- * The first draft stored them as `Subject<never>[]` with
- * `as unknown as Subject<never>` on each literal — which compiled, and cost the
- * row builders their contextual typing: every `(id, createdAt) =>` parameter
- * became an implicit `any`, so a row missing a field the store reads would not
- * have been a compile error. That is exactly what §AD warns about — the field a
- * cast lets you forget is the one no test will ever mention.
- *
- * `define<T>` keeps each literal checked against its own row type and erases the
- * parameter only at the boundary, where the suite genuinely does not care which
- * store it is holding.
- */
-type ErasedSubject = Subject<unknown>;
-
-const define = <T>(subject: Subject<T>): ErasedSubject => subject as ErasedSubject;
-
 const runRow = (id: string, createdAt: string): Run => ({
   id,
   status: RunStatus.Queued,
@@ -102,12 +72,20 @@ const runRow = (id: string, createdAt: string): Run => ({
   artifacts: {},
 });
 
+/**
+ * Each subject is TYPED where it is defined (§AD).
+ *
+ * The first draft stored them as `Subject<never>[]` with a cast per literal —
+ * which compiled, and cost every row builder its contextual typing, so a row
+ * missing a field the store reads would not have been an error. `define<T>`
+ * keeps each literal checked and erases the parameter only at the boundary.
+ */
 const SUBJECTS: ErasedSubject[] = [
   define<Run>({
     name: 'RunRepository',
     make: () => new InMemoryRunRepository(),
     row: runRow,
-    keyOf: (r: Run) => r.id,
+    keyOf: (row) => row.id,
   }),
   define<UserRow>({
     name: 'UserRepository',
@@ -123,7 +101,7 @@ const SUBJECTS: ErasedSubject[] = [
       createdAt,
       updatedAt: createdAt,
     }),
-    keyOf: (r: { id: string }) => r.id,
+    keyOf: (row) => row.id,
   }),
   define<SessionRow>({
     name: 'SessionRepository',
@@ -140,7 +118,7 @@ const SUBJECTS: ErasedSubject[] = [
       revokedAt: null,
       revokedReason: null,
     }),
-    keyOf: (r: { tokenHash: string }) => r.tokenHash,
+    keyOf: (row) => row.tokenHash,
   }),
   define<InviteRow>({
     name: 'InviteRepository',
@@ -157,19 +135,13 @@ const SUBJECTS: ErasedSubject[] = [
       acceptedAt: null,
       revokedAt: null,
     }),
-    keyOf: (r: { tokenHash: string }) => r.tokenHash,
+    keyOf: (row) => row.tokenHash,
   }),
   define<ApplicationRow>({
     name: 'ApplicationRepository',
     make: () => new InMemoryApplicationRepository(),
-    row: (id, createdAt) => ({
-      id,
-      slug: id,
-      name: `App ${id}`,
-      createdAt,
-      updatedAt: createdAt,
-    }),
-    keyOf: (r: { id: string }) => r.id,
+    row: (id, createdAt) => ({ id, slug: id, name: `App ${id}`, createdAt, updatedAt: createdAt }),
+    keyOf: (row) => row.id,
   }),
   define<MembershipRow>({
     name: 'MembershipRepository',
@@ -182,225 +154,125 @@ const SUBJECTS: ErasedSubject[] = [
       scope: 'app',
       createdAt,
     }),
-    keyOf: (r: { id: string }) => r.id,
+    keyOf: (row) => row.id,
   }),
 ];
 
-/** §T — the loops below must have had something to loop over. */
-const EXPECTED_SUBJECTS = 6;
+/**
+ * No `prepare` anywhere, and that is the in-memory half's whole advantage:
+ * every `make()` is a fresh `Map`, so there is nothing to clear and no foreign
+ * key to satisfy. The Postgres half supplies real ones — see
+ * `tests/api/persistence-postgres.spec.ts`.
+ */
+const RUNNERS: ContractRunners = {
+  subjects: SUBJECTS,
+  users: () => Promise.resolve(new InMemoryUserRepository()),
+  sessions: () => Promise.resolve(new InMemorySessionRepository()),
+  audit: () => Promise.resolve(new InMemoryAuditRepository()),
+};
+
+const contract = (id: string): (() => Promise<void>) => {
+  const entry = CONTRACT.find((candidate) => candidate.id === id);
+  if (!entry) throw new Error(`no contract assertion called ${id}`);
+  return () => entry.run(RUNNERS);
+};
+
+/** §T — the shared contract must actually hold all nine, or these delegate to nothing. */
+const EXPECTED_CONTRACT_SIZE = 9;
 
 test.describe('the repository contract, in memory @unit', () => {
   test('C1: every store round-trips a saved row by its key', async () => {
     // wrong: a save that dropped the row, or a findById keyed on the wrong
-    // field, returns undefined here — and with six stores sharing one suite a
+    // field, returns undefined — and with six stores sharing one assertion a
     // single store getting its key wrong is caught, where six hand-written
     // suites would each have been written against whatever that store does.
-    expect(SUBJECTS.length, 'the contract ran over no stores at all').toBe(EXPECTED_SUBJECTS);
+    //
+    // The SHARED LIST is pinned here as well (§T), because extracting these
+    // assertions into a module both halves read created a new failure the
+    // extraction itself could cause: a contract that lost an entry would make
+    // this suite and `pnpm test:db` quietly weaker IN STEP, agreeing because
+    // they read the same shortened list, with nothing failing.
+    expect(CONTRACT.map((entry) => entry.id)).toEqual([
+      'C1',
+      'C2',
+      'C3',
+      'C4',
+      'C5',
+      'C6',
+      'C7',
+      'C8',
+      'C9',
+    ]);
+    expect(CONTRACT).toHaveLength(EXPECTED_CONTRACT_SIZE);
+    expect(SUBJECTS.length, 'the contract would run over no stores').toBe(6);
 
-    for (const subject of SUBJECTS) {
-      const store = subject.make();
-      const row = subject.row('k1', ISO(0));
-      await store.save(row);
-      const found = await store.findById(subject.keyOf(row));
-      expect(found, `${subject.name}: a saved row was not found by its key`).toBeDefined();
-      expect(subject.keyOf(found!), `${subject.name}: the wrong row came back`).toBe('k1');
-    }
+    await contract('C1')();
   });
 
   test('C2: an unknown key is undefined, not a throw and not a fabricated row', async () => {
     // wrong: a store that threw would make "does this exist?" unanswerable
-    // without a try/catch at every call site, and one that returned a default
-    // object would let a caller act on a row nobody wrote. Both have been
-    // shipped by somebody; `undefined` is the only answer that is a fact.
-    for (const subject of SUBJECTS) {
-      const store = subject.make();
-      expect(await store.findById('nope'), `${subject.name}: not undefined`).toBeUndefined();
-    }
+    // without a try/catch at every call site, and one returning a default object
+    // would let a caller act on a row nobody wrote.
+    await contract('C2')();
   });
 
   test('C3: saving the same key twice REPLACES rather than duplicating', async () => {
-    // wrong: an append-style save gives two rows for one key, `findById` returns
-    // whichever the implementation happens to reach first, and the two
-    // implementations can disagree about which — a divergence that shows up as
-    // one stale field much later.
-    for (const subject of SUBJECTS) {
-      const store = subject.make();
-      await store.save(subject.row('k1', ISO(0)));
-      await store.save(subject.row('k1', ISO(5)));
-      const all = await store.list(100);
-      expect(
-        all.filter((r) => subject.keyOf(r) === 'k1'),
-        `${subject.name}: duplicated`,
-      ).toHaveLength(1);
-    }
+    // wrong: an append-style save gives two rows for one key, and `findById`
+    // returns whichever the implementation reaches first — which the two
+    // implementations can disagree about, surfacing as one stale field later.
+    await contract('C3')();
   });
 
   test('C4: list is newest-first', async () => {
-    // wrong: insertion order. Which is the SAME as newest-first whenever rows
-    // are inserted in chronological order, so the fixture inserts them out of
-    // order on purpose — a fixture that saved oldest-then-newest could not tell
-    // a sorted list from an unsorted one (§"a discriminating property needs a
-    // discriminating fixture").
-    for (const subject of SUBJECTS) {
-      const store = subject.make();
-      await store.save(subject.row('middle', ISO(5)));
-      await store.save(subject.row('oldest', ISO(0)));
-      await store.save(subject.row('newest', ISO(9)));
-      const keys = (await store.list(100)).map(subject.keyOf);
-      expect(keys, `${subject.name}: not newest-first`).toEqual(['newest', 'middle', 'oldest']);
-    }
+    // wrong: insertion order, which is the SAME as newest-first whenever rows go
+    // in chronologically — so the fixture inserts them out of order and a sorted
+    // store can be told from an unsorted one.
+    await contract('C4')();
   });
 
   test('C5: list respects its limit, and takes the newest ones', async () => {
-    // wrong: a limit applied BEFORE the sort returns the newest two of whatever
-    // order the store happened to hold — so asserting only the length would pass
-    // over an implementation that silently drops the rows a reader wanted most.
-    for (const subject of SUBJECTS) {
-      const store = subject.make();
-      await store.save(subject.row('a', ISO(0)));
-      await store.save(subject.row('b', ISO(5)));
-      await store.save(subject.row('c', ISO(9)));
-      expect((await store.list(2)).map(subject.keyOf), `${subject.name}: wrong page`).toEqual([
-        'c',
-        'b',
-      ]);
-    }
+    // wrong: a limit applied BEFORE the sort returns two rows of whatever order
+    // the store held, so asserting only the length would pass over an
+    // implementation that silently drops the rows a reader wanted most.
+    await contract('C5')();
   });
 
   test('C6: an empty store lists nothing, and that is not an error', async () => {
     // wrong: a throw, or a null. This is the three-states rule at the storage
     // layer — "configured and empty" must be distinguishable from "could not
-    // read", and an empty array is how the first one says so.
-    for (const subject of SUBJECTS) {
-      const store = subject.make();
-      expect(await store.list(25), `${subject.name}: empty is not []`).toEqual([]);
-    }
+    // read", and an empty array is how the first says so.
+    await contract('C6')();
   });
 
   test('C7: a user is found by email case-insensitively, and only one case can exist', async () => {
-    // wrong: `Hashim@x.test` and `hashim@x.test` become two accounts, and which
-    // one a login reaches depends on what the person typed. Email is
-    // case-insensitive in practice, so the store folds on the way IN rather than
-    // scanning case-insensitively on the way out — a scan would still let both
-    // rows exist.
-    const users = new InMemoryUserRepository();
-    // Built here and fully TYPED rather than spread off an erased subject row:
-    // `UserRow` is what the store reads, so the compiler is required to supply
-    // every field of it (§AD).
-    const user: UserRow = {
-      id: 'u1',
-      email: 'Mixed.Case@Example.TEST',
-      displayName: null,
-      passwordHash: null,
-      authProviderId: 'local',
-      externalId: null,
-      disabledAt: null,
-      createdAt: ISO(0),
-      updatedAt: ISO(0),
-    };
-    await users.save(user);
-
-    expect(await users.findByEmail('mixed.case@example.test')).toBeDefined();
-    expect(await users.findByEmail('MIXED.CASE@EXAMPLE.TEST')).toBeDefined();
-    expect(await users.findByEmail('  Mixed.Case@Example.test  ')).toBeDefined();
-    // Stored folded, so a second row cannot differ only by case.
-    expect((await users.findById('u1'))!.email).toBe('mixed.case@example.test');
-    // Discriminating: a different address is still not found.
-    expect(await users.findByEmail('someone.else@example.test')).toBeUndefined();
+    // wrong: `Hashim@x.test` and `hashim@x.test` become two accounts and which
+    // one a login reaches depends on what was typed. Folding on the way IN is
+    // what stops both rows existing; a case-insensitive scan on the way out
+    // would not.
+    await contract('C7')();
   });
 
   test('C8: findActive refuses a revoked session and BOTH expiries separately', async () => {
-    // wrong: checking only the idle clock makes a session that is used daily
-    // live forever, which is the exact property §3's absolute expiry exists to
-    // stop — and a test that only aged a session past BOTH clocks at once could
-    // not tell which check was doing the work. Each is aged on its own here.
-    const sessions = new InMemorySessionRepository();
-    const row = {
-      tokenHash: 'h',
-      userId: 'u1',
-      createdAt: ISO(0),
-      lastSeenAt: ISO(0),
-      idleExpiresAt: ISO(10),
-      absoluteExpiresAt: ISO(50),
-      createdIp: null,
-      createdUserAgent: null,
-      revokedAt: null,
-      revokedReason: null,
-    };
-
-    await sessions.save(row);
-    expect(await sessions.findActive('h', ISO(5)), 'a live session was refused').toBeDefined();
-
-    // Past the IDLE clock only.
-    expect(await sessions.findActive('h', ISO(20))).toBeUndefined();
-    // Past the ABSOLUTE clock only — idle pushed forward, as activity does.
-    await sessions.save({ ...row, idleExpiresAt: ISO(59) });
-    expect(
-      await sessions.findActive('h', ISO(55)),
-      'the absolute expiry did not hold once idle was extended',
-    ).toBeUndefined();
-
-    // Revoked, while both clocks still have time on them.
-    await sessions.save({ ...row, revokedAt: ISO(1), revokedReason: 'logout' });
-    expect(await sessions.findActive('h', ISO(5))).toBeUndefined();
-    // And the raw row is still retrievable, because administration needs it.
-    expect(await sessions.findById('h')).toBeDefined();
+    // wrong: checking only the idle clock makes a session used daily live
+    // forever, which is what §3's absolute expiry exists to stop — and ageing
+    // past both clocks at once could not say which check did the work.
+    await contract('C8')();
   });
 
   test('C9: the audit store appends and reads, and exposes no way to change a row', async () => {
     // wrong: an interface carrying `save` or `delete` would let a well-meaning
-    // bug rewrite history, and the §6 control is a database GRANT — so a mutator
-    // here would be offering something the production role cannot do. Asserted
-    // on the OBJECT rather than by reading the source, because a method added to
-    // the class is what would actually break this.
-    const audit = new InMemoryAuditRepository();
-    const event = {
-      id: 'e1',
-      at: ISO(0),
-      actorUserId: 'u1',
-      actorEmail: 'who@example.test',
-      actorRole: 'Owner',
-      actorScope: 'all',
-      actorTokenId: null,
-      action: 'auth.login',
-      subjectType: null,
-      subjectId: null,
-      applicationId: null,
-      outcome: 'allowed' as const,
-      ip: null,
-      userAgent: null,
-      requestId: null,
-      detail: {},
-    };
-
-    await audit.append(event);
-    await audit.append({ ...event, id: 'e2', at: ISO(9), outcome: 'denied' as const });
-
-    expect(
-      (await audit.list(10)).map((r) => r.id),
-      'not newest-first',
-    ).toEqual(['e2', 'e1']);
-    expect(await audit.listForActor('u1', 10)).toHaveLength(2);
-    expect(await audit.listForActor('nobody', 10)).toEqual([]);
-
-    // Denials are recorded as deliberately as successes (§6).
-    expect((await audit.list(10)).map((r) => r.outcome)).toContain('denied');
-
-    for (const forbidden of ['save', 'update', 'delete', 'remove', 'clear']) {
-      expect(
-        (audit as unknown as Record<string, unknown>)[forbidden],
-        `AuditRepository exposes ${forbidden}() — append-only is broken`,
-      ).toBeUndefined();
-    }
+    // bug rewrite history — and against Postgres the call would fail at the
+    // GRANT, so an interface offering it offers something that cannot work.
+    await contract('C9')();
   });
 });
 
 test.describe('DATABASE_URL has three answers and no default @unit', () => {
   test('D1: not-configured, malformed and configured are three different answers', () => {
-    // wrong: collapsing the first two into "no database" tells a reader to go
-    // and set a variable that is already set, or to go and fix a value that does
-    // not exist. NOT CONFIGURED and FAILED TO LOAD are the distinction this repo
-    // has had to rebuild three times.
+    // wrong: collapsing the first two into "no database" tells a reader to set a
+    // variable that is already set, or to fix a value that does not exist. NOT
+    // CONFIGURED and FAILED TO LOAD is the distinction this repo has rebuilt
+    // three times.
     expect(resolveDatabaseUrl(undefined).state).toBe('not-configured');
     expect(resolveDatabaseUrl('').state).toBe('not-configured');
     expect(resolveDatabaseUrl('   ').state).toBe('not-configured');
@@ -409,11 +281,10 @@ test.describe('DATABASE_URL has three answers and no default @unit', () => {
     expect(resolveDatabaseUrl('mysql://u:p@h:3306/d').state).toBe('malformed');
     expect(resolveDatabaseUrl('postgresql://u:p@h:5432/').state).toBe('malformed');
 
-    const good = resolveDatabaseUrl('postgresql://aitp_app:s3cret@127.0.0.1:5432/aitp');
-    expect(good.state).toBe('configured');
+    expect(resolveDatabaseUrl('postgresql://aitp_app:s3cret@127.0.0.1:5432/aitp').state).toBe(
+      'configured',
+    );
 
-    // There is NO default. A fallback here would be a guess about which database
-    // this installation writes to.
     expect(() => requireDatabaseUrl(undefined)).toThrow(/DATABASE_URL is not set/);
     expect(() => requireDatabaseUrl('mysql://u:p@h/d')).toThrow(/Postgres only/);
     expect(() => requireDatabaseUrl('postgresql://u:p@h:5432/d')).not.toThrow();
@@ -421,10 +292,9 @@ test.describe('DATABASE_URL has three answers and no default @unit', () => {
 
   test('D2: no message or description ever carries the password', () => {
     // wrong: the obvious malformed-URL message is `Invalid DATABASE_URL:
-    // ${value}` — which prints the password, and prints it into whatever
-    // captured the refusal. The password is also the part most likely to contain
-    // whatever made the value unparseable, so the failure path is exactly where
-    // it would leak.
+    // ${value}` — which prints the password into whatever captured the refusal.
+    // The password is also the part most likely to contain whatever made the
+    // value unparseable, so the failure path is exactly where it would leak.
     const SECRET = 'pa55-w0rd-sentinel';
 
     const described = resolveDatabaseUrl(`postgresql://aitp_app:${SECRET}@127.0.0.1:5432/aitp`);
@@ -440,7 +310,6 @@ test.describe('DATABASE_URL has three answers and no default @unit', () => {
       expect(described.describe).toContain('aitp');
     }
 
-    // Every refusal path, over a value that holds the sentinel.
     for (const raw of [
       `mysql://u:${SECRET}@h:3306/d`,
       `postgresql://u:${SECRET}@h:5432/`,
@@ -471,18 +340,13 @@ test.describe('DATABASE_URL has three answers and no default @unit', () => {
 test.describe('the owner credential stays out of the runtime @unit', () => {
   test('D3: no code under apps/api reads AITP_DB_OWNER_URL', () => {
     // wrong: the API process holding the owner URL means the runtime can change
-    // its own schema — which makes every grant in
-    // `..._b1b_grants_for_app_role/migration.sql` removable by the thing they
-    // restrict, including the REVOKE that is §6's only real control. One
-    // `process.env.AITP_DB_OWNER_URL` anywhere under apps/api would do it, and
-    // nothing else in the suite would notice.
-    //
-    // Enumerated from the FILESYSTEM, not a hand-written list: a file nobody
-    // remembers to add is a file that is ungoverned, and that changes a verdict
-    // rather than degrading a message (§AE).
+    // its own schema — which makes every grant in the grants migration removable
+    // by the thing they restrict, including the REVOKE that is §6's only real
+    // control. One `process.env.AITP_DB_OWNER_URL` anywhere under apps/api would
+    // do it, and nothing else in the suite would notice.
     const files = walkTs(path.join(ROOT, 'apps', 'api', 'src'));
 
-    // §T — the walk had a subject. Measured 2026-10-21: 14 source files.
+    // §T — the walk had a subject. Measured 2026-10-22: 17 source files.
     expect(files.length, 'the walk read no apps/api source at all').toBeGreaterThan(8);
 
     const offenders = files.filter((file) => /AITP_DB_OWNER_URL/.test(readFileSync(file, 'utf8')));
@@ -492,14 +356,14 @@ test.describe('the owner credential stays out of the runtime @unit', () => {
         'may, and it passes it to one child command rather than holding it:',
     ).toEqual([]);
 
-    // Discriminating, and this is the half that matters: the scan must be
-    // capable of FINDING the string. Over a tree that does not contain it, a
-    // detector that works and one whose regex never matches are the same output.
+    // Discriminating, and the half that matters: the scan must be capable of
+    // FINDING the string. Over a tree that does not contain it, a detector that
+    // works and one whose regex never matches are the same output.
     const planted = '/* AITP_DB_OWNER' + '_URL */';
     expect(/AITP_DB_OWNER_URL/.test(planted), 'the pattern cannot match its own target').toBe(true);
 
     // And the one place that IS allowed to read it does, or the rule above is
-    // being satisfied by nobody using the variable at all.
+    // satisfied by nobody using the variable at all.
     const deployer = readFileSync(path.join(ROOT, 'scripts', 'db-deploy.ts'), 'utf8');
     expect(deployer, 'db-deploy.ts does not read the owner key — the rule guards nothing').toMatch(
       /AITP_DB_OWNER_URL/,
@@ -511,12 +375,7 @@ test.describe('the owner credential stays out of the runtime @unit', () => {
     // and 58, with different passwords — and reading is LAST-WINS (measured for
     // both dotenv and this repo's reader), so the line that silently won was the
     // one that FAILED authentication, with the working credential two lines
-    // above it. The symptom is "password authentication failed", which reads as
-    // one wrong password rather than as two of them.
-    //
-    // Picking whichever authenticates would be credential-guessing;
-    // `requireApplicationArg` already settles the general case — two sources
-    // disagreeing have no safe tie-break.
+    // above it. The symptom reads as one wrong password rather than as two.
     const dir = mkdtempSync(path.join(tmpdir(), 'aitp-env-dup-'));
     try {
       const file = path.join(dir, '.env');
@@ -534,24 +393,50 @@ test.describe('the owner credential stays out of the runtime @unit', () => {
       expect(JSON.stringify(conflicts)).not.toContain('two');
 
       // THE SILENT HALF, and the case the assertion above is written against. A
-      // detector that flagged every repeated key would refuse a tidy-but-
-      // duplicated file, and one that flagged any multi-key file would refuse
-      // every .env there is.
+      // detector flagging every repeated key would refuse a tidy-but-duplicated
+      // file; one flagging any multi-key file would refuse every .env there is.
       writeFileSync(file, 'A=1\nAITP_DB_OWNER_URL=same\nAITP_DB_OWNER_URL=same\n', 'utf8');
       expect(conflictingEnvKeys(file), 'an identical duplicate cannot change an outcome').toEqual(
         [],
       );
-
       writeFileSync(file, 'A=1\nB=2\nC=3\n', 'utf8');
       expect(conflictingEnvKeys(file)).toEqual([]);
 
       // Last-wins is the behaviour the refusal exists because of, so it is
-      // pinned here rather than assumed — if the reader ever became first-wins,
-      // every message about it would be wrong.
+      // pinned rather than assumed — if the reader became first-wins, every
+      // message about it would be wrong.
       writeFileSync(file, 'K=first\nK=second\n', 'utf8');
       expect(readEnvFile(file).K, 'the reader is no longer last-wins').toBe('second');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test('D5: every declared append-only table is a real model in the schema', () => {
+    // wrong: a typo in APPEND_ONLY_TABLES — `AuditEvents`, `audit_event` — makes
+    // the privilege sweep in `pnpm test:db` compare the live grants against a
+    // table that does not exist, find it absent from the UPDATE/DELETE list, and
+    // report PASS. The grant could have been dropped entirely and the sweep
+    // would still be green, because it would be asking about nothing.
+    //
+    // Derived from the schema file rather than from a second list, so the two
+    // cannot drift (§AE).
+    const schema = readFileSync(path.join(ROOT, 'apps', 'api', 'prisma', 'schema.prisma'), 'utf8');
+    const models = [...schema.matchAll(/^model\s+(\w+)\s*\{/gm)].map((match) => match[1]!);
+
+    // §T — the parse had a subject. Measured 2026-10-22: 10 models.
+    expect(models.length, 'no model was parsed out of schema.prisma').toBeGreaterThan(5);
+
+    expect(APPEND_ONLY_TABLES.length, 'the append-only list is empty').toBeGreaterThan(0);
+    for (const table of APPEND_ONLY_TABLES) {
+      expect(models, `APPEND_ONLY_TABLES names "${table}", which is not a model`).toContain(table);
+    }
+
+    // The privileges it forbids are the three that can rewrite or erase history.
+    // INSERT and SELECT are deliberately absent — an append-only table that
+    // could not be appended to or read would be useless.
+    expect([...FORBIDDEN_ON_APPEND_ONLY].sort()).toEqual(['DELETE', 'TRUNCATE', 'UPDATE']);
+    expect(FORBIDDEN_ON_APPEND_ONLY).not.toContain('INSERT');
+    expect(FORBIDDEN_ON_APPEND_ONLY).not.toContain('SELECT');
   });
 });

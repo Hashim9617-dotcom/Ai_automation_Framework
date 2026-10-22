@@ -29,7 +29,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SCHEMA = path.join(ROOT, 'infra', 'prisma', 'schema.prisma');
+const API_DIR = path.join(ROOT, 'apps', 'api');
+const SCHEMA = path.join(API_DIR, 'prisma', 'schema.prisma');
 
 const name = process.argv[2];
 if (!name || !/^[a-z0-9_]+$/.test(name)) {
@@ -41,7 +42,7 @@ if (!name || !/^[a-z0-9_]+$/.test(name)) {
 }
 
 const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-const dir = path.join(ROOT, 'infra', 'prisma', 'migrations', `${stamp}_${name}`);
+const dir = path.join(API_DIR, 'prisma', 'migrations', `${stamp}_${name}`);
 const file = path.join(dir, 'migration.sql');
 
 if (existsSync(file)) {
@@ -54,7 +55,7 @@ if (existsSync(file)) {
 const result = spawnSync(
   process.execPath,
   [
-    path.join(ROOT, 'apps', 'api', 'node_modules', 'prisma', 'build', 'index.js'),
+    path.join(API_DIR, 'node_modules', 'prisma', 'build', 'index.js'),
     'migrate',
     'diff',
     '--from-empty',
@@ -62,7 +63,9 @@ const result = spawnSync(
     SCHEMA,
     '--script',
   ],
-  { cwd: ROOT, encoding: 'utf8' },
+  // From apps/api, where prisma is a dependency. From the root it tries to
+  // install itself there — measured.
+  { cwd: API_DIR, encoding: 'utf8' },
 );
 
 if (result.status !== 0) {

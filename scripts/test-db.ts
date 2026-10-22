@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-/* eslint-disable no-console -- the entire output of this script is a precondition
-   report a human reads, or a refusal they act on. Not a log line. */
+/* eslint-disable no-console -- the entire output of this script is a report a
+   human reads, or a refusal they act on. Not a log line. */
 /**
- * The database half of the repository contract: its preconditions, then itself.
+ * The database half of B1b, proven against the real server.
  *
  *   pnpm test:db
  *
@@ -11,32 +11,48 @@
  * implementations stay and why the unit suite binds them
  * (docs/design/B1-auth-and-data.md §1).
  *
- * ## It reports which precondition is missing, one at a time
+ * ## What this script does, and what it does NOT
  *
- * Four things have to be true before the Postgres half can say anything, and
- * they fail in ways that look alike from a stack trace and call for completely
- * different actions. So each is checked and named separately, in the order a
- * reader would fix them. A single "could not connect to the database" would be
- * the empty-result failure in a costume.
+ * It checks the four preconditions and then hands over to Playwright. The
+ * assertions themselves are TESTS, in `tests/api/persistence-postgres.spec.ts`
+ * and `tests/api/run-history.spec.ts`, both tagged `@db`.
+ *
+ * That split is deliberate rather than tidy. A first draft asserted everything
+ * here, in the script, and `eslint` refused it: `scripts/` is production code
+ * and may not import from `tests/`, which is where the shared repository
+ * contract lives. The rule was right — assertions belong in tests, where they
+ * get a runner, a reporter and a failure that names itself, and where the same
+ * contract module serves both halves without a boundary violation.
+ *
+ * ## Four preconditions, four exit codes
+ *
+ * They fail in ways that look alike from a stack trace and call for completely
+ * different actions, so each is named separately in the order a reader would fix
+ * them. A single "could not connect to the database" would be the empty-result
+ * failure in a costume.
+ *
+ *   14  .env assigns a key twice with different values
+ *   10  DATABASE_URL is missing or malformed
+ *   11  nothing is listening
+ *   12  the schema is not applied
+ *   16  the @db tests failed
  */
 import { spawnSync } from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
-import { conflictingEnvKeys, readEnvFile } from './read-env-file';
 import { findRepoRoot } from '@aitp/shared';
 import { resolveDatabaseUrl } from '../apps/api/src/config/database';
+import { conflictingEnvKeys, readEnvFile } from './read-env-file';
 
 const ROOT = findRepoRoot();
-const SCHEMA = path.join(ROOT, 'infra', 'prisma', 'schema.prisma');
-const PRISMA_CLI = path.join(ROOT, 'apps', 'api', 'node_modules', 'prisma', 'build', 'index.js');
+const API_DIR = path.join(ROOT, 'apps', 'api');
 
-/** Exit codes, so a caller can tell the four refusals apart without parsing text. */
 const EXIT = {
   notConfigured: 10,
   unreachable: 11,
   notMigrated: 12,
-  notImplemented: 13,
   conflictingEnv: 14,
+  testsFailed: 16,
 } as const;
 
 function refuse(code: number, lines: string[]): never {
@@ -47,11 +63,11 @@ function refuse(code: number, lines: string[]): never {
 async function main(): Promise<void> {
   const ENV_FILE = path.join(ROOT, '.env');
 
-  // ── 0. Does `.env` say one thing, or two? ────────────────────────────────────
+  // ── 0. Does `.env` say one thing, or two? ──────────────────────────────────
   //
   // Checked FIRST, because every answer below is read from it. Found on
   // 2026-10-21: `AITP_DB_OWNER_URL` was present twice with different passwords,
-  // and dotenv is LAST-WINS — measured — so the broken one silently decided. A
+  // and reading is LAST-WINS — measured — so the broken one silently decided. A
   // report whose inputs are ambiguous is worse than no report.
   const conflicts = conflictingEnvKeys(ENV_FILE);
   if (conflicts.length > 0) {
@@ -67,21 +83,19 @@ async function main(): Promise<void> {
 
   const envFile = readEnvFile(ENV_FILE);
 
-  // ── 1. Is there a connection string, and is it usable? ───────────────────────
+  // ── 1. Is there a connection string, and is it usable? ─────────────────────
   //
   // Three answers, not two. NOT CONFIGURED and MALFORMED call for different
   // actions, and neither message may echo the value — it holds a password.
   const resolved = resolveDatabaseUrl(process.env.DATABASE_URL ?? envFile.DATABASE_URL);
-  if (resolved.state !== 'configured') {
-    refuse(EXIT.notConfigured, [resolved.why]);
-  }
-  console.log(`\nDatabase:  ${resolved.describe}`);
+  if (resolved.state !== 'configured') refuse(EXIT.notConfigured, [resolved.why]);
+  console.log(`\nDatabase:   ${resolved.describe}`);
 
-  // ── 2. Is the server actually there? ─────────────────────────────────────────
+  // ── 2. Is the server actually there? ───────────────────────────────────────
   //
   // Separated from step 3 because "nothing is listening" and "the schema is not
-  // applied" are a stopped service and an unrun migration — one is `Start-Service`
-  // and the other is `pnpm db:deploy`.
+  // applied" are a stopped service and an unrun migration — one is
+  // `Start-Service` and the other is `pnpm db:deploy`.
   const { hostname, port } = new URL(resolved.url);
   const reachable = await new Promise<string>((done) => {
     const socket = net.connect({ host: hostname, port: Number(port || 5432) });
@@ -103,29 +117,30 @@ async function main(): Promise<void> {
       'On Windows: Get-Service postgresql-x64-17 ; Start-Service postgresql-x64-17',
     ]);
   }
-  console.log(`Reachable: ${hostname}:${port || 5432}`);
+  console.log(`Reachable:  ${hostname}:${port || 5432}`);
 
-  // ── 3. Has the schema been applied? ──────────────────────────────────────────
+  // ── 3. Has the schema been applied? ────────────────────────────────────────
   //
-  // Asked of Prisma rather than by querying information_schema ourselves: Prisma
-  // owns the migration ledger, so Prisma is the only thing that can say whether it
-  // is up to date. Counting tables would answer a question the output cannot
-  // always express (§Z).
+  // Asked of Prisma, which owns the migration ledger, rather than by counting
+  // tables ourselves — counting asks a question the output cannot always
+  // express (§Z). Run from apps/api, where prisma is a dependency: from the root
+  // it tries to install itself there, which is where it must not be.
   const status = spawnSync(
     process.execPath,
-    [PRISMA_CLI, 'migrate', 'status', '--schema', SCHEMA],
-    {
-      cwd: ROOT,
-      encoding: 'utf8',
-      env: { ...process.env, DATABASE_URL: resolved.url },
-    },
+    [
+      path.join(API_DIR, 'node_modules', 'prisma', 'build', 'index.js'),
+      'migrate',
+      'status',
+      '--schema',
+      path.join(API_DIR, 'prisma', 'schema.prisma'),
+    ],
+    { cwd: API_DIR, encoding: 'utf8', env: { ...process.env, DATABASE_URL: resolved.url } },
   );
-  const statusText = `${status.stdout ?? ''}\n${status.stderr ?? ''}`;
   if (status.status !== 0) {
     refuse(EXIT.notMigrated, [
       'the schema is not applied, or the ledger could not be read. Prisma said:',
       '',
-      ...statusText
+      ...`${status.stdout ?? ''}\n${status.stderr ?? ''}`
         .split(/\r?\n/)
         .filter((line) => line.trim())
         .slice(0, 12),
@@ -135,28 +150,57 @@ async function main(): Promise<void> {
   }
   console.log('Migrations: up to date');
 
-  // ── 4. Is there anything to run against it? ──────────────────────────────────
+  // ── 4. The @db tests ───────────────────────────────────────────────────────
   //
-  // There is not, yet, and saying so is the point. The Prisma implementations of
-  // the six repositories are the remaining half of B1b, and they were deliberately
-  // not written while the schema could not be applied: an implementation that has
-  // never executed is a stub that cannot falsify itself, and six of them would be
-  // six unverified claims.
+  // `DATABASE_URL` is passed EXPLICITLY rather than left to be inherited. The
+  // child resolves which tests exist from its environment, and this repo has
+  // corrected the same inheritance three times — a child must be told what its
+  // caller asked for, not absorb it from whatever started the parent.
   //
-  // A `test:db` that printed "0 tests passed" here would be the worse outcome —
-  // a failed search reported as an empty result.
-  refuse(EXIT.notImplemented, [
-    'the database is ready and there is nothing to run against it yet.',
-    '',
-    'The Prisma implementations of the six repositories are the remaining half of',
-    'B1b. They were not written while the schema could not be applied, because an',
-    'implementation that has never executed is a stub that cannot falsify itself.',
-    '',
-    'The CONTRACT they must satisfy already exists and passes against the in-memory',
-    'implementations: tests/unit/persistence.spec.ts, 9 tests. When the Prisma side',
-    'lands, this script runs that same suite against Postgres — one suite, two',
-    'implementations, which is the only thing that catches a divergence.',
-  ]);
+  // `AITP_FIXTURE_ONLY` is deliberately NOT set: the api project needs `.env`
+  // merged to see DATABASE_URL at all, and it is not on the fixture-safe
+  // allowlist.
+  console.log('\nRunning the @db tests:\n');
+  const child = spawnSync(
+    process.execPath,
+    [
+      path.join(ROOT, 'node_modules', '@playwright', 'test', 'cli.js'),
+      'test',
+      '--project=api',
+      '--grep',
+      '@db',
+      '--reporter=list',
+      // ONE WORKER. There is one database and the contract suite empties it
+      // between assertions, so parallel workers delete each other's rows.
+      //
+      // Measured rather than anticipated: the first run of these two files under
+      // the api project's `fullyParallel` gave three failures and two flakes, all
+      // of them one suite's `reset()` landing in the middle of the other's. A
+      // shared mutable resource cannot be partitioned by worker, and `C6: an
+      // empty store lists nothing` cannot be made parallel-safe by scoping ids —
+      // an empty table is its subject.
+      '--workers=1',
+    ],
+    { cwd: ROOT, stdio: 'inherit', env: { ...process.env, DATABASE_URL: resolved.url } },
+  );
+
+  if (child.error) {
+    refuse(EXIT.testsFailed, [`could not start Playwright — ${child.error.message}`]);
+  }
+  if (child.status !== 0) {
+    refuse(EXIT.testsFailed, [
+      `the @db tests failed (playwright exited with ${child.status}).`,
+      '',
+      'The grants and the repository contract are both in',
+      'tests/api/persistence-postgres.spec.ts; run history is in',
+      'tests/api/run-history.spec.ts. The output above names which assertion.',
+    ]);
+  }
+
+  console.log('\nAll database checks passed.\n');
 }
 
-void main();
+void main().catch((error: Error) => {
+  console.error(`\nREFUSING: test:db crashed — ${error.message}\n`);
+  process.exit(1);
+});
