@@ -124,6 +124,13 @@ const COVERED = [
   // is bcrypt's 72-byte truncation, which is one of the two reasons §2 rejected
   // it and was otherwise only asserted in prose.
   'tests/unit/password-hasher.spec.ts',
+  // Added 2026-10-30 with B1c's session and throttle half. Two of its fixtures
+  // had to be corrected for straddling the throttle window — they would have
+  // passed because the window dropped the attempts rather than because the
+  // limit held, which is green for the wrong reason. The corrected spacing is
+  // commented in place, because the next person to write a window fixture will
+  // reach for one attempt per minute too.
+  'tests/unit/session-and-throttle.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
