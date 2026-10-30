@@ -118,6 +118,12 @@ const COVERED = [
   // which is why H1 is the only assertion in the batch that distinguishes
   // storage from memory at all.
   'tests/api/run-history.spec.ts',
+  // Added 2026-10-30 with B1c's hashing half. Every counterfactual here names
+  // the specific failure the assertion exists to catch — P6's is a non-random
+  // salt, which only shows up by comparing two hashes of ONE password, and P7's
+  // is bcrypt's 72-byte truncation, which is one of the two reasons §2 rejected
+  // it and was otherwise only asserted in prose.
+  'tests/unit/password-hasher.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
