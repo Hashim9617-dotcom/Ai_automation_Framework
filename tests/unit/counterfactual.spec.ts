@@ -131,6 +131,12 @@ const COVERED = [
   // commented in place, because the next person to write a window fixture will
   // reach for one attempt per minute too.
   'tests/unit/session-and-throttle.spec.ts',
+  // Added 2026-11-06 with E1's report archive. Z3 is the one that matters: every
+  // excluded shape is PLANTED, because a denylist is only as good as the cases
+  // somebody thought of and an untested entry in it is a sentence rather than a
+  // control. Z2's fixture had to be rewritten after claiming to be
+  // incompressible while being a 256-byte permutation repeating.
+  'tests/unit/notify-zip.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
