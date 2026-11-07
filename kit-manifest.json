@@ -1,7 +1,7 @@
 {
   "kitVersion": "0.4.1",
-  "commit": "77b555b0da1407fe9c7507e0cdd5201f74f2e5c7",
-  "generatedAt": "2026-11-06T11:50:24.470Z",
+  "commit": "47b16cf442fa7b383b9f67dcb1b18b8012214790",
+  "generatedAt": "2026-11-07T11:12:12.164Z",
   "lockedPrefixes": [
     ".claude",
     ".cursor",
@@ -166,7 +166,7 @@
     "packages/shared/src/authored/sheet.ts": "11f5cabc56a629221460d50852159969f76ddf185672f193d18ca607956504a6",
     "packages/shared/src/authored/triage.ts": "a0a97fde1f3d02b2dcccb45fed13a415e12d4741304e80c570693ce22ee86290",
     "packages/shared/src/authored/write-risk.ts": "42f2a7a453316f6a33c66198c551d9b6e09aaab21728ed116486a69b71773a4f",
-    "packages/shared/src/authored/xlsx.ts": "2b6c47efc660cb0b9de9b465de95bafb3c5959703870605c19ff468e0c9e8d72",
+    "packages/shared/src/authored/xlsx.ts": "cad74a8f0c8254255a3963743787d1930f8df966023ae4be90e7611ad6975ccf",
     "packages/shared/src/command/plan.ts": "44eed6fe5d8d8c25c2ff93535954fa0a7206f65b30fb5ad25e4f480123fa1b2d",
     "packages/shared/src/command/target.ts": "20bb66f4efd14be9e150e259170cb551de720fbef7343e1a2393efe81c412c45",
     "packages/shared/src/errors.ts": "09d4ee95de4c209f686e9828490936f939729fcbd04781f98c05505234dad61d",
@@ -270,7 +270,7 @@
     "tests/support/live-setup.ts": "ea61fd62941ec55a02082d0ce830a2d41e1e6750707cbe729d61bf6a0856bc54",
     "tests/support/repository-contract.ts": "9bc8c9f852c8410000662e376b052f0b47b3d0ba803566c40fe3a0bc77abea0d",
     "tests/support/spawn-clean.ts": "1696aabef093f493688ad0b50b2b817a82239c97db15c08c6138a62069b15473",
-    "tests/support/xlsx-fixture.ts": "abc38f3200234eff6eaa7e7dbe4313e0d26e898925237538670418d8331cae42",
+    "tests/support/xlsx-fixture.ts": "878b97f66029749e7c6b92413a4e1f46719a69d1e4ef234ebf14a8857d818709",
     "tests/unit/app-agnostic.spec.ts": "5f1036294b9959dbdd4b634fbc2555043e7d31b74278a73f2fed40bb4ca4ad1c",
     "tests/unit/app-suite-scope.spec.ts": "1b15b6395bbf63f8260bb3f741778d514b81254c34bc8561ee34bb535ab58083",
     "tests/unit/assert-state.spec.ts": "40dcafac6d89abe958bf06e2ad910bf00aad23ab4dba1d25b761e5c93e19dc90",
@@ -283,7 +283,7 @@
     "tests/unit/command-matcher.spec.ts": "d8695727e3e29a430b1084eb72f2f8da71e6f0a228ab8742e91fab9cf13760d9",
     "tests/unit/command-plan.spec.ts": "efb9768784d89425a6d17ee9989cc16f171791508d2e4933b89657e054542af3",
     "tests/unit/cors-origins.spec.ts": "5f3696ccc8827bd704910bb74efbcdbc7db0d113a3a48e33f9e0bcc8508b1844",
-    "tests/unit/counterfactual.spec.ts": "58d01419bb059e2c498651f34ea9c544bccb7fc2df8a4b8a00804713b3a9d4cb",
+    "tests/unit/counterfactual.spec.ts": "1cdbee264d0f899a68a5a4fd675e1a079dea0739b557e270ac1729416d5356ba",
     "tests/unit/credential-files.spec.ts": "0ff6a78c374e8066e770227e1a057d04601c1350c7526df3d0aec38e059785a9",
     "tests/unit/entry-verifier.spec.ts": "58e7c017f595538cbe5d2a90195d4df75d4201f8f26d48ceeaebc9567a78e874",
     "tests/unit/environment.spec.ts": "b0edd24a44b626e6631b01ecb4f51d72f67ca8a8ba3fa14af068c4026335d0a5",
@@ -331,6 +331,7 @@
     "tests/unit/upload-not-supported.spec.ts": "cdcdafe5ea2c7111c5b923e01ca42cf3f7368bc76b1a4651b7d59f3d776b26b9",
     "tests/unit/verify-entries-readonly.spec.ts": "8e15e5532dac8e22ed548f17bff981469de2c66b6a04817c18c046994eea8cd1",
     "tests/unit/write-gate.spec.ts": "05052a816474fcd57c9850010a992f4c1da876e48455f906d19bfcc3804fdcb0",
+    "tests/unit/xlsx-attribute-order.spec.ts": "1d064830eada453386367fb56f9688c2cfa12cdbf3b8061b6d97d9455dbb474b",
     "tsconfig.base.json": "f03e79535d13efc23b89d645310d966b69d48462634aad95742843ff2bae2949",
     "tsconfig.json": "8ef0a903e5af0d53157b611c57f0c8521ae5d740fd7588cb6339e963c243ff6b"
   }

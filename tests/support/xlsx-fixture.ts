@@ -115,6 +115,33 @@ export function buildXlsx(sheets: Array<{ name: string; rows: string[][] }>): Bu
   );
 }
 
+/**
+ * A workbook whose `workbook.xml` AND its relationships are given verbatim.
+ *
+ * `packWorkbook` writes one manifest shape — `Id` before `Target`, `name` before
+ * `r:id` — and that is exactly what hid the attribute-order bug: XML does not care
+ * about attribute order and this writer only ever produced one. The two real Ecom
+ * workbooks write `Target` first, and the reader refused them outright.
+ *
+ * So, like `bookFromSheetXml` for the cell parser, this is the narrow escape hatch
+ * for the MANIFEST parser: a fixture that can express an order no writer here would
+ * choose. It is not a second writer — nothing builds a workbook this way outside a
+ * parser test.
+ */
+export function bookWithManifest(options: {
+  workbookXml: string;
+  relsXml: string;
+  parts: Array<{ path: string; xml: string }>;
+}): Buffer {
+  return zipFiles([
+    ['[Content_Types].xml', '<?xml version="1.0"?><Types/>'],
+    ['_rels/.rels', '<?xml version="1.0"?><Relationships/>'],
+    ['xl/workbook.xml', options.workbookXml],
+    ['xl/_rels/workbook.xml.rels', options.relsXml],
+    ...options.parts.map((part): [string, string] => [part.path, part.xml]),
+  ]);
+}
+
 /** The zip and the manifest, shared by both builders so neither drifts. */
 function packWorkbook(sheets: Array<{ name: string; xml: string }>, shared: string[]): Buffer {
   const esc = (s: string): string =>
@@ -144,6 +171,11 @@ function packWorkbook(sheets: Array<{ name: string; xml: string }>, shared: stri
     ],
   ];
 
+  return zipFiles(files);
+}
+
+/** Store-mode zip packing, the one copy. */
+function zipFiles(files: Array<[string, string]>): Buffer {
   const local: Buffer[] = [];
   const central: Buffer[] = [];
   let offset = 0;

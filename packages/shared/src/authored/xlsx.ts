@@ -103,6 +103,49 @@ export interface WorkbookSheet {
   part: string;
 }
 
+/**
+ * Every attribute of one XML start tag, BY NAME.
+ *
+ * **Attribute order is not significant in XML, and this reader used to behave as
+ * though it were.** Measured 2026-11-07 on the two real Ecom workbooks: every
+ * `<Relationship>` in them writes `Target=` before `Id=`, while the old pattern
+ * was `/Id="([^"]+)"[^>]*Target="([^"]+)"/` — Id first, mandatory. So the target
+ * map came back EMPTY, every sheet's part was `undefined`, every sheet was
+ * skipped, and the reader refused a perfectly valid 16-column, 987-row workbook
+ * with `workbook declares no sheets`. An independent OOXML parse of the same file
+ * read 15,808 cells from it.
+ *
+ * This is §AK with a different mechanism. The reader had only ever been pointed at
+ * the DMS workbook and at `tests/support/xlsx-fixture.ts`, which emits
+ * `Id="rId1" Target="…"` and `name="…" r:id="…"` — the exact two orders the two
+ * regexes required. A writer and a reader sharing one author share one assumption,
+ * and 720 unit tests could not see it.
+ *
+ * So the ORDER-DEPENDENCE IS REMOVED AS A CLASS rather than at the one site that
+ * failed: both tags are read through this, and `<sheet>`'s `name`/`r:id` pair was
+ * the same bug waiting for a producer that writes them the other way round.
+ */
+function attributesOf(startTag: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of startTag.matchAll(/([A-Za-z_][\w.:-]*)\s*=\s*"([^"]*)"/g)) out.set(m[1]!, m[2]!);
+  return out;
+}
+
+/**
+ * The relationship id a `<sheet>` points at.
+ *
+ * `r:` is the conventional prefix for the relationships namespace but it is only a
+ * convention — the prefix is whatever the document bound. Any `*:id` is accepted,
+ * and `sheetId` is NOT one of them: it ends in `Id`, not `:id`, which is why this
+ * matches on the colon rather than on a suffix.
+ */
+function relationshipIdOf(attributes: Map<string, string>): string | undefined {
+  const direct = attributes.get('r:id');
+  if (direct !== undefined) return direct;
+  for (const [key, value] of attributes) if (key.endsWith(':id')) return value;
+  return attributes.get('id');
+}
+
 /** Every sheet in the workbook, in workbook order. */
 export function listSheets(file: Buffer): WorkbookSheet[] {
   const zip = readZip(file);
@@ -111,16 +154,48 @@ export function listSheets(file: Buffer): WorkbookSheet[] {
   if (!relsXml || !workbookXml) throw new Error('not an xlsx workbook: xl/workbook.xml is missing');
 
   const targets = new Map<string, string>();
-  for (const m of relsXml.matchAll(/Id="([^"]+)"[^>]*Target="([^"]+)"/g)) {
-    targets.set(m[1]!, `xl/${m[2]!.replace(/^\/?xl\//, '')}`);
+  for (const m of relsXml.matchAll(/<Relationship\b([^>]*)>/g)) {
+    const attributes = attributesOf(m[1]!);
+    const id = attributes.get('Id');
+    const target = attributes.get('Target');
+    if (id !== undefined && target !== undefined) {
+      targets.set(id, `xl/${target.replace(/^\/?xl\//, '')}`);
+    }
   }
 
   const sheets: WorkbookSheet[] = [];
-  for (const m of workbookXml.matchAll(
-    /<sheet\b[^>]*?name="([^"]*)"[^>]*?r:id="([^"]+)"[^>]*\/>/g,
-  )) {
-    const part = targets.get(m[2]!);
-    if (part) sheets.push({ name: decodeXml(m[1]!), part });
+  /**
+   * A SHEET WHOSE RELATIONSHIP DOES NOT RESOLVE IS NAMED, never dropped.
+   *
+   * It used to be `if (part) sheets.push(...)`, so an unresolvable sheet simply
+   * vanished — and the caller's own error then said the sheet `is not in this
+   * workbook. Available: …`, a confident wrong diagnosis about a sheet that is in
+   * the workbook and whose part this function could not find. That is the
+   * three-states rule (`NOT CONFIGURED` / `EMPTY` / `FAILED TO LOAD`) collapsed to
+   * two, and the collapsed one tells the reader to go and fix the wrong thing.
+   */
+  const unresolved: string[] = [];
+  for (const m of workbookXml.matchAll(/<sheet\b([^>]*)>/g)) {
+    const attributes = attributesOf(m[1]!);
+    const name = attributes.get('name');
+    const relationshipId = relationshipIdOf(attributes);
+    if (name === undefined || relationshipId === undefined) continue;
+    const part = targets.get(relationshipId);
+    if (part === undefined) {
+      unresolved.push(`"${decodeXml(name)}" (${relationshipId})`);
+      continue;
+    }
+    sheets.push({ name: decodeXml(name), part });
+  }
+
+  if (unresolved.length > 0) {
+    throw new Error(
+      `this workbook declares ${unresolved.length} sheet(s) whose relationship id is not in ` +
+        `xl/_rels/workbook.xml.rels: ${unresolved.join(', ')}. The sheet exists and its data ` +
+        'part could not be located, which is NOT the same as the sheet being absent — ' +
+        'refusing here rather than dropping it, because a dropped sheet is reported ' +
+        'afterwards as one the workbook does not have.',
+    );
   }
   if (sheets.length === 0) throw new Error('workbook declares no sheets');
   return sheets;

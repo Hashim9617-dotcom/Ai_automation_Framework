@@ -137,6 +137,13 @@ const COVERED = [
   // control. Z2's fixture had to be rewritten after claiming to be
   // incompressible while being a 256-byte permutation repeating.
   'tests/unit/notify-zip.spec.ts',
+  // Added 2026-11-07 with the attribute-order fix. Every counterfactual here names
+  // what the OLD regex did with that exact fixture, because the bug was invisible
+  // to 720 tests for one reason: the only workbooks the reader had ever seen were
+  // Excel's and this repo's own fixture writer's, and both happen to emit the one
+  // attribute order the reader demanded (§AK). Two of the seven are the
+  // must-still-work half (§W).
+  'tests/unit/xlsx-attribute-order.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
