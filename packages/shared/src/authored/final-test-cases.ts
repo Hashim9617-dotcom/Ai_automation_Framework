@@ -1,4 +1,5 @@
 import { redactCredentialText } from '../utils/redact';
+import { OPTIONAL_LAYOUT_COLUMNS, type SheetLayout } from './sheet-layout';
 import type { SheetGrid } from './xlsx';
 
 /**
@@ -74,7 +75,17 @@ export const FINAL_TEST_CASES_SCHEMA = {
   outputColumns: [15, 16, 17, 19, 20, 21, 22],
   /** Measured: 37 of 470 `And` cells join two clauses with this. */
   clauseSeparator: '&',
-} as const;
+  /**
+   * `satisfies SheetLayout` is HALF the weld, and the cheap half.
+   *
+   * It makes this constant compile-checked against the per-application layout type,
+   * so a field renamed in one place fails to build in the other. What it cannot
+   * check is that `config/apps/dms/sheet-layout.json` holds the SAME NUMBERS — two
+   * valid layouts are still two layouts, and a drift here changes a verdict rather
+   * than a message. `tests/unit/sheet-layout.spec.ts` asserts the equality; this
+   * line is what stops the two SHAPES diverging silently in between.
+   */
+} as const satisfies SheetLayout;
 
 /** Where a clause came from. The column decides the kind — see §2a. */
 export type ClauseSource = 'given' | 'when' | 'and' | 'then';
@@ -157,6 +168,18 @@ export interface FinalSheetReadResult {
   unreadable: UnreadableSheetRow[];
   /** Rows that were entirely empty: padding, accounted for but not reported. */
   blankRows: number;
+  /**
+   * Optional fields this sheet HAS NO COLUMN FOR — not fields that were blank.
+   *
+   * The three-states rule applied to a column. Ecom's sheet has no `Preconditions`
+   * and no `Type` column at all and writes its preconditions inside the `Given` cell
+   * as `(Precondition: …)`; DMS has both columns, either of which may be blank on a
+   * given row. `AuthoredRow` carries `''` in both cases because every reader
+   * downstream expects a string, so this is the only place the difference survives —
+   * and it is the difference between "a QA could fill this in" and "there is nowhere
+   * to fill it in".
+   */
+  absentColumns: ReadonlyArray<'preconditions' | 'type'>;
 }
 
 /**
@@ -429,11 +452,22 @@ const clean = (value: string | undefined): string => redactCredentialText((value
  * identity means no row's result can be traced, so the run stops rather than
  * producing a report nobody can rely on.
  */
-export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
-  if (grid.name !== FINAL_TEST_CASES_SCHEMA.sheetName) {
+export function readFinalTestCases(
+  grid: SheetGrid,
+  /**
+   * The application's layout. Defaults to the DMS one, and the default is SAFE
+   * rather than convenient: the header gate below refuses any sheet this layout
+   * does not describe, so a caller that forgets to pass one gets a loud refusal
+   * naming the differing columns — never a wrong read. Every caller that knows
+   * its application passes `loadSheetLayout(…)`; the default exists for the
+   * sixty-odd fixtures built from `FINAL_TEST_CASES_SCHEMA` itself.
+   */
+  layout: SheetLayout = FINAL_TEST_CASES_SCHEMA,
+): FinalSheetReadResult {
+  if (grid.name !== layout.sheetName) {
     throw new Error(
-      `readFinalTestCases was given the sheet "${grid.name}", but this reader is for ` +
-        `"${FINAL_TEST_CASES_SCHEMA.sheetName}". The workbook holds several test-case sheets ` +
+      `readFinalTestCases was given the sheet "${grid.name}", but this layout is for ` +
+        `"${layout.sheetName}". The workbook holds several test-case sheets ` +
         "with different layouts; reading one with another's reader produces garbage that looks like data.",
     );
   }
@@ -471,7 +505,7 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
    * sheet.
    */
   const header = grid.rows[0]!;
-  const expectedHeaders = FINAL_TEST_CASES_SCHEMA.expectedHeaders;
+  const expectedHeaders = layout.expectedHeaders;
   const differences: string[] = [];
   for (const [i, expected] of expectedHeaders.entries()) {
     // `.trim()` is a DELIBERATE tolerance, not an accident: the real workbook's
@@ -499,7 +533,7 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
       // case that reaches here. Phrased about the HEADER ROW instead, which is the
       // thing that differs and reads correctly either way.
       `the header row of sheet "${grid.name}" is not the ` +
-        `"${FINAL_TEST_CASES_SCHEMA.sheetName}" layout — ${differences.length} column(s) differ:\n` +
+        `"${layout.sheetName}" layout — ${differences.length} column(s) differ:\n` +
         differences.map((line) => `  ${line}`).join('\n') +
         '\n  Column positions come from the layout, not from the header row, so reading this ' +
         'sheet anyway would take every value from the position the old layout had and return ' +
@@ -508,8 +542,20 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
     );
   }
 
-  const col = FINAL_TEST_CASES_SCHEMA.columns;
+  const col = layout.columns;
   const at = (row: string[], column: number): string => clean(row[column - 1]);
+  /**
+   * An ABSENT column reads as `''`, and the result SAYS SO separately.
+   *
+   * Ecom's sheet has no `Preconditions` and no `Type` column at all; DMS has both,
+   * and either may be blank on a given row. Returning `''` for both would merge
+   * "the sheet said nothing here" with "the sheet has no such field", and only the
+   * first is a gap in the data a QA could fill. So the value is still `''` — every
+   * reader downstream expects a string — and `absentColumns` carries the fact.
+   */
+  const atOptional = (row: string[], column: number | undefined): string =>
+    column === undefined ? '' : at(row, column);
+  const absentColumns = OPTIONAL_LAYOUT_COLUMNS.filter((field) => col[field] === undefined);
 
   const rows: AuthoredRow[] = [];
   const unreadable: UnreadableSheetRow[] = [];
@@ -586,8 +632,8 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
 
     const andCell = at(row, col.and);
     if (andCell) {
-      const halves = andCell.includes(FINAL_TEST_CASES_SCHEMA.clauseSeparator)
-        ? andCell.split(FINAL_TEST_CASES_SCHEMA.clauseSeparator)
+      const halves = andCell.includes(layout.clauseSeparator)
+        ? andCell.split(layout.clauseSeparator)
         : [andCell];
       for (const half of halves) {
         const { kind, why } = classifyClause(half);
@@ -622,9 +668,9 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
       objective: at(row, col.objective),
       testType: at(row, col.testType),
       priority: at(row, col.priority),
-      preconditions: at(row, col.preconditions),
+      preconditions: atOptional(row, col.preconditions),
       testData: at(row, col.testData),
-      type: at(row, col.type),
+      type: atOptional(row, col.type),
       clauses,
     });
   }
@@ -649,5 +695,5 @@ export function readFinalTestCases(grid: SheetGrid): FinalSheetReadResult {
     );
   }
 
-  return { rows, unreadable, blankRows };
+  return { rows, unreadable, blankRows, absentColumns };
 }

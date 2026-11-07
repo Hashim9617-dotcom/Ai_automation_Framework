@@ -1,5 +1,5 @@
 import { type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
@@ -173,6 +173,15 @@ test.describe('the sheet ceiling over HTTP @api', () => {
       path.join('config', 'apps', 'bundled-demo', 'module-map.json'),
       JSON.stringify(MODULE_MAP),
     );
+    // THE SHEET LAYOUT, copied from the shipped file rather than written out here.
+    // The ceiling path reads `config/apps/<application>/sheet-layout.json` as of A1,
+    // and there is deliberately no default — a default is how a sheet gets read with
+    // another application's columns. Copying the real file means this suite cannot
+    // pass over a layout the shipped one no longer matches.
+    write(
+      path.join('config', 'apps', 'bundled-demo', 'sheet-layout.json'),
+      readFileSync(path.join(ROOT, 'config', 'apps', 'bundled-demo', 'sheet-layout.json')),
+    );
     write(
       path.join('artifacts', 'bundled-demo', 'inspect', '2026-01-01T00-00-00Z', 'capture.json'),
       JSON.stringify(CAPTURE),
@@ -281,6 +290,14 @@ test.describe('the sheet ceiling over HTTP @api', () => {
         ...MODULE_MAP,
         Workflow: { route: '/workflow', provenBy: { role: 'heading', name: 'Requests' } },
       }),
+    );
+    // This second application needs its own layout for the same reason the first
+    // does: there is no default, so every `config/apps/<slug>/` is complete or the
+    // read refuses. Copied from the shipped file, since the fixture workbook is built
+    // from FINAL_TEST_CASES_SCHEMA and that is the layout it matches.
+    write(
+      path.join('config', 'apps', 'every-module', 'sheet-layout.json'),
+      readFileSync(path.join(ROOT, 'config', 'apps', 'bundled-demo', 'sheet-layout.json'), 'utf8'),
     );
     write(
       path.join('artifacts', 'every-module', 'inspect', '2026-01-01T00-00-00Z', 'capture.json'),

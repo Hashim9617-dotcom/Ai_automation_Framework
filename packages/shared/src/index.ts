@@ -20,6 +20,7 @@ export * from './generation/grounding';
 export * from './a11y/addressability';
 
 export * from './authored/xlsx';
+export * from './authored/sheet-layout';
 export * from './authored/final-test-cases';
 export * from './authored/sheet';
 export * from './authored/resolver';

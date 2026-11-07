@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import {
+  ambientEnvName,
   environmentsDeclaring,
   requireApplicationArg,
   resetEnvironmentCache,
@@ -60,6 +61,28 @@ function envDir(
  * harness's file write this cleanup needs no retry.
  */
 function withAmbientEnv(value: string | undefined, body: () => void): void {
+  /**
+   * `.env` IS PARSED BEFORE THE VARIABLE IS TOUCHED, and that line is load-bearing.
+   *
+   * `ambientEnvName()` calls `ensureDotenv()`, which is idempotent only while its
+   * own "loaded" flag stands — and `resetEnvironmentCache()` clears that flag. The
+   * first version of this helper called the reset in its `finally`, so the NEXT
+   * test's `ensureDotenv()` re-parsed `.env` and re-merged `TEST_ENV` (which is in
+   * FIXTURE_SAFE_ENV_KEYS, so it is merged even on the fixture surface) — putting
+   * this machine's value back UNDERNEATH a test that had just deleted it.
+   *
+   * Measured rather than reasoned about: A8 failed intermittently with
+   * `ConfigError: Environment variable BASE_URL is required but not set`, which is
+   * what resolving this machine's `TEST_ENV=app` looks like on a surface where the
+   * DMS credentials are deliberately absent. It depended on test ORDER within the
+   * worker, so it passed on its own and failed inside `pnpm verify`.
+   *
+   * Forcing the parse FIRST makes the later `ensureDotenv()` a genuine no-op, so the
+   * deletion holds. §AJ a third time, and the hardest of the three to see: the
+   * helper written specifically to SUPPLY the environment was handing it back.
+   */
+  ambientEnvName();
+
   const had = 'TEST_ENV' in process.env;
   const previous = process.env.TEST_ENV;
   if (value === undefined) delete process.env.TEST_ENV;
@@ -69,7 +92,9 @@ function withAmbientEnv(value: string | undefined, body: () => void): void {
   } finally {
     if (had) process.env.TEST_ENV = previous;
     else delete process.env.TEST_ENV;
-    resetEnvironmentCache();
+    // NO `resetEnvironmentCache()` here. `loadEnvironment` already compares the
+    // cached name against the requested one, so the cache cannot serve the wrong
+    // environment — and clearing the dotenv flag is the fault described above.
   }
 }
 
@@ -177,6 +202,18 @@ test.describe('an application resolves to an environment, or refuses @unit', () 
     // written without this, the assertion passed or failed according to whether
     // this machine's `.env` happens to name a DMS environment, which is §AJ in the
     // test rather than in the code.
+    //
+    // THE CACHE IS CLEARED FIRST, ON PURPOSE. This test failed intermittently — green
+    // alone, red inside `pnpm verify` — because another test's `resetEnvironmentCache()`
+    // cleared the dotenv "loaded" flag, so the `ensureDotenv()` inside
+    // `ambientEnvName()` re-parsed `.env` and put this machine's `TEST_ENV=app` back
+    // underneath the deletion. The failure arrived as
+    // `ConfigError: Environment variable BASE_URL is required but not set`.
+    //
+    // Calling the reset here RECREATES that state deterministically, so this is a
+    // pinned regression rather than a flake somebody will see again in six months.
+    // Without the fix in `withAmbientEnv` this line makes the test fail every time.
+    resetEnvironmentCache();
     withAmbientEnv(undefined, () => {
       expect(requireApplicationArg({ argv: ['node', 'x', '--app', 'ecom'], usage: 'u' })).toBe(
         'ecom',

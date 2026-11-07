@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   readSheetGrid,
+  loadSheetLayout,
   readFinalTestCases,
   triageSheet,
   renderTriage,
@@ -213,7 +214,14 @@ function main(): void {
       : `\ncaptured but unpaired (${orphans.length}): ${orphans.join(', ')}`,
   );
 
-  const sheet = readFinalTestCases(readSheetGrid(readFileSync(workbook), 'Final Test cases'));
+  // THE LAYOUT AND THE TAB NAME both come from the application's own file. The tab
+  // name was the literal 'Final Test cases' here, which is one QA team's tab — so
+  // triage could not read a second application's workbook even once its columns were
+  // described. Taking both from one source is also what stops them disagreeing.
+  const layout = loadSheetLayout(
+    path.join(findRepoRoot(), 'config', 'apps', application, 'sheet-layout.json'),
+  );
+  const sheet = readFinalTestCases(readSheetGrid(readFileSync(workbook), layout.sheetName), layout);
   if (sheet.rows.length === 0) throw new Error('read 0 rows — refusing to report a ceiling');
 
   /**

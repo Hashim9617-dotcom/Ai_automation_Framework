@@ -15,6 +15,7 @@ import {
   readSheetGrid,
   triageSheet,
   loadModuleMap,
+  loadSheetLayout,
   entryStateByModule,
   type CommandPlan,
   type InventoryEntry,
@@ -103,7 +104,12 @@ export class CommandService {
     // the reason the inventory above is keyed the same way: a corpus is a function
     // of the environment, not of the process this happens to run in.
     const capture = this.loadCaptureStates(request.environment);
-    const sheetRows = this.loadSheetRows();
+    // THE REQUESTED ENVIRONMENT, for the third time on this line and the same
+    // reason: the sheet's LAYOUT and tab name are per-application, so reading it
+    // without knowing which application is the gap the inventory and the capture
+    // already had fixed. A corpus is a function of the environment, not of the
+    // process this happens to run in.
+    const sheetRows = this.loadSheetRows(request.environment);
 
     const plan = planCommand({
       command: request.command,
@@ -248,7 +254,11 @@ export class CommandService {
       }
       const mapFile = path.join(this.repoRoot, 'config', 'apps', application, 'module-map.json');
       const map = loadModuleMap(mapFile);
-      const sheet = readFinalTestCases(readSheetGrid(readFileSync(configured), 'Final Test cases'));
+      const layout = this.sheetLayoutForApplication(application);
+      const sheet = readFinalTestCases(
+        readSheetGrid(readFileSync(configured), layout.sheetName),
+        layout,
+      );
       const { ceiling } = triageSheet(sheet.rows, {
         capture: source.capture,
         entryStateOf: entryStateByModule(map, source.capture),
@@ -322,6 +332,26 @@ export class CommandService {
    * No `targetHost` is passed: this answers "what do we know about this
    * application", not "what is this run about to drive".
    */
+  /**
+   * One application's sheet layout. The ONE expression, so nothing builds the path
+   * by hand.
+   *
+   * Two readers of the workbook existed in this file with the tab name written out
+   * as a literal in each, and that is the §AE shape: two copies of "which sheet and
+   * which columns" drift, and a drifted copy reads exactly like a correct one — here
+   * it would show up as the ceiling and the row list being computed from different
+   * columns of the same file.
+   */
+  private sheetLayoutForApplication(application: string) {
+    return loadSheetLayout(
+      path.join(this.repoRoot, 'config', 'apps', application, 'sheet-layout.json'),
+    );
+  }
+
+  private sheetLayoutFor(environment: string) {
+    return this.sheetLayoutForApplication(loadEnvironment(environment).application);
+  }
+
   private loadCaptureStates(
     environment: string,
   ): { states: string[]; capturedAt: string | null } | null {
@@ -340,17 +370,22 @@ export class CommandService {
    * response reports differently from an empty sheet. The workbook itself never
    * enters the repo: it carries live credentials (§the sheet is read-only input).
    */
-  private loadSheetRows(): SheetRowRef[] | null {
+  private loadSheetRows(environment: string): SheetRowRef[] | null {
     const configured = process.env.AITP_SHEET_PATH;
     if (!configured || !existsSync(configured)) return null;
     try {
+      // The tab name was the literal 'Final Test cases' — one QA team's tab — so
+      // this could not read a second application's workbook even once its columns
+      // were described. Both now come from that application's own layout file, which
+      // is also what stops the two disagreeing.
+      const layout = this.sheetLayoutFor(environment);
       // Statically imported. An earlier draft required this lazily "so a
       // missing workbook cannot stop the API booting" — which was wrong about
       // what the risk was: the FILE may be absent, the MODULE never is. The
       // `existsSync` above and this `catch` handle the file; the import is an
       // ordinary dependency.
-      const grid = readSheetGrid(readFileSync(configured), 'Final Test cases');
-      return readFinalTestCases(grid).rows.map((row) => ({
+      const grid = readSheetGrid(readFileSync(configured), layout.sheetName);
+      return readFinalTestCases(grid, layout).rows.map((row) => ({
         rowId: row.rowId,
         text: [row.module, row.feature, row.scenarioName, row.objective].filter(Boolean).join(' '),
       }));

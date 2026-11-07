@@ -165,6 +165,13 @@ const COVERED = [
   // @write specs are the known input W1's zero depends on being findable (§AA).
   'tests/unit/ecom-onboarding.spec.ts',
   'tests/unit/write-spec-scope.spec.ts',
+  // Added 2026-11-07 with A1. L1 is the one that earns the file: the DMS layout now
+  // exists in code AND in config, and a drift between them changes a VERDICT — the
+  // reader takes every value from a position, so one changed number returns rows
+  // populated from the wrong columns and they look exactly like data. L4 asserts the
+  // refusal in BOTH directions, because the new config must not become a way around
+  // the gate it replaced.
+  'tests/unit/sheet-layout.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every

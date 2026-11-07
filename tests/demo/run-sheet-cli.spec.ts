@@ -165,6 +165,23 @@ function fixtureRoot(): string {
     path.join(root, 'config', 'env', 'local.json'),
   );
   mkdirSync(path.join(root, 'config', 'apps', 'bundled-demo'), { recursive: true });
+  /**
+   * THE SHEET LAYOUT, copied rather than invented.
+   *
+   * `runSheet` reads `config/apps/<application>/sheet-layout.json` as of A1 — the
+   * column order stopped being a constant in code so a second application could have
+   * its own. A fixture root without it refuses with "there is no sheet layout at …",
+   * and that refusal is correct: there is deliberately no default, because a default
+   * is how a sheet gets read with the wrong application's columns.
+   *
+   * The REAL file is copied, not a hand-written stand-in, so this suite cannot pass
+   * over a layout the shipped one no longer matches — the same reason `local.json` is
+   * copied above rather than written out here.
+   */
+  copyFileSync(
+    path.join(ROOT, 'config', 'apps', 'bundled-demo', 'sheet-layout.json'),
+    path.join(root, 'config', 'apps', 'bundled-demo', 'sheet-layout.json'),
+  );
   return root;
 }
 

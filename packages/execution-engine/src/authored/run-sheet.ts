@@ -5,6 +5,7 @@ import {
   executeAuthoredRows,
   findRepoRoot,
   loadModuleMap,
+  loadSheetLayout,
   newId,
   partitionMappedModules,
   entryStateByModule,
@@ -109,8 +110,22 @@ export interface RunSheetResult {
 }
 
 export async function runSheet(options: RunSheetOptions): Promise<RunSheetResult> {
+  /**
+   * THE LAYOUT IS PER APPLICATION, from the SAME `env.application` that selects the
+   * module map below.
+   *
+   * It used to be the in-code DMS constant, which made a second application's
+   * workbook a hard refusal — the right failure and a total blocker. Taking it from
+   * the resolved environment rather than from an argument is deliberate: the layout,
+   * the module map and the captures must all be the same application's or a row is
+   * resolved against one system's screens and read from another's columns, and
+   * nothing downstream could tell.
+   */
+  const layout = loadSheetLayout(
+    path.join(findRepoRoot(), 'config', 'apps', options.env.application, 'sheet-layout.json'),
+  );
   const grid = readSheetGrid(readFileSync(options.workbook), options.sheet);
-  const sheet = readFinalTestCases(grid);
+  const sheet = readFinalTestCases(grid, layout);
   const rowsRead = sheet.rows.length + sheet.unreadable.length;
   if (rowsRead === 0) {
     throw new Error(
