@@ -1,0 +1,33 @@
+{
+  "name": "ecom",
+  "//": "Ecom (Synergy ERP), the second real application. The URL and the credentials come from .env ONLY — ECOM_BASE_URL, ECOM_USER, ECOM_PASSWORD — and never live here. \"application\" is pinned rather than read from .env for the reason config/env/app.json gives: an ambient variable choosing which module map and which entry-state proofs apply is SEC-2's shape, so the thing that decides where a run goes must not come from the source that can redirect it.",
+  "application": "ecom",
+  "//dev": "A DEV environment shared with QA, BA and development. No live or personal data — stated by the person who owns it, recorded here because nothing in this file could discover it. It is NOT a reason to relax anything below: this batch is read-only against it.",
+  "baseUrl": "${ECOM_BASE_URL}",
+  "apiBaseUrl": "${ECOM_API_BASE_URL:-${ECOM_BASE_URL}}",
+  "//readOnly": "features.selfHealing and features.aiRootCause are BOTH false, and that is a decision rather than a default. `pnpm heal --app ecom` refuses by name while selfHealing is false, so the first thing anybody could accidentally run against this system cannot write a locator proposal from a model. Turn them on deliberately, in a later batch, once somebody has looked at a capture.",
+  "//noWrites": "There is no @write spec under tests/apps/ecom/ and this batch creates none. That is not a convention: playwright.config.ts collects live specs from `tests/apps/${application}/**`, so with application \"ecom\" no DMS spec is collected AT ALL and ALLOW_WRITES has nothing to act on. tests/unit/write-spec-scope.spec.ts holds that property rather than leaving it to be noticed.",
+  "timeouts": {
+    "action": 20000,
+    "navigation": 45000,
+    "expect": 15000,
+    "test": 120000
+  },
+  "retries": 1,
+  "//workers": "ONE worker, not four. A dev environment is shared with the people doing their own work in it, and four browsers signed in as the same test account is both a load they did not ask for and a source of failures that are ours rather than the application's. Raise it when somebody has watched a run.",
+  "workers": 1,
+  "//users": "The primary user is REQUIRED and has no default, so an unset variable refuses BY NAME rather than resolving to a blank the schema accepts — which is how an unconfigured run once reached a login attempt and failed as though the password were wrong. Named ECOM_USER rather than ECOM_ADMIN_USER on purpose: it is a test account, and calling it admin invites somebody to give it rights this work does not need. NOTE: this comment must not spell a placeholder in ${...} form — interpolate() walks every string value in this file, including this one, and would try to resolve it.",
+  "users": {
+    "admin": {
+      "username": "${ECOM_USER}",
+      "password": "${ECOM_PASSWORD}",
+      "role": "admin"
+    }
+  },
+  "features": {
+    "selfHealing": false,
+    "aiRootCause": false,
+    "video": false,
+    "trace": true
+  }
+}

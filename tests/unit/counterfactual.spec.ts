@@ -158,6 +158,13 @@ const COVERED = [
   // R2 plants both halves, because over a clean tree a detector that matches nothing
   // and one that works are the same output.
   'tests/unit/app-arg-remedies.spec.ts',
+  // Added 2026-11-07 with A6/A7. E2 and E3 are the pair that matters: the onboarding
+  // refusal must fire for "declared but not walked" and must NOT fire for a corrupt
+  // or missing-for-another-reason file, or it sends a reader to run `inspect` over a
+  // problem that is something else. W2 is the planted-input half — the three real
+  // @write specs are the known input W1's zero depends on being findable (§AA).
+  'tests/unit/ecom-onboarding.spec.ts',
+  'tests/unit/write-spec-scope.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every

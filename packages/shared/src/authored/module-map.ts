@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { ARIA_ROLES, TEXT_ROLES, collapseTextDuplicates } from '../a11y/addressability';
 import type { BoundedCapture } from '../generation/bounding';
 import type { CapturedState } from '../generation/grounding';
@@ -88,11 +89,130 @@ const quoted = (values: string[]): string => values.map((v) => `"${v}"`).join(',
  * Every message names the module, what was found and what to do instead: a QA
  * reading "role StaticText is not addressable" learns nothing they can act on.
  */
+/**
+ * The module names an application's sheet says exist — DECLARED, not proven.
+ *
+ * ## Why this is a second file and not a lax `module-map.json`
+ *
+ * Onboarding Ecom produced a state the map could not express: **33 modules are
+ * known and none is captured.** `module-map.json` requires a `route` and a
+ * `provenBy` per entry, correctly — an entry without them proves nothing, and the
+ * brief for this onboarding was explicit that routes and proof elements stay empty
+ * until somebody runs `pnpm inspect --app ecom`.
+ *
+ * The tempting alternative was to let an entry be `null`, or the route be `''`, and
+ * fill them in later. That is the placeholder this repo refuses on principle: a map
+ * that loads and proves nothing READS AS A MAP. Every count over it, every "N of M
+ * modules mapped" line, every triage denominator would include entries that cannot
+ * resolve, and the number would look like progress.
+ *
+ * So the two facts live in two files, and the difference between them is the honest
+ * answer to "how far has this application got":
+ *
+ * - `modules.json` — what the sheet names. Written when the sheet is read.
+ * - `module-map.json` — what has been walked and can be proven. Written from captures.
+ *
+ * `partitionMappedModules` already refuses a declared module with no entry BY NAME,
+ * so this needs no new refusal path: declaring 33 and mapping 0 gives 33 named
+ * refusals, which is exactly the worklist a QA wants.
+ */
+export interface DeclaredModules {
+  modules: string[];
+}
+
+export function loadDeclaredModules(file: string): DeclaredModules {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (error) {
+    throw new Error(`${file} could not be read as JSON: ${(error as Error).message}`);
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(
+      `${file} must be a JSON object with a "modules" array of names, as they are spelled ` +
+        "in the sheet's Module column.",
+    );
+  }
+  const modules = (raw as { modules?: unknown }).modules;
+  if (!Array.isArray(modules)) {
+    throw new Error(
+      `${file}: "modules" must be an array of names from the sheet's Module column, ` +
+        `found ${modules === undefined ? 'nothing' : typeof modules}.`,
+    );
+  }
+  // ASSERTS IT HAD A SUBJECT (§T). An empty array validates perfectly and then makes
+  // every later count zero — "this application has no modules" and "nobody has read
+  // the sheet yet" would be the same answer.
+  if (modules.length === 0) {
+    throw new Error(
+      `${file} declares no modules. Put one entry per distinct value in the sheet's ` +
+        'Module column; an empty list is indistinguishable from a sheet nobody has read.',
+    );
+  }
+  const names: string[] = [];
+  for (const [index, value] of modules.entries()) {
+    if (typeof value !== 'string' || value.trim() === '') {
+      throw new Error(
+        `${file}: modules[${index}] must be a non-empty module name, found ` +
+          `${JSON.stringify(value)}.`,
+      );
+    }
+    // UNTRIMMED, deliberately. The map and the sheet are compared by exact string,
+    // and the DMS workbook's own column 19 is `"SOC DMS "` with a trailing space —
+    // a loader that normalised here could not be used to check normalisation.
+    names.push(value);
+  }
+  const duplicates = [...new Set(names.filter((name, i) => names.indexOf(name) !== i))].sort();
+  if (duplicates.length > 0) {
+    throw new Error(
+      `${file} declares ${duplicates.length} module(s) twice: ${quoted(duplicates)}. ` +
+        'The list is the DISTINCT values of the Module column; a repeat means either the ' +
+        'list was built by hand or two spellings were folded together.',
+    );
+  }
+  return { modules: names };
+}
+
 export function loadModuleMap(file: string): ModuleMap {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(file, 'utf8'));
   } catch (error) {
+    /**
+     * THREE STATES, NOT TWO: not configured / configured-and-empty / failed to load.
+     *
+     * An application whose modules are declared and whose screens are not yet
+     * captured has NO `module-map.json`, and that is a normal, nameable state of
+     * onboarding — not a broken file. It used to arrive as
+     * `could not be read as JSON: ENOENT, open '…/module-map.json'`, which sends the
+     * reader to look for a file they are supposed to be about to create.
+     *
+     * `modules.json` beside it is what tells the two apart: if the inventory is there,
+     * the sheet has been read and the screens have not been walked, and the message
+     * says so and names the command.
+     */
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      const inventory = path.join(path.dirname(file), 'modules.json');
+      if (existsSync(inventory)) {
+        let declared = 0;
+        try {
+          declared = loadDeclaredModules(inventory).modules.length;
+        } catch {
+          // The inventory itself is broken; its own loader is what should say so.
+          // Counting 0 here would only weaken the sentence below, never fabricate it.
+        }
+        throw new Error(
+          `there is no module map at ${file} yet. ${declared} module(s) are declared in ` +
+            `${inventory} and none of them is mapped: the sheet has been read and the ` +
+            'screens have not been walked.\n' +
+            `  Run \`pnpm inspect --app ${path.basename(path.dirname(file))}\`, then add ` +
+            'one entry per module — { "route": "/…", "provenBy": { "role": "…", ' +
+            '"name": "…" } } — taking each proof from the capture for that screen.\n' +
+            '  This is a refusal and not an empty map: a map that loaded with nothing in ' +
+            'it would make every later count read as progress.',
+        );
+      }
+    }
     throw new Error(`${file} could not be read as JSON: ${(error as Error).message}`);
   }
 
