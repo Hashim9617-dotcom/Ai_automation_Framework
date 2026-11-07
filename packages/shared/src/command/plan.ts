@@ -211,7 +211,7 @@ export function planCommand(input: PlanInput): CommandPlan {
       door: 'generate',
       why:
         captureStates === null
-          ? 'no capture is on disk, so there is nothing to ground a generated case in — run `pnpm inspect`'
+          ? 'no capture is on disk, so there is nothing to ground a generated case in — run `pnpm inspect --app <application>`'
           : 'the capture on disk has no states, so there is nothing to ground a generated case in',
     });
   }

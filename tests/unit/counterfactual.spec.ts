@@ -144,6 +144,20 @@ const COVERED = [
   // attribute order the reader demanded (§AK). Two of the seven are the
   // must-still-work half (§W).
   'tests/unit/xlsx-attribute-order.spec.ts',
+  // Added 2026-11-07 with A2–A5. The unit suite proves the RULE and the demo suite
+  // proves the four scripts ASK — split that way on purpose, because a source scan
+  // cannot tell a call that exists from a call that is REACHED, and `auth`'s refusal
+  // has to land before `chromium.launch`. Both halves of the ambient check are here
+  // (§W): a rule that refuses whenever TEST_ENV is set at all would pass A9 and make
+  // the correct `TEST_ENV=app … --app dms` impossible.
+  'tests/unit/application-env.spec.ts',
+  'tests/demo/app-arg-cli.spec.ts',
+  // Added 2026-11-07, and it earned its place on its first run: making `--app`
+  // mandatory silently invalidated 35 messages and documents telling a human to run
+  // a bare command, and this scan found 28 of them that hand-searching had missed.
+  // R2 plants both halves, because over a clean tree a detector that matches nothing
+  // and one that works are the same output.
+  'tests/unit/app-arg-remedies.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every

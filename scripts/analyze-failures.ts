@@ -2,7 +2,7 @@
 /**
  * Root cause analysis over the last run.
  *
- *   pnpm rca
+ *   pnpm rca --app <application>
  *
  * Reads artifacts/reports/run.json, analyzes every distinct failure, writes the
  * verdicts back into run.json and regenerates summary.html.
@@ -19,19 +19,30 @@ import {
   createLlmGateway,
   enrichRunWithRca,
 } from '@aitp/ai-engine';
-import { loadEnvironment } from '@aitp/execution-engine';
+import { resolveEnvironmentForApp } from '@aitp/execution-engine';
 import { renderRunSummaryHtml } from '@aitp/reporting-engine';
 import { findRepoRoot, rootLogger, type Run } from '@aitp/shared';
 
 const log = rootLogger.child('rca-cli');
 
+const USAGE = 'usage: pnpm rca --app <application>';
+
 async function main(): Promise<void> {
   // createLlmGateway() reads process.env directly, and nothing loads .env
-  // into it unless something calls loadEnvironment() (or its internal
+  // into it unless something resolves an environment (or its internal
   // ensureDotenv()) first — without this, ANTHROPIC_API_KEY sitting in .env
   // was silently invisible here regardless of how correctly it was set,
   // and every run fell back to "no key configured" with no indication why.
-  loadEnvironment();
+  //
+  // `--app` IS REQUIRED, and here the reason is narrower than for the other three:
+  // this command resolves an environment ONLY to load `.env`, and the report it
+  // rewrites is `artifacts/reports/run.json`, which is NOT per-application yet
+  // (deferred, B1 in the ECOM-0 Part 1 list). So the flag is a refusal that stops
+  // this targeting DMS ambiently; it does not yet scope what it writes, and
+  // pretending otherwise would be the more comfortable half of a true statement.
+  // Kept, not discarded: `env.application` is how the remedies below name the whole
+  // command rather than a bare one that would now refuse (§AG).
+  const env = resolveEnvironmentForApp({ argv: process.argv, usage: USAGE });
 
   const reportsDir = path.join(findRepoRoot(__dirname), 'artifacts', 'reports');
   const runJson = path.join(reportsDir, 'run.json');
@@ -56,7 +67,8 @@ async function main(): Promise<void> {
   // verdicts that look like findings.
   if (gateway instanceof MockLlmGateway) {
     log.warn(
-      'No LLM API key configured — skipping analysis. Set ANTHROPIC_API_KEY in .env and run `pnpm rca` again.',
+      'No LLM API key configured — skipping analysis. Set ANTHROPIC_API_KEY in .env and run ' +
+        `\`pnpm rca --app ${env.application}\` again.`,
       { failures },
     );
     return;

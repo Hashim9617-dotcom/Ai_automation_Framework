@@ -2,14 +2,19 @@
 /**
  * Interactive application inspector.
  *
- *   pnpm inspect https://qa.your-app.com/login
+ *   pnpm inspect --app dms
+ *   pnpm inspect --app dms https://qa.your-app.com/login
+ *
+ * `--app` is REQUIRED: the capture written here is filed under that application
+ * and is the provenance every locator is later written against, so an ambient
+ * `TEST_ENV` must not choose it (see `resolveEnvironmentForApp`).
  *
  * Opens a real browser and hands it to you. Log in however your app requires —
  * password, SSO, OTP, whatever — navigate to a page you want automated, then
  * name it here and press Enter to capture it. Repeat for as many pages as you
  * like.
  *
- * Output lands in artifacts/inspect/:
+ * Output lands in artifacts/<application>/inspect/<timestamp>/:
  *   - report.md   readable inventory, ready to paste into a chat
  *   - pages.json  the raw DomSnapshot AND the real accessibility tree per page
  *
@@ -44,8 +49,8 @@ import {
   crossCheckTransition,
   diffAxTrees,
   findNameDivergences,
-  loadEnvironment,
   pruneDirectories,
+  resolveEnvironmentForApp,
   signatureSimilarity,
   stateSignature,
   suggestActions,
@@ -108,6 +113,8 @@ function proposeLabel(url: string, nodes: AccessibilityNode[]): string {
 }
 
 const log = rootLogger.child('inspect');
+
+const USAGE = 'usage: pnpm inspect --app <application> [url]';
 
 /**
  * How many capture sessions to keep. No age limit — see the note at the
@@ -326,15 +333,23 @@ async function main(): Promise<void> {
    */
   const kitRoot = findRepoRoot();
   assertKitIntegrity({ root: kitRoot, markerPath: maintainerMarkerPath(kitRoot) });
-  // No argument: fall back to the configured application, so switching targets
-  // is a .env edit rather than a command you have to remember.
-  const env = loadEnvironment();
+  /**
+   * `--app` IS REQUIRED. It used to be bare `loadEnvironment()` — "fall back to the
+   * configured application, so switching targets is a .env edit" — and that is
+   * precisely the fallback that cannot stay: the capture written here is FILED under
+   * `env.application` and is the provenance every locator is later written against.
+   * An ambient `TEST_ENV` choosing it means a capture of DMS can land while somebody
+   * is onboarding a different system, and nothing downstream can tell.
+   */
+  const env = resolveEnvironmentForApp({ argv: process.argv, usage: USAGE });
   // THE TARGET, FIRST. The capture about to be written is labelled with all of this,
   // and a label is the one thing nothing downstream can check.
   process.stdout.write(`\nCapturing from:\n${describeTargetBanner(env)}\n\n`);
-  const url = process.argv[2] ?? env.baseUrl;
+  // A positional URL, never the `--app` flag or its value.
+  const urlArg = process.argv.slice(2).find((arg) => /^https?:\/\//i.test(arg));
+  const url = urlArg ?? env.baseUrl;
   if (!url) {
-    log.error('No URL. Pass one (`pnpm inspect <url>`) or set BASE_URL in .env.');
+    log.error(`${USAGE}\n  No URL. Pass one, or set this environment's baseUrl in .env.`);
     process.exitCode = 1;
     return;
   }
@@ -354,15 +369,15 @@ async function main(): Promise<void> {
   //
   // A path or a port on the same host is fine — that is navigating, which is the
   // whole point of passing a URL.
-  if (process.argv[2]) {
-    const argHost = hostOf(process.argv[2]);
+  if (urlArg) {
+    const argHost = hostOf(urlArg);
     const envHost = hostOf(env.baseUrl);
     if (argHost && envHost && argHost !== envHost) {
       log.error(
         `refusing to capture: the URL argument's host is "${argHost}" but environment ` +
           `"${env.name}" is configured for "${envHost}". The capture would be filed under ` +
           `application "${env.application}" and labelled with a baseUrl it never visited.\n` +
-          `  Point TEST_ENV at the environment you mean, or pass a URL on ${envHost}.`,
+          `  Pass --app for the application you mean, or pass a URL on ${envHost}.`,
       );
       process.exitCode = 1;
       return;
@@ -417,7 +432,8 @@ async function main(): Promise<void> {
       ...(headless ? {} : { viewport: null }),
       ...(reuseSession ? { storageState: savedSession } : {}),
     });
-    if (reuseSession) log.info('Reusing the session saved by `pnpm auth`.');
+    if (reuseSession)
+      log.info(`Reusing the session saved by \`pnpm auth --app ${env.application}\`.`);
     const page = await context.newPage();
 
     try {
@@ -534,7 +550,8 @@ async function main(): Promise<void> {
             // actually the login screen is a durable artifact that misleads.
             (reuseSession && /\/login(\b|$)/.test(snapshot.url)
               ? `  WARNING: captured the login page, not "${label}" — the saved session has expired.\n` +
-                '  Run `pnpm auth` (or the setup project) and capture again.\n'
+                `  Run \`pnpm auth --app ${env.application}\` (or the setup project) and ` +
+                'capture again.\n'
               : '') +
             '\n',
         );

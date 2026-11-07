@@ -4,7 +4,7 @@ Specs here run against whatever `BASE_URL` points at. They are ignored when
 `TEST_ENV=local`, so the bundled demo suite and your real suite never mix.
 
 **Currently populated with a 45-test suite for DmsSynergy DMS**, generated from
-the 24-page inventory captured with `pnpm inspect`. See
+the 24-page inventory captured with `pnpm inspect --app dms`. See
 `docs/dms-suite.md` for what each spec covers and how to tune it.
 
 ## Getting started
@@ -15,7 +15,7 @@ TEST_ENV=app
 BASE_URL=https://dmsuiv3.aitalkx.com
 
 # 2. Log in once — works with SSO, MFA, OTP, anything
-pnpm auth
+pnpm auth --app dms
 
 # 3. Run
 pnpm test --project=chromium
@@ -83,7 +83,7 @@ If your QA instance has different data, set these instead of editing specs.
 
 ## Notes
 
-- `pnpm auth` saves a logged-in session, so specs here do **not** test the login
+- `pnpm auth --app dms` saves a logged-in session, so specs here do **not** test the login
   flow. `login.page.ts` exists for when you want a dedicated auth spec that runs
   without the saved session.
 - Keep tests independent: each one sets up its own data. Prefer creating state

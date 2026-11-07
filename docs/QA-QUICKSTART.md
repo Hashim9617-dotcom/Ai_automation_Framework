@@ -22,7 +22,7 @@
 > does anything. [ADD-AN-APPLICATION.md](ADD-AN-APPLICATION.md) is the page for that;
 > follow this one first.
 >
-> `pnpm auth`, `pnpm inspect`, `pnpm triage` and `pnpm verify` are not DMS-specific
+> `pnpm auth --app <a>`, `pnpm inspect --app <a>`, `pnpm triage` and `pnpm verify` are not DMS-specific
 > and work against any target.
 
 This is the short version for a QA joining the project on Windows. It gets you to
@@ -30,8 +30,8 @@ the things you can run today:
 
 | you can                                      | command                                               |
 | -------------------------------------------- | ----------------------------------------------------- |
-| sign in once and save the session            | `pnpm auth`                                           |
-| walk the screens and record them             | `pnpm inspect`                                        |
+| sign in once and save the session            | `pnpm auth --app dms`                                 |
+| walk the screens and record them             | `pnpm inspect --app dms`                              |
 | ask which sheet rows could ever be automated | `pnpm triage "<path>" --app dms`                      |
 | check the map still matches the live app     | `pnpm verify-entries --app dms`                       |
 | check the whole repo is healthy              | `pnpm verify`                                         |
@@ -119,8 +119,14 @@ your Windows username, and on a build server it records `ci`.
 ## 3. The commands
 
 **Run them in this order the first time.** `pnpm triage` refuses to run without a
-capture on disk, and `pnpm inspect` needs a saved session, so the chain is
-`auth` → `inspect` → `triage`. Each command below says what it needs.
+capture on disk, and `pnpm inspect --app <app>` needs a saved session, so the chain
+is `auth` → `inspect` → `triage`. Each command below says what it needs.
+
+**All four of `auth`, `inspect`, `heal` and `rca` require `--app`.** There is no
+`TEST_ENV` fallback: a command that opens a browser at a real system, or writes a
+capture that every later locator is judged against, must not pick which system from a
+variable nobody looked at. If the application has several environments, name one with
+`TEST_ENV` as well and the two must agree — a disagreement is refused, printing both.
 
 ### If you are on `TEST_ENV=local`, start the demo app first
 
@@ -129,13 +135,13 @@ node scripts/serve-demo.mjs
 ```
 
 Leave it running in its own terminal. The TEST commands start this server for you;
-`pnpm auth` and `pnpm inspect` do **not** — they open a browser at
+`pnpm auth --app <app>` and `pnpm inspect --app <app>` do **not** — they open a browser at
 `http://127.0.0.1:4173` and will find nothing there. Found by running the commands
 on a fresh clone rather than by reading them.
 
 On `TEST_ENV=app` there is nothing to start: the application is already running.
 
-### `pnpm auth` — sign in once
+### `pnpm auth --app <app>` — sign in once
 
 Opens a real browser, waits for you to sign in by hand, and saves the session so
 later runs do not sign in again.
@@ -150,13 +156,13 @@ only check that the sign-in worked. Press Enter too early and it saves the sessi
 anyway — it will say you landed on the login page, and every later command will
 behave as though you are signed out. Seen on a real run.
 
-### `pnpm inspect` — record the screens
+### `pnpm inspect --app <app>` — record the screens
 
 Opens a browser and waits. You navigate to a screen yourself, press **Enter** in the
 terminal, and it records what is on that screen. Repeat for every screen you want
 covered, then finish.
 
-- **Needs the target system's credentials** (run `pnpm auth` first).
+- **Needs the target system's credentials** (run `pnpm auth --app <app>` first).
 - It only navigates. It does not click, type or submit anything.
 - Writes: `artifacts/<application>/inspect/<timestamp>/capture.json`, `report.md` and
   `pages.json`. The capture records which application, environment and `baseUrl` it
@@ -165,7 +171,7 @@ covered, then finish.
 
 It checks its own work: if the page it captured is the login page it prints
 `WARNING: captured the login page … the saved session has expired` and tells you to
-re-run `pnpm auth`. Believe that warning — a capture of the login screen looks like
+re-run `pnpm auth --app <app>`. Believe that warning — a capture of the login screen looks like
 a capture.
 
 **Its last message depends on what you captured**, so read it. On the bundled demo
@@ -203,7 +209,7 @@ pnpm triage "C:/Users/you/Documents/Test case Sheet.xlsx" --app dms --out artifa
 - **It does need at least one capture for THIS application**, or it stops with
   `no captures found under artifacts/<application>/inspect`. That
   refusal is deliberate: the answer depends on which screens have been recorded, so
-  a number computed with none would be meaningless. Run `pnpm inspect` first.
+  a number computed with none would be meaningless. Run `pnpm inspect --app <app>` first.
 - The module names in your sheet are paired against captured screens by a mapping
   inside the script. It prints that pairing with `** NOT ON DISK **` beside anything
   it could not find, and the line `captured but unpaired` for captures no module
@@ -238,8 +244,9 @@ This is the command that tells you a capture has gone stale. `pnpm triage` and
 `pnpm run-sheet` both believe the capture; this is the only thing that asks the
 application.
 
-- **Needs the saved session** (`pnpm auth` first) **and at least one capture**
-  (`pnpm inspect` first). Both are refusals with the command to run, not crashes.
+- **Needs the saved session** (`pnpm auth --app <app>` first) **and at least one
+  capture** (`pnpm inspect --app <app>` first). Both are refusals with the command to
+  run, not crashes.
 - **Refuses to start if `ALLOW_WRITES` is set**, even though it could not write
   anything — a QA who set it is expecting writes, and silence would leave them
   guessing.
@@ -333,8 +340,8 @@ pnpm test:trace artifacts/…/trace.zip  # step through a failed test
 
 | command                     | writes to                                                          |
 | --------------------------- | ------------------------------------------------------------------ |
-| `pnpm auth`                 | `artifacts/<application>/auth/`                                    |
-| `pnpm inspect`              | `artifacts/<application>/inspect/<timestamp>/`                     |
+| `pnpm auth --app <app>`     | `artifacts/<application>/auth/`                                    |
+| `pnpm inspect --app <app>`  | `artifacts/<application>/inspect/<timestamp>/`                     |
 | `pnpm triage … --out <dir>` | that directory (terminal only without `--out`)                     |
 | any test run                | `artifacts/test-results/`, `artifacts/reports/`, `artifacts/runs/` |
 
@@ -412,8 +419,8 @@ Measured, not hoped. Every claim below was run before it was written.
 |                                                     | command                                        |
 | --------------------------------------------------- | ---------------------------------------------- |
 | install and check the repo                          | `pnpm install`, `pnpm verify`                  |
-| sign in once and save the session                   | `pnpm auth`                                    |
-| walk the screens and record them                    | `pnpm inspect`                                 |
+| sign in once and save the session                   | `pnpm auth --app <app>`                        |
+| walk the screens and record them                    | `pnpm inspect --app <app>`                     |
 | add a second application                            | [ADD-AN-APPLICATION.md](ADD-AN-APPLICATION.md) |
 | check every module map entry against the live app   | `pnpm verify-entries --app <app>`              |
 | report which sheet rows could ever run, and why not | `pnpm triage "<path>" --app <app>`             |
@@ -446,7 +453,8 @@ is proven by a test rather than illustrated.
 
 ### Not part of the kit
 
-- **The AI features** — `pnpm rca`, `pnpm heal`, `pnpm smoke:generation`. These call
+- **The AI features** — `pnpm rca --app <app>`, `pnpm heal --app <app>`,
+  `pnpm smoke:generation --app <app>`. These call
   a paid model API and need a key this kit does not include. Without a key they fall
   back to a mock and tell you nothing useful, so they are left out rather than
   handed over half-working.
@@ -566,7 +574,8 @@ variable. There is no supported way to skip it.
    - `.env`
 4. `pnpm install`, then carry on.
 
-Do not copy `artifacts/` back — re-run `pnpm auth` and `pnpm inspect` instead. It is
+Do not copy `artifacts/` back — re-run `pnpm auth --app <app>` and
+`pnpm inspect --app <app>` instead. It is
 quick, and a capture from a modified kit is a capture you cannot vouch for.
 
 ---

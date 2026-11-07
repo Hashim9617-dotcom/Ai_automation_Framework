@@ -182,12 +182,28 @@ Two files, and the second one comes after you have captures — see step 6.
 indistinguishable from an oversight, and listing it by name is the difference between
 a gap somebody can act on and a silence.
 
-## 4. Sign in — `pnpm auth`
+## 4. Sign in — `pnpm auth --app <slug>`
+
+```bash
+pnpm auth --app contoso
+```
+
+`--app` is REQUIRED and there is no `TEST_ENV` fallback. It used to be ambient, which
+meant that on a machine whose `.env` still said `TEST_ENV=app` this command opened a
+browser at the FIRST application and saved a live session under its name — while you
+believed you were onboarding the second one.
+
+If the application has several environments (`contoso-qa`, `contoso-prod`), name one
+and the two must agree:
 
 ```bash
 # PowerShell
-$env:TEST_ENV="contoso-prod"; pnpm auth
+$env:TEST_ENV="contoso-prod"; pnpm auth --app contoso
 ```
+
+A `--app` that disagrees with `TEST_ENV` is refused, printing both. With `TEST_ENV`
+unset and exactly one environment declaring the application, that one is used; with
+several, it refuses and lists them rather than picking.
 
 It prints the target before a browser opens — application, environment, host, and
 where each of those came from. **Read it.** That is the only check you get, and the
@@ -202,13 +218,18 @@ Writes `artifacts/<slug>/auth/<environment>.json`. **A live session. Never share
 
 > Needs the real system's credentials. Not verifiable from here.
 
-## 5. Record the screens — `pnpm inspect`
+## 5. Record the screens — `pnpm inspect --app <slug>`
 
 ```bash
-$env:TEST_ENV="contoso-prod"; pnpm inspect
+pnpm inspect --app contoso
 ```
 
 Navigate to a screen, press Enter, name it, repeat. `q` to finish.
+
+`--app` is REQUIRED here for a sharper reason than for `auth`: the capture this
+writes is FILED under that application and is the provenance every locator is later
+written against. An ambient variable choosing it means a capture of the wrong system
+lands under the right name, and nothing downstream can tell.
 
 - It prints the same target banner first.
 - A URL argument whose HOST differs from the environment's is refused, naming both.
@@ -334,7 +355,7 @@ fine and anything still wrong is in your setup or the target.
 
 - **Running a QA sheet end to end.** `runSheet` is composed and has no caller; the
   CLI arrives later.
-- **AI features** (`pnpm rca`, `pnpm heal`) need a model API key.
+- **AI features** (`pnpm rca --app <a>`, `pnpm heal --app <a>`) need a model API key.
 - **Shared reports.** `artifacts/reports/` and `artifacts/runs/` are not yet keyed by
   application, so two applications' run archives mix. Captures and sessions are
   separated; these are not.

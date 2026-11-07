@@ -171,7 +171,10 @@ export function loadCaptureFromDisk(
       kind: 'none',
       reason:
         `no captures for application "${application}": ${rel(dir)} does not exist. ` +
-        'Run `pnpm inspect` against it first.',
+        // THE WHOLE COMMAND, including `--app`. A remedy is a claim about
+        // behaviour, and `pnpm inspect` on its own now REFUSES — so the message
+        // would send a reader to a second error (§AG).
+        `Run \`pnpm inspect --app ${application}\` against it first.`,
       skipped,
       coverage,
       unlabelled,

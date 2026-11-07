@@ -24,7 +24,9 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { loadEnvironment } from '@aitp/execution-engine';
+import { resolveEnvironmentForApp } from '@aitp/execution-engine';
+
+const USAGE = 'usage: pnpm smoke:generation --app <application>';
 import {
   HttpLlmGateway,
   BudgetGuard,
@@ -76,13 +78,15 @@ class RecordingGateway implements LlmGateway {
 }
 
 /** Loads the richest capture on disk. No DMS needed — this is already here. */
-function loadCapture(root: string): { states: CapturedState[]; label: string } {
-  // PER APPLICATION, from the resolved environment. It read every session on disk.
-  const application = loadEnvironment().application;
+function loadCapture(
+  root: string,
+  application: string,
+): { states: CapturedState[]; label: string } {
   const dir = path.join(root, 'artifacts', application, 'inspect');
   if (!existsSync(dir))
     throw new Error(
-      `no artifacts/${application}/inspect — nothing to generate against. Run \`pnpm inspect\`.`,
+      `no artifacts/${application}/inspect — nothing to generate against. ` +
+        `Run \`pnpm inspect --app ${application}\`.`,
     );
 
   let best: { states: CapturedState[]; label: string; nodes: number } | undefined;
@@ -160,7 +164,16 @@ async function main(): Promise<void> {
   if (!apiKey)
     throw new Error('ANTHROPIC_API_KEY is not set — this smoke exists to hit the real API');
 
-  const { states, label } = loadCapture(root);
+  /**
+   * `--app` IS REQUIRED here too, and this one is not on the A2–A5 list.
+   *
+   * It read the application from an ambient `loadEnvironment()`, and this command
+   * makes a REAL, BILLED API call about whichever application's captures that named.
+   * "Nothing ambiently targets DMS" has to include the one script that spends money
+   * doing it, so the same helper is used rather than left for a later batch.
+   */
+  const env = resolveEnvironmentForApp({ argv: process.argv, usage: USAGE });
+  const { states, label } = loadCapture(root, env.application);
   // Keywords that actually appear in this capture. State selection scores on
   // keyword overlap, so a command sharing no word with the capture bounds to
   // ZERO states — the first run of this smoke did exactly that and asked the

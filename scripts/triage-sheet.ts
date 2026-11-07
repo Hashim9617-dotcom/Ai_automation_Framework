@@ -167,7 +167,7 @@ function main(): void {
   if (paths.size === 0)
     throw new Error(
       `no captures found under artifacts/${application}/inspect — refusing to report a ` +
-        'ceiling. Run `pnpm inspect` against that application first' +
+        `ceiling. Run \`pnpm inspect --app ${application}\` first` +
         (unlabelled > 0 ? `; ${unlabelled} unlabelled session(s) exist but cannot be used.` : '.'),
     );
 

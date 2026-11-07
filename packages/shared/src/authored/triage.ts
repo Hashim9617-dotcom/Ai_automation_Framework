@@ -437,7 +437,12 @@ export function triageSheet(rows: AuthoredRow[], inputs: TriageInputs): TriageRe
       triaged.push({
         ...base,
         reason: 'no-capture-for-module',
-        evidence: `no capture exists for "${module}" — run \`pnpm inspect\` on that screen`,
+        // `--app <application>` as a PLACEHOLDER, because this function does not
+        // know the slug. A bare `pnpm inspect` would now refuse, so an incomplete
+        // command is worse than an obviously-incomplete one (§AG).
+        evidence:
+          `no capture exists for "${module}" — run ` +
+          '`pnpm inspect --app <application>` on that screen',
       });
       continue;
     }
@@ -535,7 +540,7 @@ const REASON_MEANING = {
 } as const satisfies Record<TriageReason, string>;
 
 const REASON_REMEDY = {
-  'no-capture-for-module': 'run `pnpm inspect` on that screen',
+  'no-capture-for-module': 'run `pnpm inspect --app <application>` on that screen',
   'no-capture-for-element': 'walk that screen again — the control was not recorded',
   'unsupported-action': 'ours: the action is on the capability backlog',
   'no-readable-action': 'ours: the grammar has only a click',
@@ -561,7 +566,7 @@ const REASON_DETAIL = {
   'no-capture-for-module': {
     heading: 'Nobody has captured this screen',
     action:
-      'No resolver can do anything with these until someone walks the screen. `pnpm inspect` on that route is the whole fix, and the capture worklist above is ordered by how many rows each screen would recover.',
+      'No resolver can do anything with these until someone walks the screen. `pnpm inspect --app <application>` on that route is the whole fix, and the capture worklist above is ordered by how many rows each screen would recover.',
   },
   'no-capture-for-element': {
     heading: 'The screen is captured and the control is not in it',

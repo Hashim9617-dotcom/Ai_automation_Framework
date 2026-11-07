@@ -3,6 +3,7 @@ import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { findRepoRoot } from '@aitp/shared';
 import { RUNNER_ONLY_VARS, productionEnv } from '../support/spawn-clean';
+import { stripComments } from '../support/strip-comments';
 
 /**
  * No test spawns a process in the RUNNER's environment.
@@ -244,21 +245,15 @@ function violationsIn(
 }
 
 /**
- * Comment text blanked, line numbers preserved.
+ * `stripComments` MOVED to `tests/support/strip-comments.ts` on 2026-11-07.
  *
- * Both halves were earned the same day. `//` was already stripped; a `/* *\/`
- * block was not, and `child-env.ts`'s own doc comment — which QUOTES the defect
- * it fixed, `{ ...process.env }` — was reported as a violation of the rule it
- * documents. Prose about a mistake must not read as the mistake, or the only way
- * to keep a scan green is to stop explaining anything.
- *
- * Newlines survive so a finding still names the line it was on.
+ * `app-arg-remedies.spec.ts` needed the same thing, wrote a second copy, and that
+ * copy was wrong in a way this one already handled — it stripped `//` only at the
+ * start of a line, so a trailing comment read as an instruction. Two implementations
+ * of "is this code or prose" drift, and a drifted scanner reads exactly like a
+ * correct one (§AE). Both scans now ask one function, and its reasoning travelled
+ * with it rather than being left here.
  */
-function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
-    .replace(/\/\/[^\n]*/g, '');
-}
 
 /**
  * One call, from its opening line to the line that closes its parentheses.

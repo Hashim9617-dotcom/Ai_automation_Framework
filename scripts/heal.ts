@@ -2,7 +2,7 @@
 /**
  * Self-healing proposal pass over the last run (docs/phase-2-healing.md).
  *
- *   pnpm heal
+ *   pnpm heal --app <application>
  *
  * Reads artifacts/reports/run.json, proposes a verified candidate for every
  * eligible locator failure, writes the proposals back into run.json. Never
@@ -24,17 +24,23 @@ import {
   createLlmGateway,
   enrichRunWithHealing,
 } from '@aitp/ai-engine';
-import { loadEnvironment } from '@aitp/execution-engine';
+import { resolveEnvironmentForApp } from '@aitp/execution-engine';
 import { findRepoRoot, rootLogger, type Run } from '@aitp/shared';
 
 const log = rootLogger.child('heal-cli');
 
+const USAGE = 'usage: pnpm heal --app <application>';
+
 async function main(): Promise<void> {
   // createLlmGateway() reads process.env directly — nothing loads .env into
-  // it unless something calls loadEnvironment() first. See the identical
+  // it unless something resolves an environment first. See the identical
   // fix in scripts/analyze-failures.ts and scripts/eval-healing.ts for why
   // this line is load-bearing, not decorative.
-  const env = loadEnvironment();
+  //
+  // `--app` IS REQUIRED. This was bare `loadEnvironment()`, so the proposals this
+  // writes — candidate locators for a customer system's page objects — were
+  // generated against whatever application an ambient `TEST_ENV` named.
+  const env = resolveEnvironmentForApp({ argv: process.argv, usage: USAGE });
 
   if (!env.features.selfHealing) {
     log.error(
@@ -72,7 +78,8 @@ async function main(): Promise<void> {
   // against a mock's canned nonsense.
   if (gateway instanceof MockLlmGateway) {
     log.warn(
-      'No LLM API key configured — skipping proposal generation. Set ANTHROPIC_API_KEY in .env and run `pnpm heal` again.',
+      'No LLM API key configured — skipping proposal generation. Set ANTHROPIC_API_KEY in ' +
+        `.env and run \`pnpm heal --app ${env.application}\` again.`,
       { eligibleCount },
     );
     return;

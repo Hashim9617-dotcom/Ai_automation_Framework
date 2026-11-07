@@ -149,8 +149,12 @@ APP_PASSWORD=...
 Then log in once:
 
 ```bash
-pnpm auth
+pnpm auth --app <your-application>
 ```
+
+`--app` names the `config/apps/<slug>/` directory this run belongs to, and it is
+required: there is no ambient fallback, because a command that opens a browser and
+saves a live session must not choose which system from a variable nobody looked at.
 
 A browser opens, you sign in **by hand**, and the session is saved. Every run
 afterwards starts already authenticated. This is deliberately manual: it is what
@@ -165,15 +169,16 @@ run together: `TEST_ENV=local` runs the demo, anything else runs your suite.
 Next, take an inventory of what the engine can actually see:
 
 ```bash
-pnpm inspect                    # uses BASE_URL
-pnpm inspect https://other/page # or an explicit URL
+pnpm inspect --app <your-application>                    # the configured baseUrl
+pnpm inspect --app <your-application> https://other/page # or an explicit URL
 ```
 
 A browser opens. Log in however your app requires — password, SSO, OTP — navigate
 to a page you want automated, name it in the terminal, press Enter. Repeat for
 each page, then `q`.
 
-You get `artifacts/inspect/report.md`: every interactive element per page with
+You get `artifacts/<application>/inspect/<timestamp>/report.md`: every interactive
+element per page with
 its role, accessible name, `data-testid` and placeholder — plus what percentage
 of elements carry a test id, which is the single best predictor of how stable
 your suite will be.
@@ -192,8 +197,8 @@ page. All of it lands inside `run.json`.
 Analysis is a **separate pass**, so a failing run never waits on a model:
 
 ```bash
-pnpm test          # run the live suite
-pnpm rca           # analyze the failures, update run.json + summary.html
+pnpm test                            # run the live suite
+pnpm rca --app <your-application>    # analyze the failures, update run.json + summary.html
 ```
 
 The API does it automatically after any run with failures (`RCA_AUTO=false` to
@@ -252,21 +257,21 @@ cannot quietly burn the budget.
 
 ## Commands
 
-| Command                | What it does                                              |
-| ---------------------- | --------------------------------------------------------- |
-| `pnpm test`            | Full suite, all configured projects                       |
-| `pnpm test:smoke:live` | `@smoke` tests on the LIVE projects — needs credentials   |
-| `pnpm test:regression` | `@regression`-tagged tests only                           |
-| `pnpm test:api`        | API-layer project (no browser)                            |
-| `pnpm test:unit`       | Pure logic tests for platform code (no browser, no app)   |
-| `pnpm rca`             | Root cause analysis over the last run's failures          |
-| `pnpm inspect [url]`   | Open your app, capture each page's element inventory      |
-| `pnpm auth`            | Log in once by hand; tests reuse the session (any IdP)    |
-| `pnpm test:ui`         | Playwright UI mode                                        |
-| `pnpm test:headed`     | Watch the browser                                         |
-| `pnpm verify`          | format + lint + typecheck + smoke — run before committing |
-| `pnpm api:dev`         | Build and start the orchestration API                     |
-| `pnpm docker:up`       | Postgres + Redis + API via docker compose                 |
+| Command                        | What it does                                              |
+| ------------------------------ | --------------------------------------------------------- |
+| `pnpm test`                    | Full suite, all configured projects                       |
+| `pnpm test:smoke:live`         | `@smoke` tests on the LIVE projects — needs credentials   |
+| `pnpm test:regression`         | `@regression`-tagged tests only                           |
+| `pnpm test:api`                | API-layer project (no browser)                            |
+| `pnpm test:unit`               | Pure logic tests for platform code (no browser, no app)   |
+| `pnpm rca --app <a>`           | Root cause analysis over the last run's failures          |
+| `pnpm inspect --app <a> [url]` | Open your app, capture each page's element inventory      |
+| `pnpm auth --app <a>`          | Log in once by hand; tests reuse the session (any IdP)    |
+| `pnpm test:ui`                 | Playwright UI mode                                        |
+| `pnpm test:headed`             | Watch the browser                                         |
+| `pnpm verify`                  | format + lint + typecheck + smoke — run before committing |
+| `pnpm api:dev`                 | Build and start the orchestration API                     |
+| `pnpm docker:up`               | Postgres + Redis + API via docker compose                 |
 
 Environment selection is `TEST_ENV=qa pnpm test` (files live in `config/env/`).
 

@@ -60,6 +60,18 @@ const ROOT = findRepoRoot();
 const TSX = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 
 /**
+ * The application `config/env/local.json` declares — passed as `--app` AND used to
+ * build the path this test counts, so the two cannot disagree.
+ *
+ * `--app` became mandatory on 2026-11-07 and these three cases duly failed. Adding it
+ * cannot make them vacuous, which is worth saying because that is the usual cost of
+ * satisfying a new gate: each case already asserts WHY its answer is what it is —
+ * the banner, the `captured "login"` line, the refusal text — and every one of those
+ * is printed by code far past the argument check (§Y).
+ */
+const APPLICATION = 'bundled-demo';
+
+/**
  * A repo root with `config/env/local.json` and NO `.env`.
  *
  * Two reasons, and the second is the one that makes this more than tidiness: the
@@ -94,7 +106,7 @@ function temporaryRoot(): string {
 /** The session directories the run left behind, or `[]` if the root was never made. */
 function sessionsIn(root: string): string[] {
   try {
-    return readdirSync(path.join(root, 'artifacts', 'bundled-demo', 'inspect'));
+    return readdirSync(path.join(root, 'artifacts', APPLICATION, 'inspect'));
   } catch {
     // Distinguished from "the directory exists and is empty" by the caller only
     // insofar as both are zero sessions — which is the property. The directory not
@@ -114,7 +126,7 @@ function runInspect(
   expect(existsSync(TSX), `tsx is not at ${TSX}; this test spawned nothing`).toBe(true);
   return spawnSyncClean(
     process.execPath,
-    [TSX, path.join(ROOT, 'scripts', 'inspect-app.ts'), ...args],
+    [TSX, path.join(ROOT, 'scripts', 'inspect-app.ts'), '--app', APPLICATION, ...args],
     {
       cwd: ROOT,
       input,
@@ -177,7 +189,7 @@ test.describe('the inspector leaves nothing behind when it captures nothing @uni
       // contains exactly the two names expected below the moment anything writes there.
       if (!session) throw new Error('no session directory was written');
       const written = readdirSync(
-        path.join(root, 'artifacts', 'bundled-demo', 'inspect', session),
+        path.join(root, 'artifacts', APPLICATION, 'inspect', session),
       ).sort();
       expect(written).toEqual(['capture.json', 'report.md']);
     } finally {

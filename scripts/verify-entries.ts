@@ -115,7 +115,8 @@ async function main(): Promise<void> {
   if (!existsSync(session)) {
     throw new Error(
       `refusing to run: no saved session at ${path.relative(root, session)}.\n` +
-        '  Run `pnpm auth` first — it signs in once, interactively, and saves the session ' +
+        `  Run \`pnpm auth --app ${application}\` first — it signs in once, interactively, ` +
+        'and saves the session ' +
         'here. This is NOT the same as an expired session: nothing has signed in yet.',
     );
   }
@@ -182,7 +183,8 @@ async function main(): Promise<void> {
         if (/\/login(\b|$)/.test(page.url())) {
           throw new Error(
             `the saved session at ${path.relative(root, session)} was rejected — the ` +
-              'application redirected to its login screen. Run `pnpm auth` again.',
+              'application redirected to its login screen. Run ' +
+              `\`pnpm auth --app ${application}\` again.`,
           );
         }
       },

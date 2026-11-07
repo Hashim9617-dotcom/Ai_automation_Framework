@@ -351,7 +351,8 @@ export function validateModuleMap(
   if (capture.states.length === 0) {
     throw new Error(
       `${file}: the capture handed in has no states, so no provenBy can be checked against it. ` +
-        'Capture the application first (`pnpm inspect`). This is a refusal and not an empty ' +
+        'Capture the application first (`pnpm inspect --app <application>`). This is a ' +
+        'refusal and not an empty ' +
         'result: nothing was searched.',
     );
   }

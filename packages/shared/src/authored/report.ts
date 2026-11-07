@@ -141,7 +141,7 @@ const DETAILED_SECTIONS = [
     key: 'capture',
     title: 'The capture is out of date',
     blurb:
-      'These rows resolved cleanly against the capture, but their target is not on the live page. Neither an app bug nor a bad row — re-run `pnpm inspect` and try again.',
+      'These rows resolved cleanly against the capture, but their target is not on the live page. Neither an app bug nor a bad row — re-run `pnpm inspect --app <application>` and try again.',
   },
   {
     key: 'environment',

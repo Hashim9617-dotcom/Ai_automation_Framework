@@ -2,12 +2,16 @@
 /**
  * One-time interactive login.
  *
- *   pnpm auth                       # uses BASE_URL from .env
- *   pnpm auth https://app.test/login
+ *   pnpm auth --app dms                                 # the configured URL
+ *   pnpm auth --app dms https://app.test/login
  *
  * Opens a real browser, you sign in by hand, and the resulting session is saved
- * to artifacts/auth/<TEST_ENV>.json. Every test run afterwards starts already
- * logged in.
+ * to artifacts/<application>/auth/<environment>.json. Every test run afterwards
+ * starts already logged in.
+ *
+ * `--app` is REQUIRED. It used to resolve the application from an ambient
+ * `TEST_ENV`, which meant this command signed in to whatever the last run
+ * happened to point at — see `resolveEnvironmentForApp`.
  *
  * This is what makes the platform work against ANY identity provider — SAML,
  * OIDC, Azure AD, Okta, an OTP on your phone, a captcha, a consent screen.
@@ -26,12 +30,14 @@ import {
   assertKitIntegrity,
   authStatePath,
   describeTargetBanner,
-  loadEnvironment,
   maintainerMarkerPath,
+  resolveEnvironmentForApp,
 } from '@aitp/execution-engine';
 import { findRepoRoot, rootLogger } from '@aitp/shared';
 
 const log = rootLogger.child('auth');
+
+const USAGE = 'usage: pnpm auth --app <application> [url]';
 
 function waitForEnter(prompt: string): Promise<void> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -59,12 +65,24 @@ async function main(): Promise<void> {
    */
   const kitRoot = findRepoRoot();
   assertKitIntegrity({ root: kitRoot, markerPath: maintainerMarkerPath(kitRoot) });
-  const env = loadEnvironment();
+  /**
+   * `--app` IS REQUIRED, and it is required HERE more than anywhere else.
+   *
+   * This used to be bare `loadEnvironment()`, which resolves `TEST_ENV` from the
+   * ambient environment. On any machine that has ever run against the customer
+   * system `.env` says `TEST_ENV=app`, so typing `pnpm auth` while onboarding a
+   * SECOND application opened a browser at DMS and saved a live session under
+   * `artifacts/dms/auth/app.json`. The banner below printed that faithfully, which
+   * is SEC-2 exactly: a target stated from the source that chose it.
+   */
+  const env = resolveEnvironmentForApp({ argv: process.argv, usage: USAGE });
   // THE TARGET, FIRST, BEFORE A BROWSER OPENS. A human is about to sign in to a real
   // system; the one check they can make is which one, and the one they cannot make
   // afterwards is where the saved session came from.
   process.stdout.write(`\nSigning in to:\n${describeTargetBanner(env)}\n\n`);
-  const url = process.argv[2] ?? env.baseUrl;
+  // A positional URL, never the `--app` flag or its value.
+  const positional = process.argv.slice(2).filter((arg) => /^https?:\/\//i.test(arg));
+  const url = positional[0] ?? env.baseUrl;
   const statePath = authStatePath(env);
   mkdirSync(path.dirname(statePath), { recursive: true });
 
@@ -107,8 +125,9 @@ async function main(): Promise<void> {
         `Saved to ${path.relative(process.cwd(), statePath)}`,
         `You landed on: ${landedOn}`,
         '',
-        'Tests will now start already authenticated. Re-run `pnpm auth` whenever',
-        'the session expires (tests will start failing on the login page).',
+        'Tests will now start already authenticated. Re-run',
+        `\`pnpm auth --app ${env.application}\` whenever the session expires`,
+        '(tests will start failing on the login page).',
         '',
       ].join('\n'),
     );

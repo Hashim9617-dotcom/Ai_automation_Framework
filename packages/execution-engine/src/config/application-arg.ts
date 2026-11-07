@@ -1,4 +1,7 @@
-import { ambientEnvName, loadEnvironment } from './environment';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+import { ambientEnvName, loadEnvironment, repoRoot } from './environment';
+import type { EnvironmentConfig } from './schema';
 
 /**
  * `--app <application>` for a NON-INTERACTIVE tool, and the one refusal that goes
@@ -61,4 +64,127 @@ export function requireApplicationArg(options: ApplicationArgOptions): string {
   }
 
   return application;
+}
+
+/** Where the environment files live. One expression, so nothing builds it by hand. */
+export function envConfigDir(): string {
+  return path.join(repoRoot(), 'config', 'env');
+}
+
+/**
+ * Which environments declare an application — DERIVED from the files, never a list.
+ *
+ * `configDir` is PASSED IN and never computed here (§AJ). A function that reached
+ * for `repoRoot()` itself would be testing this machine's `config/env/`, and every
+ * assertion about "two environments declare this app" would depend on which files
+ * happen to be on disk. The caller that wants the real directory asks
+ * `envConfigDir()` for it.
+ *
+ * Returns sorted names. A file that is not readable JSON, or whose `application` is
+ * not a string, is SKIPPED rather than refused: this answers one narrow question
+ * and `loadEnvironment` is the thing entitled to reject a malformed config, with a
+ * message about that file. Skipping here cannot hide a problem, because a name this
+ * misses is a name the refusal below prints as absent.
+ */
+export function environmentsDeclaring(options: {
+  configDir: string;
+  application: string;
+}): string[] {
+  return [...declaredApplications(options.configDir)]
+    .filter(([, declared]) => declared === options.application)
+    .map(([name]) => name)
+    .sort();
+}
+
+/**
+ * Every environment name and the application it declares, read ONCE.
+ *
+ * Both the search and the "what does exist" half of its refusal come from this.
+ * They were two separate walks of the same directory with the same try/catch, which
+ * is the §AE shape: a drifted copy reads exactly like a correct one, and here the
+ * drift would show up as a refusal listing applications the search did not consider.
+ */
+function declaredApplications(configDir: string): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!existsSync(configDir)) return out;
+  for (const entry of readdirSync(configDir)) {
+    if (!entry.endsWith('.json')) continue;
+    let declared: unknown;
+    try {
+      declared = (
+        JSON.parse(readFileSync(path.join(configDir, entry), 'utf8')) as { application?: unknown }
+      ).application;
+    } catch {
+      continue;
+    }
+    if (typeof declared === 'string') out.set(entry.slice(0, -'.json'.length), declared);
+  }
+  return out;
+}
+
+/**
+ * `--app <application>` for an INTERACTIVE tool that needs a target, and the three
+ * refusals that go with it.
+ *
+ * ## Why these four commands needed it
+ *
+ * `pnpm auth`, `pnpm inspect`, `pnpm heal` and `pnpm rca` all called bare
+ * `loadEnvironment()`, which resolves `TEST_ENV` from the ambient environment. With
+ * `TEST_ENV=app` sitting in a `.env` — the normal state of a machine that has ever
+ * run against the customer system — `pnpm auth` opens a browser at DMS and saves a
+ * live session under `artifacts/dms/auth/app.json` while the person running it
+ * believes they are onboarding a second application. That is not a hypothetical:
+ * it is the default outcome of typing the command.
+ *
+ * `requireApplicationArg` already settles the general rule and its disagreement
+ * refusal. What it cannot answer is WHICH ENVIRONMENT, because an application may
+ * have several (`app`, `qa`, `staging` are all DMS). So:
+ *
+ * - **`TEST_ENV` set:** that environment is used. It has already been proven to
+ *   agree with `--app`, so this is the caller naming one of several, not ambient
+ *   state choosing a target.
+ * - **`TEST_ENV` unset, exactly one environment declares the application:** that
+ *   one. There is nothing to choose between.
+ * - **unset and SEVERAL declare it:** REFUSED, listing them. Picking the first
+ *   alphabetically would be a guess about which live system to open a browser at —
+ *   `resolveEnvName`'s refusal exists for exactly this and is not worth undoing one
+ *   layer up.
+ * - **unset and NONE declares it:** REFUSED, naming the slug and what does exist.
+ *   A missing `config/env/<app>.json` is the actual first step of onboarding, so
+ *   the message says so rather than failing later as a missing file.
+ */
+export function resolveEnvironmentForApp(options: ApplicationArgOptions): EnvironmentConfig {
+  const application = requireApplicationArg(options);
+
+  const ambient = ambientEnvName();
+  if (ambient) return loadEnvironment(ambient);
+
+  const configDir = envConfigDir();
+  const candidates = environmentsDeclaring({ configDir, application });
+
+  if (candidates.length === 0) {
+    // What DOES exist, so the reader can see a typo rather than guess at one —
+    // from the SAME read the search used, never a second walk.
+    const declared = [...new Set(declaredApplications(configDir).values())].sort();
+    throw new Error(
+      `refusing to run: no environment declares application "${application}". ` +
+        (declared.length > 0
+          ? `Applications config/env/ declares today: ${declared.map((a) => `"${a}"`).join(', ')}.`
+          : 'config/env/ declares no applications at all.') +
+        `\n  Add config/env/${application}.json with "application": "${application}" — see ` +
+        'docs/ADD-AN-APPLICATION.md. This is a refusal and not an empty result: nothing was ' +
+        'searched beyond the environment files.',
+    );
+  }
+
+  if (candidates.length > 1) {
+    throw new Error(
+      `refusing to run: ${candidates.length} environments declare application ` +
+        `"${application}" (${candidates.map((name) => `"${name}"`).join(', ')}), and nothing ` +
+        'here can say which live system you meant.\n' +
+        `  Name one: TEST_ENV=${candidates[0]} pnpm <command> --app ${application}.`,
+    );
+  }
+
+  return loadEnvironment(candidates[0]!);
 }
