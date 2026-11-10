@@ -185,6 +185,15 @@ const COVERED = [
   // pairs each CLI refusal with the invocation that differs only in that one thing.
   'tests/unit/notify-config.spec.ts',
   'tests/demo/notify-setup-cli.spec.ts',
+  // Added 2026-11-10 with the email body. It found two real faults on its first run,
+  // which is the argument for writing the counterfactuals first: the case-id column
+  // was composed the wrong way round and rendered an em dash for every row, and
+  // `previousRunRecord` returned the newest OTHER record rather than the newest
+  // EARLIER one — correct only because the caller happens to always be the newest
+  // run. B9 is the sentinel control, planted in both an env var and a real `.env`
+  // inside the archived directory, because the body and the zip have different
+  // protections and a test of one proves nothing about the other.
+  'tests/unit/notify-body.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
