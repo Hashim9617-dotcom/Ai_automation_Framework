@@ -306,10 +306,19 @@ export class CommandService {
   /** What this environment key ACTUALLY resolves to — computed, never declared. */
   private resolveTarget(environment: string): RunTarget {
     try {
-      return describeTarget(environment, loadEnvironment(environment).baseUrl);
+      const resolved = loadEnvironment(environment);
+      return describeTarget(environment, resolved.baseUrl, resolved.application);
     } catch (error) {
       this.logger.warn(`Could not resolve environment "${environment}": ${String(error)}`);
-      return { environment, baseUrl: '(unresolved)', isDemoApp: false };
+      // `(unresolved)` for BOTH, not an empty string and not a guessed slug: the
+      // environment could not be loaded, so nothing here knows which application it
+      // named, and a plausible-looking slug would be the confident wrong label.
+      return {
+        environment,
+        application: '(unresolved)',
+        baseUrl: '(unresolved)',
+        isDemoApp: false,
+      };
     }
   }
 

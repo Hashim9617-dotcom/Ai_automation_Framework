@@ -20,6 +20,21 @@
 export interface RunTarget {
   /** The key that was asked for. */
   environment: string;
+  /**
+   * WHICH APPLICATION this environment points at — the `config/apps/<slug>/` name.
+   *
+   * REQUIRED, and recorded here rather than alongside, for the reason the whole
+   * struct exists: the label and the target have to come from ONE resolution or
+   * they can disagree. `environment` is a key — `app`, `qa` and `staging` are three
+   * environments of one application — so a report headed only by the key cannot say
+   * which system it is about, and two reports from two applications are
+   * indistinguishable once they are open in two tabs (B7).
+   *
+   * Not optional: an optional field here means a silent fallback, and a fallback
+   * naming the wrong application is exactly the confident-wrong-label failure
+   * SEC-2 earned this struct for.
+   */
+  application: string;
   /** What that key actually resolved to, after interpolation and overrides. */
   baseUrl: string;
   /**
@@ -45,7 +60,11 @@ const originOf = (url: string): string | undefined => {
   }
 };
 
-export function describeTarget(environment: string, baseUrl: string): RunTarget {
+export function describeTarget(
+  environment: string,
+  baseUrl: string,
+  application: string,
+): RunTarget {
   const resolved = originOf(baseUrl);
   const demo = originOf(demoAppOrigin());
   // `localhost` and `127.0.0.1` are the same server and different origins, so
@@ -60,6 +79,7 @@ export function describeTarget(environment: string, baseUrl: string): RunTarget 
 
   return {
     environment,
+    application,
     baseUrl,
     isDemoApp: isLoopback(resolved) && samePort,
   };

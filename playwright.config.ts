@@ -304,7 +304,9 @@ export default defineConfig<AitpProjectOptions>({
         // the URL the browsers were actually pointed at, next to its label.
         // SEC-2: the label alone could not show `local` resolving to a
         // customer system.
-        target: describeTarget(base.name, base.baseUrl),
+        // `base.application` comes from the SAME resolved config as the name and
+        // the URL, which is the pairing rule: all three or none.
+        target: describeTarget(base.name, base.baseUrl, base.application),
       },
     ],
   ],

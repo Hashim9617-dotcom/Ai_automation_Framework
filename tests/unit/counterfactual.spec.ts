@@ -172,6 +172,11 @@ const COVERED = [
   // refusal in BOTH directions, because the new config must not become a way around
   // the gate it replaced.
   'tests/unit/sheet-layout.spec.ts',
+  // Added 2026-11-10 with B7. B7c and B7d are the pair that matters: a demo run must
+  // not render like a customer run (the explicit §5 requirement), and a run with NO
+  // target must say "unknown" rather than presenting the environment key as the
+  // application — a confident wrong label being worse than an absent one.
+  'tests/unit/report-scope.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every

@@ -49,9 +49,14 @@ test.describe('run.json records where a run went, not only what it was called @u
   test('R1: a `local` label that resolved to a customer system is visible in the record', async () => {
     // wrong: only the label is recorded, and this run reads as an ordinary
     // `local` run — the exact SEC-2 case, invisible to any later audit.
-    const run = await runJsonFor(describeTarget('local', CUSTOMER));
+    const run = await runJsonFor(describeTarget('local', CUSTOMER, 'bundled-demo'));
 
-    expect(run.target).toEqual({ environment: 'local', baseUrl: CUSTOMER, isDemoApp: false });
+    expect(run.target).toEqual({
+      environment: 'local',
+      application: 'bundled-demo',
+      baseUrl: CUSTOMER,
+      isDemoApp: false,
+    });
     expect(run.request.environment).toBe('local');
   });
 
@@ -60,7 +65,7 @@ test.describe('run.json records where a run went, not only what it was called @u
     // the target says `local` — two sources for one fact, which is SEC-2's
     // shape. Discriminating on purpose: TEST_ENV and the target DISAGREE here.
     process.env.TEST_ENV = 'app';
-    const run = await runJsonFor(describeTarget('local', 'http://127.0.0.1:4173'));
+    const run = await runJsonFor(describeTarget('local', 'http://127.0.0.1:4173', 'bundled-demo'));
 
     expect(run.request.environment).toBe('local');
     expect(run.target?.environment).toBe(run.request.environment);

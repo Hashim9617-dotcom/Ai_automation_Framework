@@ -71,7 +71,7 @@ export function renderRunSummaryHtml(run: Run): string {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Run ${escapeHtml(run.id)} — ${escapeHtml(run.status)}</title>
+<title>${escapeHtml(describeRunScope(run))} — ${escapeHtml(run.status)} — ${escapeHtml(run.id)}</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 32px; background: #f7f7f8; color: #18181b; }
@@ -105,9 +105,22 @@ export function renderRunSummaryHtml(run: Run): string {
 </style>
 </head>
 <body>
-  <h1>Run ${escapeHtml(run.id)} — ${escapeHtml(run.status.toUpperCase())}</h1>
+  <h1>${escapeHtml(describeRunScope(run))} — ${escapeHtml(run.status.toUpperCase())}</h1>
   <p class="meta">
-    Environment <strong>${escapeHtml(run.request.environment)}</strong> ·
+    ${
+      run.target
+        ? `application <strong>${escapeHtml(run.target.application)}</strong> ·
+           environment <strong>${escapeHtml(run.target.environment)}</strong> ·
+           <span title="the URL this run actually resolved to">${escapeHtml(run.target.baseUrl)}</span>${
+             run.target.isDemoApp ? ' <strong>(bundled demo app)</strong>' : ''
+           } ·`
+        : // `target: null` is a KNOWN gap, not silence: the reporter was given no
+          // target and said so. Printing only `request.environment` here would be
+          // the SEC-2 shape again — a label with nothing to contradict it.
+          `environment <strong>${escapeHtml(run.request.environment)}</strong> ·
+           <span title="no target was recorded for this run">application unknown</span> ·`
+    }
+    run ${escapeHtml(run.id)} ·
     started ${escapeHtml(run.startedAt ?? run.createdAt)} ·
     duration ${duration(summary.durationMs)}
   </p>
@@ -140,6 +153,23 @@ export function renderRunSummaryHtml(run: Run): string {
   ${failures.length ? `<h2 style="font-size:17px;margin-top:32px">Failures (${failures.length})</h2>${failureBlocks}` : ''}
 </body>
 </html>`;
+}
+
+/**
+ * WHICH APPLICATION AND ENVIRONMENT THIS RUN IS ABOUT, for a title and a heading.
+ *
+ * The title was `Run <id> — <status>`, which is a 16-hex-digit identifier and a
+ * word. Two reports open in two browser tabs were indistinguishable, and a run id
+ * is the one thing in the document that tells a reader nothing about where it ran
+ * (B7, ECOM-0 Part 1).
+ *
+ * Falls back to the environment key alone when `target` is absent or null, and SAYS
+ * so rather than inventing a slug — a title that named the wrong application would
+ * be worse than one that names none.
+ */
+export function describeRunScope(run: Run): string {
+  if (run.target) return `${run.target.application} · ${run.target.environment}`;
+  return `${run.request.environment} (application unknown)`;
 }
 
 function countCategories(run: Run): Array<[string, number]> {

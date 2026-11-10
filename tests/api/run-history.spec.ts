@@ -100,7 +100,12 @@ test.describe('run history survives a restart @api @db', () => {
       durationMs: 55_000,
       passRate: 50,
     },
-    target: { environment: 'local', baseUrl: 'http://127.0.0.1:4173', isDemoApp: true },
+    target: {
+      environment: 'local',
+      application: 'bundled-demo',
+      baseUrl: 'http://127.0.0.1:4173',
+      isDemoApp: true,
+    },
     artifacts: { runJson: 'artifacts/reports/run.json' },
     results: [
       {

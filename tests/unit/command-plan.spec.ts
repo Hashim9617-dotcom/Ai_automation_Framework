@@ -156,7 +156,7 @@ test.describe('a run states its target (T) @unit', () => {
   test('T1: the demo app is recognised from its resolved URL', () => {
     // wrong: a demo run that does not announce itself reads exactly like a run
     // against a customer system three weeks later.
-    const target = describeTarget('local', demoAppOrigin());
+    const target = describeTarget('local', demoAppOrigin(), 'bundled-demo');
 
     expect(target.isDemoApp).toBe(true);
     expect(target.baseUrl).toContain('4173');
@@ -166,10 +166,15 @@ test.describe('a run states its target (T) @unit', () => {
     // wrong: trusting the name reports `isDemoApp: true` for an environment
     // called "local" that resolves to a customer system — which is precisely
     // what every key on this machine did until 2026-09-11.
-    const target = describeTarget('local', 'https://dmsuiv3.aitalkx.com');
+    // The APPLICATION is `bundled-demo` here and that is the point, not an
+    // oversight: the environment file said demo and the URL resolved to a customer
+    // system. All three are recorded, so the disagreement is visible afterwards —
+    // which is the whole reason the slug travels in the same struct.
+    const target = describeTarget('local', 'https://dmsuiv3.aitalkx.com', 'bundled-demo');
 
     expect(target.isDemoApp).toBe(false);
     expect(target.environment).toBe('local');
+    expect(target.application).toBe('bundled-demo');
     expect(target.baseUrl).toBe('https://dmsuiv3.aitalkx.com');
   });
 
@@ -177,12 +182,12 @@ test.describe('a run states its target (T) @unit', () => {
     // wrong: comparing origins as strings calls the demo app a customer system
     // whenever someone writes `localhost`, and the warning that matters gets
     // attached to the wrong runs.
-    expect(describeTarget('local', 'http://localhost:4173').isDemoApp).toBe(true);
+    expect(describeTarget('local', 'http://localhost:4173', 'bundled-demo').isDemoApp).toBe(true);
   });
 
   test('T4: another loopback port is NOT the demo app', () => {
     // wrong: treating any loopback URL as the demo marks a locally-hosted copy
     // of a real system as a demo, which is the dangerous direction.
-    expect(describeTarget('local', 'http://127.0.0.1:9999').isDemoApp).toBe(false);
+    expect(describeTarget('local', 'http://127.0.0.1:9999', 'bundled-demo').isDemoApp).toBe(false);
   });
 });
