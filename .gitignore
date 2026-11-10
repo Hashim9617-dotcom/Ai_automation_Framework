@@ -86,3 +86,17 @@ Thumbs.db
 # Gitignored so it cannot travel in a clone or a `git archive`. `pnpm kit:release`
 # asserts its absence from the built zip rather than trusting this line.
 .aitp-maintainer
+
+# LOCAL, PER-MACHINE CONFIGURATION — never committed, never shipped.
+#
+# `.aitp-local/notify.json` holds one QA's own folder path and their team's email
+# addresses: facts about this machine and these people, not about the platform. It
+# is deliberately OUTSIDE every locked kit prefix, so a QA editing it does not trip
+# the integrity check, and gitignored so a project's recipient list cannot reach a
+# repository by way of `git add`.
+#
+# It holds NO credential and cannot: nothing in the notification path sends mail. A
+# run drops a file into a synced folder and a Power Automate flow owned by a person
+# sends it under their own identity. `loadNotifyConfig` REFUSES a config carrying a
+# secret-shaped key rather than trusting this paragraph.
+.aitp-local/

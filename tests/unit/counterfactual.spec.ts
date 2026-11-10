@@ -177,6 +177,14 @@ const COVERED = [
   // target must say "unknown" rather than presenting the environment key as the
   // application — a confident wrong label being worse than an absent one.
   'tests/unit/report-scope.spec.ts',
+  // Added 2026-11-10 with the notify config. N1-N4 are the identity cascade, PURE
+  // and supplied (§AJ) — a version reading USERPRINCIPALNAME itself would test this
+  // laptop. N6 is the three-states half: a broken config must never read as a
+  // missing one, because the two call for opposite actions. N8 is the
+  // must-not-refuse case that keeps the other refusals from being vacuous, and S5
+  // pairs each CLI refusal with the invocation that differs only in that one thing.
+  'tests/unit/notify-config.spec.ts',
+  'tests/demo/notify-setup-cli.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
