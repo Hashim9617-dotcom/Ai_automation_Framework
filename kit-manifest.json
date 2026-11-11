@@ -1,7 +1,7 @@
 {
   "kitVersion": "0.4.1",
-  "commit": "66bee172f1c319c017c53e55e6b1e4759e387a1a",
-  "generatedAt": "2026-11-11T07:25:12.395Z",
+  "commit": "ca5cc751e7c0ab980afba7f6ca28020b13c5cde6",
+  "generatedAt": "2026-11-11T07:32:14.182Z",
   "lockedPrefixes": [
     ".claude",
     ".cursor",
@@ -267,6 +267,7 @@
     "tests/demo/kit-integrity-cli.spec.ts": "89caf62a60fea279712d000bd706da02d1a3054888f4c5b80854e4c20366a237",
     "tests/demo/live-duplicates.spec.ts": "f759c2f9f4d472c2b121e4a46fbb0ab8926ff00457ee798b5c64fb71107430c9",
     "tests/demo/login.spec.ts": "2aca5a0c48a9dc97733de7032e7d67186b2c88330aab9a177da247498d7605ab",
+    "tests/demo/notify-drop-e2e.spec.ts": "5782889e97fffce804d4a9dce6d60c0cf745f3a4cc17712a3d5fa4b6c8483341",
     "tests/demo/notify-setup-cli.spec.ts": "3ebede7b36d9384b3a3e592c594766f7b28c92ae5043f410ec1c769e56963b30",
     "tests/demo/pages/employees.page.ts": "a97bddab52818283f2bcd9ca0db49a8597bfc724b2b40b46bb46350c3ded7f5e",
     "tests/demo/pages/login.page.ts": "b0dc0ca9c59ee07692ad378435021b0c2b91766ca8dd1fbb7ee53f9995e8e2e6",
@@ -299,7 +300,7 @@
     "tests/unit/command-matcher.spec.ts": "d8695727e3e29a430b1084eb72f2f8da71e6f0a228ab8742e91fab9cf13760d9",
     "tests/unit/command-plan.spec.ts": "61c50f0b62f3dd0f51c2913dfd494afb0b2df1d505c1baa818cecd02070586fa",
     "tests/unit/cors-origins.spec.ts": "5f3696ccc8827bd704910bb74efbcdbc7db0d113a3a48e33f9e0bcc8508b1844",
-    "tests/unit/counterfactual.spec.ts": "b64ae041007560563e258805d1b25baffef1a8100c4b29b4bd37316d45ad202c",
+    "tests/unit/counterfactual.spec.ts": "143f6e02204437c3fecf22bbf46ff80ff43984ebc478a61d31681110e11f8d6f",
     "tests/unit/credential-files.spec.ts": "0ff6a78c374e8066e770227e1a057d04601c1350c7526df3d0aec38e059785a9",
     "tests/unit/ecom-onboarding.spec.ts": "2b00733519bad99633494d16cac9a21054ccd4449a51ee1a4c859590536bad87",
     "tests/unit/entry-verifier.spec.ts": "58e7c017f595538cbe5d2a90195d4df75d4201f8f26d48ceeaebc9567a78e874",

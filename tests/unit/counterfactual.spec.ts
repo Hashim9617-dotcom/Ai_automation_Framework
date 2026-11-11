@@ -202,6 +202,15 @@ const COVERED = [
   // into it, and the test override redirects rather than merely permits — without
   // D13, D12 is satisfied by an implementation that can never notify at all.
   'tests/unit/notify-drop.spec.ts',
+  // Added 2026-11-11: the drop as a REAL process. E1 and E2 are each other's
+  // discriminating half — a real run writes into the overridden folder and never
+  // into the configured one, and the same run without the override writes nothing
+  // at all though a valid configuration is present. Four separate faults were
+  // diagnosed by printing the CHILD's own exit code and output rather than by
+  // reasoning about the code; the worst was `--reporter=line`, which replaces the
+  // configured reporters so AitpReporter never ran, and which failed by exiting 0
+  // with an empty folder.
+  'tests/demo/notify-drop-e2e.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
