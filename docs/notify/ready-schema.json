@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aitp.local/schemas/ready-drop-v1.json",
+  "title": "AITP report-email ready drop",
+  "description": "The file a run writes into a project's synced folder, LAST and atomically, as `<runId>.ready.json`. A Power Automate flow triggers on it and sends the mail. This schema is what you paste into the flow's Parse JSON step, and tests/unit/ready-schema.spec.ts validates it against what the code actually writes — so the two cannot drift.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "app",
+    "environment",
+    "ranBy",
+    "to",
+    "cc",
+    "subject",
+    "verdict",
+    "counts",
+    "bodyHtml",
+    "reportZipName",
+    "reportZipTooLarge"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1,
+      "description": "Bumped when this shape changes in a way the flow's Parse JSON must notice. A flow should ignore a file whose version it does not know rather than guess at it."
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The platform's own run id. The file is named after it, so two runs finishing close together cannot overwrite each other."
+    },
+    "app": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The application slug — the config/apps/<slug> directory this run belongs to."
+    },
+    "environment": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The environment key: `local`, `qa`, `app`. NOT the application — one application has several."
+    },
+    "ranBy": {
+      "type": "string",
+      "minLength": 3,
+      "description": "The address the mail says it is from. Its DOMAIN is the only domain recipients may be in; the flow re-checks that, because this file is editable by hand."
+    },
+    "to": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "At least one. A drop with no recipient would be picked up and sent to nobody — a silent success, which is why the platform refuses to write one."
+    },
+    "cc": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "May be empty. Delivered exactly like `to`, so the flow applies the same domain filter to it."
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1,
+      "description": "[<APP>] <environment> run — <passed> passed, <failed> failed (<duration>) — <ranBy>. Already formatted; the flow sends it verbatim."
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["PASSED", "FAILED", "CANCELLED", "ERROR", "QUEUED", "RUNNING"],
+      "description": "Derived from counts.failed, not from a status field, so it cannot disagree with the numbers below it."
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "passed", "failed", "skipped", "flaky", "durationMs", "passRate"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "flaky": { "type": "integer", "minimum": 0 },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "passRate": { "type": "number", "minimum": 0, "maximum": 100 }
+      },
+      "description": "Per TEST, not per execution: a retried test is counted once. The body's table has one row per attempt and says so."
+    },
+    "bodyHtml": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A complete, self-contained HTML document with inline styles and table layout, built for Outlook's Word rendering engine. No <style> block, no script, no remote images. The flow puts it in the mail body as-is."
+    },
+    "reportZipName": {
+      "type": ["string", "null"],
+      "description": "The archive's file name, sitting in the SAME folder as this file, or null when no archive was written. Never an empty string: the flow needs to tell 'no archive' from 'a field that was dropped'."
+    },
+    "reportZipTooLarge": {
+      "type": "boolean",
+      "description": "True when an archive exists but is over 10 MB. The body already says so; the flow should NOT attach it, because a mail gateway silently dropping a paperclip is the failure this field exists to avoid."
+    }
+  }
+}

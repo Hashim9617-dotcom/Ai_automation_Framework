@@ -211,6 +211,13 @@ const COVERED = [
   // configured reporters so AitpReporter never ran, and which failed by exiting 0
   // with an empty folder.
   'tests/demo/notify-drop-e2e.spec.ts',
+  // Added 2026-11-11 with the published schema. S3 is the half that matters: S1 over
+  // a correct drop cannot tell a working validator from one that returns no problems
+  // for anything, so each of the four drifts is planted — and the RENAME is planted
+  // as both a missing field and an extra one, which is how a rename actually
+  // arrives. S5 asks whether the validator can answer the question at all (§Z): a
+  // schema keyword nobody implements is a constraint enforced by nobody.
+  'tests/unit/ready-schema.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
