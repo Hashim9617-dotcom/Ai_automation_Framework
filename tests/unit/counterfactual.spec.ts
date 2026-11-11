@@ -194,6 +194,14 @@ const COVERED = [
   // inside the archived directory, because the body and the zip have different
   // protections and a test of one proves nothing about the other.
   'tests/unit/notify-body.spec.ts',
+  // Added 2026-11-11 with the drop. D4 asserts the ORDER from the filesystem — the
+  // zip before the ready file — because the flow triggers on the ready file and then
+  // looks for the zip it names. D8 is the one that matters most: a mail that could
+  // not be prepared must not change a suite's verdict. D12 and D13 are the pair the
+  // fixture suppression needs: a fixture run with a folder CONFIGURED writes nothing
+  // into it, and the test override redirects rather than merely permits — without
+  // D13, D12 is satisfied by an implementation that can never notify at all.
+  'tests/unit/notify-drop.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every

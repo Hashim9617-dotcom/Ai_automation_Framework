@@ -37,7 +37,15 @@ import {
   describeKitIntegrity,
   maintainerMarkerPath,
 } from '@aitp/execution-engine';
-import { findRepoRoot, newId } from '@aitp/shared';
+import {
+  authoredRunAsRun,
+  notifyOffBecause,
+  notifyRun,
+  notifyTestFolder,
+} from '@aitp/reporting-engine';
+import { describeTarget, findRepoRoot, newId, rootLogger } from '@aitp/shared';
+
+const log = rootLogger.child('run-sheet');
 
 const USAGE =
   'usage: pnpm run-sheet --app <application> --sheet "<sheet name>" "<path/to/workbook.xlsx>"';
@@ -195,6 +203,9 @@ async function main(): Promise<void> {
   );
 
   const runId = newId('run');
+  // Captured BEFORE the browser launches, so the duration the mail reports is the
+  // whole run rather than the part after setup.
+  const startedAt = new Date();
   // PER APPLICATION, and deliberately not `artifacts/runs/` — that is where the
   // Playwright reporter archives a failed browser run, which is a different thing
   // with a different lifetime.
@@ -275,6 +286,44 @@ async function main(): Promise<void> {
     if (result.rowsRead === 0) {
       throw new Error(`read 0 rows from "${sheet}" — refusing to report a run over nothing (§T).`);
     }
+
+    /**
+     * THE REPORT EMAIL, after the two assertions above and never before them.
+     *
+     * A mail about a run whose own report was not written would be the confident
+     * wrong artifact this file's assertions exist to prevent, so the drop is prepared
+     * only once the run has proven its own output. It cannot change this command's
+     * exit code — `notifyRun` catches everything — because a sheet run's verdict is
+     * about the application and a mail that could not be prepared is about this
+     * machine's folder.
+     *
+     * `--no-notify` and `AITP_NO_NOTIFY` are both resolved HERE and passed in, so
+     * nothing in the notify package reads the environment (§AJ).
+     */
+    // Resolved ONCE: calling it twice would be two reads of the environment that
+    // could disagree, which is the shape this repo keeps finding broken.
+    const notifyOff = notifyOffBecause(process.argv, process.env);
+    const notified = notifyRun({
+      root,
+      run: authoredRunAsRun({
+        authored: result.run,
+        target: describeTarget(env.name, env.baseUrl, env.application),
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedAt.getTime(),
+      }),
+      application: env.application,
+      environment: env.name,
+      baseUrl: env.baseUrl,
+      // The run's own output directory IS the attachment: the authored report, the
+      // CSV and the screenshots, which is what a QA would otherwise zip by hand.
+      reportDir: outDir,
+      disabled: notifyOff !== null,
+      offBecause: notifyOff,
+      testFolder: notifyTestFolder(process.env),
+      log,
+    });
+    process.stdout.write(`${notified.message}\n\n`);
 
     await context.close();
   } finally {

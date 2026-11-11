@@ -5,3 +5,5 @@ export * from './notify/zip';
 export * from './notify/config';
 export * from './notify/history';
 export * from './notify/body';
+export * from './notify/drop';
+export * from './notify/authored-run';

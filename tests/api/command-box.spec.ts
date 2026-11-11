@@ -100,8 +100,23 @@ ${output.slice(-2000)}`);
     // wrong: "no tests found" leaves the reader unable to tell a missing capture
     // from a missing workbook from a badly-phrased command — three problems with
     // three different next steps, collapsed into one sentence.
+    //
+    // THE COMMAND IS DELIBERATE NONSENSE, and that is not laziness — it is what
+    // makes the fixture's premise structural rather than incidental.
+    //
+    // It used to be `test the notification preferences drawer`, chosen because
+    // nothing in the suite matched it. That was a fact about the corpus ON THE DAY,
+    // not a property: on 2026-11-11 four specs about the report-email NOTIFICATION
+    // drop were added, `tests/unit/notify-drop.spec.ts`'s describe block reads "the
+    // notification drop", the `existing` door matched it, and this test failed
+    // asserting that every door had been skipped.
+    //
+    // Renaming that spec to protect this fixture would be backwards — the next
+    // plausible English phrase would break it again. So the keywords are words no
+    // test title will ever contain, and anybody tempted to make this read naturally
+    // should read this paragraph first.
     const body = await post({
-      command: 'test the notification preferences drawer',
+      command: 'test the zzyzx quuxflange calibration drawer',
       environment: 'local',
       dryRun: true,
     });

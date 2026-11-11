@@ -21,6 +21,7 @@ import {
   type TestResult,
 } from '@aitp/shared';
 import { renderRunSummaryHtml } from '../html/summary';
+import { notifyOffBecause, notifyRun, notifyTestFolder } from '../notify/drop';
 
 export interface AitpReporterOptions {
   /** Directory for run.json / summary.html. Defaults to artifacts/reports. */
@@ -185,6 +186,52 @@ export default class AitpReporter implements Reporter {
     writeFileSync(htmlPath, renderRunSummaryHtml(this.run), 'utf8');
 
     archiveIfNotClean(this.run, this.outputDir, this.log);
+
+    /**
+     * THE REPORT EMAIL, prepared after everything that decides the run's verdict.
+     *
+     * Last on purpose: it reads `run.json`'s contents from the object that was just
+     * written, and `archiveIfNotClean` above must have run so the archive it may zip
+     * is complete. It cannot change `result.status` — `notifyRun` catches everything
+     * and returns an outcome — because a suite's verdict is about the application
+     * under test and a mail that could not be prepared is about this machine's
+     * folder. Conflating the two makes a green suite look red, or trains somebody to
+     * ignore a red one.
+     *
+     * `--no-notify` is honoured via `AITP_NO_NOTIFY` as well as argv: `playwright
+     * test` rejects flags it does not know, so a suite run has no way to pass one.
+     * Both are resolved HERE and passed in, so nothing in the notify package reads
+     * the environment (§AJ).
+     */
+    if (this.run.target) {
+      const offBecause = notifyOffBecause(process.argv, process.env);
+      const outcome = notifyRun({
+        offBecause,
+        // Both resolved HERE and passed in (§AJ). The override is what lets a test
+        // exercise notification on the fixture surface, and it REDIRECTS: a suite
+        // run cannot reach a configured folder even if one is set.
+        testFolder: notifyTestFolder(process.env),
+        root: path.dirname(path.dirname(this.outputDir)),
+        run: this.run,
+        application: this.run.target.application,
+        environment: this.run.target.environment,
+        baseUrl: this.run.target.baseUrl,
+        reportDir: path.join(this.outputDir, 'html'),
+        disabled: offBecause !== null,
+        log: this.log,
+      });
+      // ONE LINE, always, whichever of the outcomes it was. A silent skip is how
+      // somebody comes to believe mail is going out when it is not.
+      this.log.info(outcome.message);
+    } else {
+      // No target means no application, so there is nothing to key a drop on. Said
+      // rather than skipped silently, and it is the same gap the reporter already
+      // warns about at construction.
+      this.log.info(
+        'notify: skipped — this run recorded no target, so the application is unknown. ' +
+          'Pass describeTarget(env.name, env.baseUrl, env.application) to the reporter.',
+      );
+    }
 
     this.log.info('Run finished', {
       runId: this.run.id,
