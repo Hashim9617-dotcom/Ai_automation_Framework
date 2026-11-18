@@ -50,6 +50,7 @@
     "kit:manifest": "node scripts/kit-manifest.mjs",
     "kit:release": "node scripts/kit-release.mjs",
     "notify:setup": "tsx scripts/notify-setup.ts",
+    "build:ecom-smoke": "tsx scripts/build-ecom-smoke.ts",
     "db:validate": "pnpm --filter @aitp/api exec prisma validate",
     "db:status": "pnpm --filter @aitp/api exec prisma migrate status",
     "db:generate": "pnpm --filter @aitp/api exec prisma generate",

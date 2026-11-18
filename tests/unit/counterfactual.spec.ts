@@ -227,6 +227,13 @@ const COVERED = [
   // be unusable, and `Create` must be permitted OUTSIDE a dialog and refused
   // INSIDE it, which is a positional distinction no textual rule can make.
   'tests/unit/ecom-component-rules.spec.ts',
+  // Added 2026-11-18 with the generated smoke manifest. M4 is the one that earns
+  // its place: the manifest is derived from captures holding real customer data and
+  // from the QA sheet, and it is the only artefact of this batch that enters the
+  // repository, so it is SCANNED for the shapes a leak would take rather than
+  // trusted to have been built carefully. M6 pins the single documented exception
+  // as DATA rather than as a special case hidden in a spec.
+  'tests/unit/ecom-smoke-manifest.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
