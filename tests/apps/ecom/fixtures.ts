@@ -79,15 +79,39 @@ export async function signIn(page: Page, env: EnvironmentConfig): Promise<void> 
   const user = requireUser(env, 'admin');
   await page.goto('/login', { waitUntil: 'domcontentloaded' });
 
-  const username = page
-    .getByRole('textbox', { name: /user|email|login/i })
-    .or(page.locator('input[type="email"]'))
-    .or(page.locator('input[name="username"], input[name="email"]'))
-    .first();
-  // BY TYPE. A password field's `type` is the one attribute this app cannot
-  // diverge on, and the credential must not depend on a label lookup that the
-  // divergence measurements say is wrong two thirds of the time.
-  const password = page.locator('input[type="password"]').first();
+  /**
+   * THE PANEL, not the page -- because this login screen has TWO "Sign In" buttons.
+   *
+   * Measured from a real failed run on 2026-11-18, not guessed: the page is the
+   * storefront-styled login, and it carries a `Sign In` / `Create Account` TAB pair
+   * above the form as well as the form's own `Sign In` submit. A page-wide
+   * `getByRole('button', { name: /sign in/i }).first()` resolves to the TAB -- so
+   * every one of the 29 modules failed with `waitForURL: Timeout 45000ms`, a message
+   * that says nothing about the real cause. That run never signed in at all.
+   *
+   * The distinction is STRUCTURAL, which is what makes it durable: the submit is the
+   * button in the same container as the password field, and the tab is not. Taking
+   * `.last()` of the two would work today and break the day a third appears.
+   */
+  const panel = page
+    .locator('div,form')
+    .filter({ has: page.locator('input[type="password"]') })
+    .filter({ has: page.getByRole('button', { name: /^s*sign ins*$/i }) })
+    // The INNERMOST container satisfying both: every ancestor satisfies them too.
+    .last();
+
+  /**
+   * The email field is the panel's first textbox.
+   *
+   * NOT by accessible name: this application names it after its PLACEHOLDER
+   * ("you@example.com"), so a /user|email|login/ match finds nothing -- the same
+   * measured divergence that makes every locator here role-and-structure based.
+   */
+  const username = panel.getByRole('textbox').first();
+  // BY TYPE. A password field's `type` is the one attribute this app cannot diverge
+  // on, and the credential must not depend on a label lookup the divergence
+  // measurements say is wrong two thirds of the time.
+  const password = panel.locator('input[type="password"]').first();
 
   await username.fill(user.username);
   // NEVER LOGGED, never annotated, never in a title. `fill` is the only consumer.
@@ -95,8 +119,8 @@ export async function signIn(page: Page, env: EnvironmentConfig): Promise<void> 
 
   await Promise.all([
     page.waitForURL((url) => !isLoginRoute(url.toString()), { timeout: 45_000 }),
-    page
-      .getByRole('button', { name: /sign in|log ?in|submit|continue/i })
+    panel
+      .getByRole('button', { name: /^s*sign ins*$/i })
       .first()
       .click(),
   ]);

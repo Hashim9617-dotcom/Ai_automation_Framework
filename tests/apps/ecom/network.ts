@@ -104,6 +104,27 @@ export const ALLOWED_CONSOLE = [
     test: (text: string) => /ResizeObserver loop/i.test(text),
     why: 'a benign browser notice from a resize-aware grid; it is not an application error',
   },
+  {
+    /**
+     * The browser's generic line for a request that failed. It carries NO
+     * information the network record lacks — no URL, no origin, no method — and
+     * the record has already judged that request by origin and status.
+     *
+     * Measured on 2026-11-18: every module page produced this, from three
+     * CROSS-ORIGIN storefront calls (`ecommapi.aitalkx.com` — cart, profile,
+     * wishlist) returning 403 for an admin account. They are a real observation
+     * about the application and they are reported as a `third-party-4xx`
+     * annotation; they are not a failure of the module page, and the network
+     * guard already declines to fail on another origin's status codes.
+     *
+     * Allowlisting the console line while REPORTING the requests keeps the two
+     * halves honest: the duplicate is dropped and the finding is not.
+     */
+    test: (text: string) => /^Failed to load resource/i.test(text),
+    why:
+      'a duplicate of a request the network record already judged by origin and status; ' +
+      'the record is the authority and this line adds nothing',
+  },
 ] as const;
 
 const pathOf = (url: string): string => {
@@ -208,6 +229,26 @@ export async function assertNetworkClean(
     ),
     contentType: 'application/json',
   });
+
+  /**
+   * THIRD-PARTY 4xx ARE REPORTED, not failed on and not hidden.
+   *
+   * They are not this application's status codes, so failing on them would make
+   * the suite a monitor for somebody else's service. But dropping them silently
+   * would lose a real observation — on Ecom every admin page calls the storefront
+   * API for a cart, a profile and a wishlist the admin account does not have, and
+   * each returns 403. That is worth telling the Ecom team, once, per run.
+   */
+  const thirdPartyErrors = record.requests.filter((r) => !r.sameOrigin && r.status >= 400);
+  if (thirdPartyErrors.length > 0) {
+    const distinct = [...new Set(thirdPartyErrors.map((r) => `${r.status} ${r.method} ${r.path}`))];
+    testInfo.annotations.push({
+      type: 'third-party-4xx',
+      description:
+        `${thirdPartyErrors.length} failed request(s) to another origin, not failed on: ` +
+        distinct.join(', '),
+    });
+  }
 
   const problems: string[] = [];
   if (record.writeAttempts.length > 0) {

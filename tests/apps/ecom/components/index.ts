@@ -81,12 +81,28 @@ export class Grid extends Component {
    * markup omits `columnheader` still renders rows. Requiring both would call a
    * correctly-empty list a failure.
    */
-  async isPresent(): Promise<boolean> {
-    const [headers, rows] = await Promise.all([
-      this.page.getByRole('columnheader').count(),
-      this.page.getByRole('row').count(),
-    ]);
-    return headers > 0 || rows > 0;
+  async isPresent(timeout = 20_000): Promise<boolean> {
+    /**
+     * WAITS. The grid renders AFTER the heading on these pages.
+     *
+     * This read `count()` twice and returned immediately, which is a one-shot
+     * check — only `expect(locator)` and actions auto-wait in Playwright. So a
+     * page that had rendered its heading but not yet its grid answered "no grid",
+     * and the failure said `rendered no grid` about a page that renders one. The
+     * heading fix one level up made this the next thing to surface.
+     *
+     * It returns a BOOLEAN rather than throwing, because one caller — PutAway —
+     * legitimately expects no grid, and a throw would make "absent" and "not yet"
+     * indistinguishable to it.
+     */
+    try {
+      await expect(
+        this.page.getByRole('columnheader').or(this.page.getByRole('row')).first(),
+      ).toBeVisible({ timeout });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** The list's own search box, if it has one. */
@@ -335,9 +351,46 @@ export class ModulePage {
 
   async open(): Promise<void> {
     await this.page.goto(this.path, { waitUntil: 'domcontentloaded' });
+    await this.waitForRendered();
   }
 
-  /** The page's own heading, normalised. `null` when it has none. */
+  /**
+   * WAITS FOR THE APPLICATION TO RENDER. This is a single-page application.
+   *
+   * `domcontentloaded` fires when the document is parsed, which for this app is
+   * before anything is on screen — the shell arrives first and the view renders
+   * afterwards. Every read below uses `count()`, which is a ONE-SHOT check with no
+   * auto-waiting: only `expect(locator)` and actions retry. So a component that
+   * asked immediately got zero of everything.
+   *
+   * Measured, not reasoned about: the first full run failed all 28 module pages
+   * with "rendered no heading", and a probe that did the same navigation and then
+   * waited found 1 heading, 9 rows and 6 headers on the same URL with the same
+   * account. The credentials and the routes were never the problem.
+   *
+   * It waits for ANY of three things, because all three are legitimate outcomes
+   * and waiting for only the first would turn the other two into a 30-second
+   * timeout with a misleading message:
+   *   - a heading   — the page rendered
+   *   - a column header — the grid rendered, for a page whose heading is absent
+   *   - a password input — the session expired and this is the login screen, which
+   *     `ensureSignedIn` handles and which must be reached QUICKLY, not after a
+   *     timeout
+   */
+  async waitForRendered(timeout = 30_000): Promise<void> {
+    const anything = this.page
+      .getByRole('heading')
+      .or(this.page.getByRole('columnheader'))
+      .or(this.page.locator('input[type="password"]'));
+    await expect(anything.first()).toBeVisible({ timeout });
+  }
+
+  /**
+   * The page's own heading, normalised. `null` when it has none.
+   *
+   * Callers reach this after `open()`, which has already waited — so a `null` here
+   * means the page genuinely has no heading rather than that nobody waited.
+   */
   async heading(): Promise<string | null> {
     const heading = this.page.getByRole('heading').first();
     if ((await heading.count()) === 0) return null;
@@ -372,7 +425,19 @@ export class ModulePage {
       );
     }
     const trigger = this.createTrigger().first();
-    const name = readableName(await trigger.innerText().catch(() => ''));
+    /**
+     * WAITS FOR THE TRIGGER, and does NOT swallow the wait failing.
+     *
+     * This was `innerText().catch(() => '')`, so a trigger that had not rendered
+     * yet produced an empty name, which `mayClickOutsideDialog` then refused as
+     * "an icon glyph" — a message about accessibility for what is actually a
+     * timing problem. A catch that turns a failure into a plausible-looking value
+     * is the shape this repo keeps finding: the confident wrong answer.
+     */
+    await expect(trigger, `no create trigger rendered on ${this.path}`).toBeVisible({
+      timeout: 20_000,
+    });
+    const name = readableName(await trigger.innerText());
     const verdict = mayClickOutsideDialog(name || 'create');
     if (!verdict.allowed) throw new Error(verdict.why);
     await trigger.click();

@@ -99,6 +99,30 @@ const liveTestMatch = liveEnv
     // default", which is every spec in the repo.
     '**/__no_live_environment__/**';
 
+/**
+ * THE SETUP PROJECT'S OWN MATCH, scoped to the application for the same reason.
+ *
+ * It was `/live-setup.ts|auth.setup.ts/` — a pattern with no application in it, so
+ * EVERY live run collected EVERY application's sign-in setup. Found on 2026-11-18
+ * onboarding the second application: with `TEST_ENV=ecom`, a browser run would have
+ * executed `tests/apps/dms/auth.setup.ts`, which imports the DMS `LoginPage` and
+ * would have driven DMS's own selectors against Ecom's URL. The brief for that
+ * batch said DMS stays untouched; this is the line that would have broken it.
+ *
+ * `tests/support/live-setup.ts` stays unconditional — it is the kit-integrity and
+ * environment-name guard, which is application-agnostic by design and must run for
+ * every live surface. Only the per-application sign-in is scoped.
+ *
+ * Windows and POSIX separators both, because `testMatch` is applied to the
+ * platform's own path string and a forward-slash-only pattern matches nothing here.
+ */
+const liveSetupMatch: RegExp[] = [
+  /live-setup\.ts$/,
+  ...(liveEnv
+    ? [new RegExp(`tests[\\\\/]apps[\\\\/]${liveEnv.application}[\\\\/]auth\\.setup\\.ts$`)]
+    : []),
+];
+
 if (liveEnv && !existsSync(path.join(__dirname, 'tests', 'apps', liveEnv.application))) {
   // A SENTENCE, not silence. Zero collected specs with no explanation reads as a
   // broken config, and the next thing someone does is start deleting patterns.
@@ -191,7 +215,7 @@ const liveProjects = [
    */
   {
     name: 'live-setup',
-    testMatch: /live-setup.ts|auth.setup.ts/,
+    testMatch: liveSetupMatch,
     use: { storageState: undefined },
   },
 
