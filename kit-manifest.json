@@ -1,7 +1,7 @@
 {
   "kitVersion": "0.4.1",
-  "commit": "a46a558d2bae9d9a4a9edf900fc74ae25143bd93",
-  "generatedAt": "2026-11-18T09:52:13.720Z",
+  "commit": "bc48132ba3ee696556f9541a272d10ea170c10b9",
+  "generatedAt": "2026-11-18T10:00:18.217Z",
   "lockedPrefixes": [
     ".claude",
     ".cursor",
@@ -264,6 +264,9 @@
     "tests/apps/ecom/components/index.ts": "b937a4b3fb24b95362a356a7ed954c4a7fe7bf1c89b5210049d6691c681b3503",
     "tests/apps/ecom/components/names.ts": "efdb84032a7d0d1ff733d19d081c22b1ee580df1aec6e30173e0308beafe680d",
     "tests/apps/ecom/components/write-safety.ts": "703ec4094094cc51a14d380da847ef03398b73f5ad1fb2e580b7ec72478e0f0f",
+    "tests/apps/ecom/fixtures.ts": "0b165937d54629a0acc368c4a303148c27cbc235cde5a2e1853f5d2876920cc5",
+    "tests/apps/ecom/network.ts": "8a9bb8f8e738c7528c3d5c8e44a7361d8e0fd86c25439dbd481f0e7b2238c7df",
+    "tests/apps/ecom/smoke.spec.ts": "ea24e188bcffc4fa73f2c709ba5d0d318ed01a9884c001b480a73fa9b83bde4d",
     "tests/demo/app-arg-cli.spec.ts": "57e79a787c97ed61e253504b8b124d3809a1118571e5a09d0bc3cf1cb0234c58",
     "tests/demo/assert-checked.spec.ts": "2ae2afa8ceee868b3d212259801f6daa561c959d14b53bc6e9095437eea75214",
     "tests/demo/authored-entry.spec.ts": "860275e17bfc8b5a58bb3260b6fd2f4a9e717731ef2cf4dc11b6ccd4937f917c",
