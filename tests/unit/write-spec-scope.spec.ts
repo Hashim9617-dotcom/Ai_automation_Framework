@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { findRepoRoot } from '@aitp/shared';
@@ -56,20 +56,35 @@ function appSpecFiles(): string[] {
 }
 
 test.describe('no application but one has live specs at all @unit', () => {
-  test('W1: tests/apps/ holds a directory for exactly one application', () => {
-    // wrong: a `tests/apps/ecom/` directory, and `liveTestMatch` starts collecting
-    // its contents the moment `application: "ecom"` resolves — after which
-    // ALLOW_WRITES has something to act on against a dev environment shared with
-    // other people, which is the outcome the onboarding brief ruled out. The
-    // guarantee is the ABSENCE of the directory, so that is what is asserted.
+  test('W1: tests/apps/ holds exactly the application directories that are expected', () => {
+    // wrong: a directory appearing without anybody deciding to add it. The moment
+    // `tests/apps/<slug>/` exists, `liveTestMatch` collects its specs whenever that
+    // application resolves — so a new directory is a new live surface, and it must
+    // be a visible act rather than a side effect of somebody organising files.
+    //
+    // THIS ASSERTION CHANGED ON 2026-11-18, and the change is the guard working.
+    // It read `toEqual([WRITE_HOME])` and failed the moment `tests/apps/ecom/` was
+    // created for ECOM-1a — which is exactly what it was written to do. Adding the
+    // slug here is the deliberate act; the safety property did NOT move with it,
+    // because what makes ALLOW_WRITES impossible for ecom is that no `@write` tag
+    // exists outside dms, and W2 is what holds that.
     const directories = readdirSync(APPS_DIR, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort();
-    expect(directories).toEqual([WRITE_HOME]);
-    // Said twice on purpose: the slug this batch added must NOT be here. A reader of
-    // a future failure should see which application was expected to be absent.
-    expect(existsSync(path.join(APPS_DIR, 'ecom'))).toBe(false);
+    expect(directories).toEqual(['dms', 'ecom']);
+
+    // AND EVERY ONE OF THEM IS A DECLARED APPLICATION. A directory named for a slug
+    // that no environment resolves is a live surface nothing can ever reach — dead
+    // on its own, and misleading next to the ones that work. Derived from
+    // `config/apps/`, so a third application cannot be added here by typo (§AE).
+    const declared = readdirSync(path.join(ROOT, 'config', 'apps'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    expect(declared.length, 'no applications declared — the check had no subject').toBeGreaterThan(
+      0,
+    );
+    expect(directories.filter((slug) => !declared.includes(slug))).toEqual([]);
   });
 
   test('W2: every @write tag under tests/apps/ is in the one allowed application', () => {

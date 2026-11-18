@@ -218,6 +218,15 @@ const COVERED = [
   // arrives. S5 asks whether the validator can answer the question at all (§Z): a
   // schema keyword nobody implements is a constraint enforced by nobody.
   'tests/unit/ready-schema.spec.ts',
+  // Added 2026-11-18 with the Ecom component library. N1 is the assertion a wrong
+  // measurement produced: the create button's name begins with U+EB0B, a Private
+  // Use glyph that LOOKS like a space, so `trim()` leaves it and an anchored regex
+  // matched nothing — seven modules were reported as having no create control and
+  // every one of them has one. W3 and W6 are the discriminating halves of the
+  // write rule: a drawer that refused everything would pass every refusal test and
+  // be unusable, and `Create` must be permitted OUTSIDE a dialog and refused
+  // INSIDE it, which is a positional distinction no textual rule can make.
+  'tests/unit/ecom-component-rules.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every

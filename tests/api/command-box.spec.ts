@@ -115,8 +115,19 @@ ${output.slice(-2000)}`);
     // plausible English phrase would break it again. So the keywords are words no
     // test title will ever contain, and anybody tempted to make this read naturally
     // should read this paragraph first.
+    //
+    // IT BROKE A SECOND TIME, on 2026-11-18, and the second break is the useful
+    // one. The replacement was `test the zzyzx quuxflange calibration drawer`, and
+    // the Ecom component library arrived carrying a spec titled "the DRAWER
+    // refuses". Two invented tokens were not enough, because the sentence around
+    // them was still built from ordinary UI words — and every ordinary UI word is
+    // one some future spec will be titled with.
+    //
+    // So no real word is left. Every token below is invented. A third break means
+    // somebody has named a test after one of them, and the fix is to invent new
+    // tokens — never to put a real word back.
     const body = await post({
-      command: 'test the zzyzx quuxflange calibration drawer',
+      command: 'zzyzx quuxflange blorptastic frobnicatron',
       environment: 'local',
       dryRun: true,
     });
