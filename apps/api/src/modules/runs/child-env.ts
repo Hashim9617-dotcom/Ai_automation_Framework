@@ -101,6 +101,18 @@ export const CHILD_ENV_ALLOWLIST: readonly string[] = [
   'CLEAN_ARTIFACTS',
   'AITP_REPO_ROOT',
   'DEMO_APP_PORT',
+  /**
+   * Which notify config a run reads. A PATH, not a credential — the file it names
+   * is refused if it holds anything secret-shaped (`assertNoSecretShapedKeys`).
+   *
+   * It is on the list because the variable's whole purpose is to survive a spawn:
+   * the reader is the child's reporter, so a value the parent holds and the child
+   * does not would mean the parent's own tests read the parent's own config file —
+   * the thing it exists to prevent. `AITP_NOTIFY_TEST_FOLDER` is deliberately NOT
+   * here: that one re-enables a drop, and an API-initiated run has no business
+   * being redirected into writing one.
+   */
+  'AITP_NOTIFY_CONFIG',
 ];
 
 /**

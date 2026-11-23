@@ -39,6 +39,7 @@ import {
 } from '@aitp/execution-engine';
 import {
   authoredRunAsRun,
+  NOTIFY_CONFIG_VAR,
   notifyOffBecause,
   notifyRun,
   notifyTestFolder,
@@ -321,6 +322,9 @@ async function main(): Promise<void> {
       disabled: notifyOff !== null,
       offBecause: notifyOff,
       testFolder: notifyTestFolder(process.env),
+      // Raw, validated inside `notifyRun` — one implementation of the rule, and the
+      // same sentence for a bad override as for a broken file.
+      configFileOverride: process.env[NOTIFY_CONFIG_VAR],
       log,
     });
     process.stdout.write(`${notified.message}\n\n`);

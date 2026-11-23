@@ -205,12 +205,21 @@ const COVERED = [
   // Added 2026-11-11: the drop as a REAL process. E1 and E2 are each other's
   // discriminating half — a real run writes into the overridden folder and never
   // into the configured one, and the same run without the override writes nothing
-  // at all though a valid configuration is present. Four separate faults were
+  // at all though a valid configuration is present. Six separate faults were
   // diagnosed by printing the CHILD's own exit code and output rather than by
   // reasoning about the code; the worst was `--reporter=line`, which replaces the
   // configured reporters so AitpReporter never ran, and which failed by exiting 0
-  // with an empty folder.
+  // with an empty folder. The sixth made it FLAKY rather than broken: the child ran
+  // this repo's artifact hygiene against the directories the parent was writing
+  // into, and on Windows that fails to delete a tree with a handle open in it.
   'tests/demo/notify-drop-e2e.spec.ts',
+  // Added 2026-11-23 with AITP_NOTIFY_CONFIG. O4 and O9 are the pair that matters:
+  // a bad override must REFUSE rather than fall back to the repo's own config, and
+  // O9's repo config is deliberately valid with a folder that exists, so a fallback
+  // would succeed and the distinction would be invisible. G1 is the guard's silent
+  // half — without it, a comparison that always reports a change would read as a
+  // working detector right up to the point somebody deleted it for crying wolf.
+  'tests/unit/notify-config-override.spec.ts',
   // Added 2026-11-11 with the published schema. S3 is the half that matters: S1 over
   // a correct drop cannot tell a working validator from one that returns no problems
   // for anything, so each of the four drifts is planted — and the RENAME is planted

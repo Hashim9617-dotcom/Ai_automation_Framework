@@ -11,8 +11,18 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from '@aitp/execution-engine';
 import { findRepoRoot } from '@aitp/shared';
-import { NOTIFY_CONFIG_RELATIVE, READY_SUFFIX, type ReadyDrop } from '@aitp/reporting-engine';
+import {
+  NOTIFY_CONFIG_RELATIVE,
+  NOTIFY_CONFIG_VAR,
+  READY_SUFFIX,
+  type ReadyDrop,
+} from '@aitp/reporting-engine';
 import { spawnSyncClean } from '../support/spawn-clean';
+import {
+  describeNotifyConfigChange,
+  snapshotNotifyConfig,
+  type NotifyConfigSnapshot,
+} from '../support/notify-config-guard';
 
 /**
  * A REAL PLAYWRIGHT RUN PRODUCES A REAL DROP — and a fixture run produces none.
@@ -24,7 +34,7 @@ import { spawnSyncClean } from '../support/spawn-clean';
  * `run.json` and the archive are complete, or that a failure in it leaves the
  * suite's exit code alone. Those are facts about a process (§R).
  *
- * ## Four things this spec got wrong before it worked, each read from the child
+ * ## Six things this spec got wrong before it worked, each read from the child
  *
  * Every one was diagnosed by printing the child's own exit code and output rather
  * than by reasoning about the code:
@@ -41,6 +51,35 @@ import { spawnSyncClean } from '../support/spawn-clean';
  * 4. `--reporter=line` — the one that cost the most time, because the child exited
  *    0 and the folder was simply empty. `--reporter` REPLACES the configured
  *    reporters, so `AitpReporter` — the thing that writes the drop — never ran.
+ * 5. THE CHILD WIPED THE PARENT'S ARTIFACTS, which is what made this spec flaky
+ *    rather than broken. `global-setup.ts` removes `artifacts/reports` and
+ *    `artifacts/test-results` unless `CLEAN_ARTIFACTS=false`, and the child runs
+ *    that hook too — against the directories the PARENT run is writing into. On
+ *    Windows a tree with a handle open in it fails to delete, so the child died
+ *    with `ENOTEMPTY, Directory not empty: artifacts\test-results` before running a
+ *    single test, and E1 reported "the suite itself did not pass". Intermittent by
+ *    construction: it depends on whether the parent happened to be holding a trace
+ *    open at that instant, so the same commit passed and failed with nothing
+ *    changed between the runs. Measured from the archived `error-context.md`, not
+ *    guessed — the first diagnosis of this failure blamed the shared notify config
+ *    and was wrong.
+ * 6. It wrote the developer's own `.aitp-local/notify.json`. See below.
+ *
+ * ## It no longer touches the real notify config, and that is checked
+ *
+ * The child is a real `playwright test` and resolves its own repo root, so the
+ * config it reads could not be redirected and this spec wrote the real file,
+ * restoring the previous contents afterwards. Both halves of that were wrong:
+ * restoring the PREVIOUS contents preserves a leftover (a dead `aitp-configured-*`
+ * temp folder sat in this repo's config for days), and restoring a known-clean
+ * `{apps:{}}` would be worse — it would delete the entries a QA had configured,
+ * every time anybody ran `pnpm verify`. There is no correct way to restore somebody
+ * else's file.
+ *
+ * `AITP_NOTIFY_CONFIG` is the fix, and `afterEach` is the proof: the real file's
+ * digest and size are taken before the first test and compared after each one. The
+ * hazard is one somebody re-introduces by writing four convenient lines, and because
+ * the file is gitignored a re-introduction leaves `git status` clean and says nothing.
  *
  * ## Nothing here needs OneDrive, a network or Windows
  *
@@ -50,7 +89,9 @@ import { spawnSyncClean } from '../support/spawn-clean';
 
 const ROOT = findRepoRoot();
 const PLAYWRIGHT = path.join(ROOT, 'node_modules', '@playwright', 'test', 'cli.js');
-const CONFIG_FILE = path.join(ROOT, NOTIFY_CONFIG_RELATIVE);
+
+/** The file this spec must leave exactly as it found it. */
+const REAL_CONFIG = path.join(ROOT, NOTIFY_CONFIG_RELATIVE);
 
 /**
  * The child runs the FIXTURE `demo` project, because that is the only surface the
@@ -73,51 +114,53 @@ const CHILD_ARGS = [
   'valid credentials sign the user in',
 ];
 
-/** Where the drop MUST NOT go: the folder the configuration names. */
-function configuredFolder(): string {
-  const folder = mkdtempSync(path.join(tmpdir(), 'aitp-configured-'));
-  return folder;
-}
+/** Everything this spec created, removed in one place however a test ended. */
+class Temp {
+  private readonly dirs: string[] = [];
 
-/**
- * Configures `bundled-demo` in THIS repo's `.aitp-local/notify.json`.
- *
- * It has to be the real repo root: the child is a real `playwright test` and resolves
- * its own root. The previous contents are returned so the caller restores them — and
- * a leftover here cannot break a later run, because it names a temp folder that no
- * longer exists and `notifyRun` then reports `folder-missing` and carries on. That is
- * why this is acceptable where a leftover source mutation would not be.
- */
-function configureNotify(folder: string): string | null {
-  const previous = existsSync(CONFIG_FILE) ? readFileSync(CONFIG_FILE, 'utf8') : null;
-  mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
-  writeFileSync(
-    CONFIG_FILE,
-    `${JSON.stringify(
-      {
-        schemaVersion: 1,
-        apps: {
-          'bundled-demo': {
-            folder,
-            to: ['qa@contoso.com'],
-            cc: [],
-            ranBy: 'me@contoso.com',
-            ranBySource: 'explicit',
-            allowedDomain: 'contoso.com',
+  dir(prefix: string): string {
+    const made = mkdtempSync(path.join(tmpdir(), prefix));
+    this.dirs.push(made);
+    return made;
+  }
+
+  /**
+   * A notify config of THIS SPEC'S OWN, in its own directory.
+   *
+   * Not the repo's. `AITP_NOTIFY_CONFIG` is what lets a real spawned child read it,
+   * and the recipients are a `contoso.com` fiction so a misdirected drop would name
+   * nobody real.
+   */
+  config(folder: string): string {
+    const file = path.join(this.dir('aitp-notify-cfg-'), 'notify.json');
+    writeFileSync(
+      file,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          apps: {
+            'bundled-demo': {
+              folder,
+              to: ['qa@contoso.com'],
+              cc: [],
+              ranBy: 'me@contoso.com',
+              ranBySource: 'explicit',
+              allowedDomain: 'contoso.com',
+            },
           },
         },
-      },
-      null,
-      2,
-    )}\n`,
-    'utf8',
-  );
-  return previous;
-}
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    return file;
+  }
 
-function restoreNotify(previous: string | null): void {
-  if (previous === null) rmSync(CONFIG_FILE, { force: true });
-  else writeFileSync(CONFIG_FILE, previous, 'utf8');
+  cleanUp(): void {
+    for (const dir of this.dirs) rmSync(dir, { recursive: true, force: true });
+    this.dirs.length = 0;
+  }
 }
 
 /**
@@ -128,42 +171,82 @@ function restoreNotify(previous: string | null): void {
  * PARENT run's `artifacts/test-results` as Playwright clears its output dir at
  * start, which this session has already been bitten by once.
  */
-function runChild(testFolder: string | undefined) {
+function runChild(options: { testFolder?: string | undefined; configFile: string }) {
   const outputDir = mkdtempSync(path.join(tmpdir(), 'aitp-child-out-'));
-  return spawnSyncClean(process.execPath, [PLAYWRIGHT, ...CHILD_ARGS, '--output', outputDir], {
-    cwd: ROOT,
-    maxBuffer: 40 * 1024 * 1024,
-    env: {
-      TEST_ENV: 'local',
-      LOG_LEVEL: 'info',
-      // Set explicitly: `spawnSyncClean` scrubs it from the inherited environment,
-      // and the fixture project does not exist without it.
-      AITP_FIXTURE_ONLY: '1',
-      ...(testFolder ? { AITP_NOTIFY_TEST_FOLDER: testFolder } : {}),
-    },
-  });
+  return {
+    outputDir,
+    result: spawnSyncClean(process.execPath, [PLAYWRIGHT, ...CHILD_ARGS, '--output', outputDir], {
+      cwd: ROOT,
+      maxBuffer: 40 * 1024 * 1024,
+      env: {
+        TEST_ENV: 'local',
+        LOG_LEVEL: 'info',
+        // Set explicitly: `spawnSyncClean` scrubs it from the inherited environment,
+        // and the fixture project does not exist without it.
+        AITP_FIXTURE_ONLY: '1',
+        // THE CHILD MUST NOT RUN THIS REPO'S ARTIFACT HYGIENE. `global-setup.ts`
+        // deletes `artifacts/reports` and `artifacts/test-results`, which are the
+        // directories the PARENT run is writing into right now — see 5 above. The
+        // sentinel in E1 is what proves this line is doing its job.
+        CLEAN_ARTIFACTS: 'false',
+        // Its own config, so the developer's is never read or written.
+        [NOTIFY_CONFIG_VAR]: options.configFile,
+        ...(options.testFolder ? { AITP_NOTIFY_TEST_FOLDER: options.testFolder } : {}),
+      },
+    }),
+  };
 }
 
 const readyIn = (folder: string): string[] =>
   readdirSync(folder).filter((name) => name.endsWith(READY_SUFFIX));
 
+/**
+ * A file in the parent's output directory that the child must not be able to remove.
+ *
+ * The flake it stands for is a crash that depends on an open file handle, so it
+ * cannot be reproduced on demand. This can: with `CLEAN_ARTIFACTS` unset the child's
+ * `globalSetup` deletes this file (or dies trying), and either way it is gone.
+ */
+function plantSentinel(): string {
+  const dir = path.join(ROOT, 'artifacts', 'test-results');
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `notify-drop-e2e-${process.pid}-${Date.now()}.sentinel`);
+  writeFileSync(file, 'the child must not delete the parent run’s artifacts\n', 'utf8');
+  return file;
+}
+
 test.describe('a real demo run drops a report email @demo', () => {
   test.setTimeout(240_000);
 
   /**
-   * SERIAL, because both tests mutate ONE file in the repo root.
+   * SERIAL, and the reason is NOT the notify config any more.
    *
-   * `.aitp-local/notify.json` has to be the real one — the child is a real
-   * `playwright test` and resolves its own root — so the two tests share it. Run in
-   * parallel, E2's restore raced E1's child reading it, and E1 came back with an
-   * empty drop folder while passing when run alone. Measured, not guessed: E1 alone
-   * is green and E1 beside E2 was not.
+   * Each test now has its own config file, so that state is no longer shared. What
+   * still is: both spawn a real `playwright test` with `cwd` at this repo root, and
+   * every configured reporter writes into `artifacts/reports` — `run.json`,
+   * `junit.xml`, `html/`. Two children in parallel would interleave their writes
+   * there, which is the same class of fixture-outside-the-test that made this spec
+   * serial in the first place and is not fixed by `--output` (that only moves
+   * `test-results`).
    *
-   * The same fix the Postgres contract needed for the same reason, and the same
-   * lesson: a fixture that lives outside the test cannot be parallelised just
-   * because the assertions are independent.
+   * Said explicitly because "the reason has gone" and "the mode can go" are
+   * different statements, and only the second one would justify removing it.
    */
   test.describe.configure({ mode: 'serial' });
+
+  const temp = new Temp();
+  let realConfigBefore: NotifyConfigSnapshot;
+
+  test.beforeAll(() => {
+    realConfigBefore = snapshotNotifyConfig(REAL_CONFIG);
+  });
+
+  test.afterEach(() => {
+    temp.cleanUp();
+    // AFTER EACH, not only at the end: it names the test that did it.
+    const changed = describeNotifyConfigChange(realConfigBefore, snapshotNotifyConfig(REAL_CONFIG));
+    expect(changed, changed ?? undefined).toBeNull();
+  });
 
   test('E1: a real run writes the zip and the ready file, and its exit code is untouched', () => {
     // wrong: no drop at all (the reporter never calls it — which is exactly what
@@ -171,17 +254,27 @@ test.describe('a real demo run drops a report email @demo', () => {
     // zip (called before the archive is complete), or the one that matters most, a
     // green suite reported as FAILED because a mail could not be prepared. The exit
     // code is asserted alongside the files for that reason.
-    const configured = configuredFolder();
-    const drop = mkdtempSync(path.join(tmpdir(), 'aitp-drop-e2e-'));
-    const previous = configureNotify(configured);
+    const configured = temp.dir('aitp-configured-');
+    const drop = temp.dir('aitp-drop-e2e-');
+    const configFile = temp.config(configured);
+    const sentinel = plantSentinel();
     try {
-      const result = runChild(drop);
+      const { outputDir, result } = runChild({ testFolder: drop, configFile });
       const output = `${result.stdout}${result.stderr}`;
 
       // §T — the run has to have HAPPENED, or every assertion below is about an
       // empty folder and passes for the wrong reason.
       expect(result.status, `the suite itself did not pass:\n${output}`).toBe(0);
       expect(output, 'the child ran no tests').toContain('1 passed');
+
+      // AND IT LEFT THE PARENT'S ARTIFACTS ALONE. This is the deterministic form of
+      // the flake in 5 above: without `CLEAN_ARTIFACTS=false` the child's
+      // `globalSetup` removes this directory, so the sentinel is gone and — when the
+      // parent holds a handle in there — the child dies with ENOTEMPTY instead.
+      expect(
+        existsSync(sentinel),
+        'the child deleted the parent run’s artifacts/test-results',
+      ).toBe(true);
 
       const ready = readyIn(drop);
       const zips = readdirSync(drop).filter((name) => name.endsWith('.zip'));
@@ -206,8 +299,10 @@ test.describe('a real demo run drops a report email @demo', () => {
       // AND THE CONFIGURED FOLDER IS UNTOUCHED. The override redirects rather than
       // merely permits, so a fixture run cannot reach a real project's folder.
       expect(readdirSync(configured)).toEqual([]);
+
+      rmSync(outputDir, { recursive: true, force: true });
     } finally {
-      restoreNotify(previous);
+      rmSync(sentinel, { force: true });
     }
   });
 
@@ -220,18 +315,15 @@ test.describe('a real demo run drops a report email @demo', () => {
     //
     // This is also E1's discriminating half, and E1 is this one's: without E1, this
     // is satisfied by a platform that can never notify at all.
-    const configured = configuredFolder();
-    const previous = configureNotify(configured);
-    try {
-      const result = runChild(undefined);
-      const output = `${result.stdout}${result.stderr}`;
-      expect(result.status, output).toBe(0);
-      expect(output, 'the child ran no tests').toContain('1 passed');
-      // It SAYS so — a silent skip is how somebody comes to believe mail is going out.
-      expect(output).toContain('fixture-only run');
-      expect(readdirSync(configured)).toEqual([]);
-    } finally {
-      restoreNotify(previous);
-    }
+    const configured = temp.dir('aitp-configured-');
+    const configFile = temp.config(configured);
+    const { outputDir, result } = runChild({ configFile });
+    const output = `${result.stdout}${result.stderr}`;
+    expect(result.status, output).toBe(0);
+    expect(output, 'the child ran no tests').toContain('1 passed');
+    // It SAYS so — a silent skip is how somebody comes to believe mail is going out.
+    expect(output).toContain('fixture-only run');
+    expect(readdirSync(configured)).toEqual([]);
+    rmSync(outputDir, { recursive: true, force: true });
   });
 });

@@ -11,7 +11,9 @@ import {
 } from './history';
 import {
   howToConfigure,
-  loadNotifyConfig,
+  loadNotifyConfigFile,
+  notifyConfigPath,
+  validateNotifyConfigOverride,
   type NotifyAppConfig,
   type NotifyConfig,
 } from './config';
@@ -213,6 +215,15 @@ export interface NotifyRunInput {
    * to by the platform's own test suite.
    */
   testFolder?: string | undefined;
+  /**
+   * The RAW `AITP_NOTIFY_CONFIG` value, supplied by the caller (§AJ).
+   *
+   * Raw rather than validated, so the one implementation of the rule lives beside
+   * the rule and a bad value becomes a `config-broken` outcome here — the same
+   * sentence a broken file gets — instead of a throw at two call sites that would
+   * each have to catch it and could disagree about what to say.
+   */
+  configFileOverride?: string | undefined;
   log: Logger;
   /** Injected so a test can supply a config without writing one to disk. */
   config?: NotifyConfig | null;
@@ -245,8 +256,13 @@ export function notifyRun(input: NotifyRunInput): NotifyOutcome {
     }
 
     let config: NotifyConfig | null;
+    // Resolved HERE because a bad override and a broken file are the same answer to
+    // the reader — fix the configuration — and because the refusal must not fall back
+    // to the repo's own file (§AC).
+    let configFile = notifyConfigPath(input.root);
     try {
-      config = input.config !== undefined ? input.config : loadNotifyConfig(input.root);
+      configFile = validateNotifyConfigOverride(input.configFileOverride) ?? configFile;
+      config = input.config !== undefined ? input.config : loadNotifyConfigFile(configFile);
     } catch (error) {
       // A BROKEN config is not a missing one, and the sentences differ: this one says
       // fix the file. Reporting it as "not configured" would send the reader to
@@ -262,7 +278,7 @@ export function notifyRun(input: NotifyRunInput): NotifyOutcome {
       return {
         written: false,
         skipped: 'not-configured',
-        message: howToConfigure(input.application, input.root),
+        message: howToConfigure(input.application, input.root, configFile),
       };
     }
 

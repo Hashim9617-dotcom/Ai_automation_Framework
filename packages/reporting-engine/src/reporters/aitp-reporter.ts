@@ -24,6 +24,7 @@ import {
   type TestResult,
 } from '@aitp/shared';
 import { renderRunSummaryHtml } from '../html/summary';
+import { NOTIFY_CONFIG_VAR } from '../notify/config';
 import { notifyOffBecause, notifyRun, notifyTestFolder } from '../notify/drop';
 
 /**
@@ -269,6 +270,11 @@ export default class AitpReporter implements Reporter {
         // exercise notification on the fixture surface, and it REDIRECTS: a suite
         // run cannot reach a configured folder even if one is set.
         testFolder: notifyTestFolder(process.env),
+        // The raw value, validated inside `notifyRun` so a bad one reads as a broken
+        // configuration rather than failing the suite. A spawned run gets this from
+        // its parent, which is how a test points a REAL child at its own config file
+        // instead of writing the developer's (§AJ: supplied here, never read there).
+        configFileOverride: process.env[NOTIFY_CONFIG_VAR],
         root: path.dirname(path.dirname(this.outputDir)),
         run: this.run,
         application: this.run.target.application,

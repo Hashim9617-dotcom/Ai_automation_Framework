@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -38,6 +38,87 @@ export const NOTIFY_CONFIG_RELATIVE = path.join('.aitp-local', 'notify.json');
 
 export function notifyConfigPath(root: string): string {
   return path.join(root, NOTIFY_CONFIG_RELATIVE);
+}
+
+/**
+ * The variable that moves this file somewhere else. ABSOLUTE PATH, no default.
+ *
+ * ## Why it exists, and it is not about convenience
+ *
+ * `notify-drop-e2e.spec.ts` spawns a REAL `playwright test`, so the config it reads
+ * has to be a real one: the child resolves its own repo root and there was no way to
+ * point it anywhere else. The spec therefore wrote the developer's own
+ * `.aitp-local/notify.json` and restored it afterwards, and both halves of that are
+ * wrong:
+ *
+ * - restoring the PREVIOUS contents preserves a leftover, which is how a dead
+ *   `aitp-configured-*` temp folder sat in this repo's config for days;
+ * - restoring a KNOWN-CLEAN `{apps:{}}` would be worse — it would delete the real
+ *   entries a QA had configured, every time anybody ran `pnpm verify`.
+ *
+ * There is no correct way to restore somebody else's file. The fix is to stop
+ * writing it: the test names its own config and the child reads that one.
+ *
+ * ## Absolute, and a bad value is REFUSED rather than ignored
+ *
+ * A relative path would resolve against whatever `cwd` the reading process happens
+ * to have — the reporter's `cwd` is the repo root, `pnpm run-sheet`'s need not be —
+ * so the same value would name two files. And a value that cannot be honoured must
+ * not fall back to the default: a test that set this and had it silently ignored
+ * would write the developer's real config while reporting that it had not, which is
+ * the precise failure this variable exists to end. Ambiguity resolves toward refusal
+ * (§AC).
+ *
+ * The file itself NEED NOT EXIST. That is the NOT CONFIGURED state and it is a valid
+ * answer — `notifyRun` says so and carries on. Only a missing or non-directory
+ * PARENT is refused, because that cannot be a file anybody meant.
+ */
+export const NOTIFY_CONFIG_VAR = 'AITP_NOTIFY_CONFIG';
+
+/**
+ * Validates a raw override value. PURE — the environment is passed in (§AJ).
+ *
+ * @throws when the value cannot be honoured. The caller turns that into a refusal;
+ * nothing falls back to the default location.
+ */
+export function validateNotifyConfigOverride(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const file = raw.trim();
+
+  if (!path.isAbsolute(file)) {
+    throw new Error(
+      `${NOTIFY_CONFIG_VAR} is "${file}", which is a RELATIVE path. It must be absolute: a ` +
+        'relative value resolves against whichever directory the reading process happens to ' +
+        'be in, so the same setting would name a different file in the reporter and in ' +
+        '`pnpm run-sheet`.',
+    );
+  }
+
+  const parent = path.dirname(file);
+  if (!existsSync(parent)) {
+    throw new Error(
+      `${NOTIFY_CONFIG_VAR} is "${file}", and its directory "${parent}" does not exist. The ` +
+        'file need not — an absent config is simply "not configured" — but a missing ' +
+        'directory is a value nobody meant, and it is refused rather than ignored so a test ' +
+        "that set this cannot silently end up reading the repo's own config instead.",
+    );
+  }
+  if (!statSync(parent).isDirectory()) {
+    throw new Error(`${NOTIFY_CONFIG_VAR} is "${file}", but "${parent}" is not a directory.`);
+  }
+  if (existsSync(file) && statSync(file).isDirectory()) {
+    throw new Error(
+      `${NOTIFY_CONFIG_VAR} is "${file}", which is a DIRECTORY. It must name the JSON file ` +
+        'itself.',
+    );
+  }
+
+  return file;
+}
+
+/** The override from an environment, or `undefined`. The env is PASSED IN (§AJ). */
+export function notifyConfigOverride(env: Record<string, string | undefined>): string | undefined {
+  return validateNotifyConfigOverride(env[NOTIFY_CONFIG_VAR]);
 }
 
 /** Where `ranBy` came from. Recorded, because a wrong sender is worth tracing. */
@@ -186,9 +267,20 @@ export function checkRecipients(
   return { allowed, rejected, malformed };
 }
 
-/** Reads the config, or `null` when there is none. THROWS when there is a broken one. */
+/**
+ * Reads the config at the repo's DEFAULT location, ignoring any override.
+ *
+ * Kept for callers that mean the repo's own file whatever the environment says.
+ * Anything that must honour `AITP_NOTIFY_CONFIG` takes the resolved path and calls
+ * `loadNotifyConfigFile` — `notifyRun` does, which is why the override reaches a
+ * spawned run at all.
+ */
 export function loadNotifyConfig(root: string): NotifyConfig | null {
-  const file = notifyConfigPath(root);
+  return loadNotifyConfigFile(notifyConfigPath(root));
+}
+
+/** Reads the config AT A GIVEN FILE, or `null` when there is none. THROWS on a broken one. */
+export function loadNotifyConfigFile(file: string): NotifyConfig | null {
   if (!existsSync(file)) return null;
 
   let raw: unknown;
@@ -317,11 +409,21 @@ export function loadNotifyConfig(root: string): NotifyConfig | null {
   return { schemaVersion: NOTIFY_CONFIG_SCHEMA_VERSION, apps: parsed };
 }
 
-/** The one sentence a run prints when notification is not set up for an application. */
-export function howToConfigure(application: string, root: string): string {
+/**
+ * The one sentence a run prints when notification is not set up for an application.
+ *
+ * `file` names the config that was actually LOOKED AT, which is not always the repo's
+ * own: under `AITP_NOTIFY_CONFIG` a reader told to go and create
+ * `.aitp-local/notify.json` would create a file this run never reads.
+ */
+export function howToConfigure(
+  application: string,
+  root: string,
+  file: string = notifyConfigPath(root),
+): string {
   return (
     `notify: not configured for "${application}" — no report email was prepared. ` +
     `Set it up with: pnpm notify:setup --app ${application} --folder "<synced project folder>" ` +
-    `--to someone@example.com   (writes ${path.join(root, NOTIFY_CONFIG_RELATIVE)}, gitignored)`
+    `--to someone@example.com   (looked at ${file}, gitignored)`
   );
 }

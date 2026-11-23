@@ -25,10 +25,12 @@ import path from 'node:path';
 import {
   NOTIFY_CONFIG_RELATIVE,
   NOTIFY_CONFIG_SCHEMA_VERSION,
+  NOTIFY_CONFIG_VAR,
   checkRecipients,
   domainOf,
   isEmailShaped,
   loadNotifyConfig,
+  notifyConfigOverride,
   notifyConfigPath,
   resolveRanBy,
   type IdentitySources,
@@ -253,6 +255,23 @@ function main(): void {
           'different sender.',
       );
     }
+  }
+
+  // ---- REFUSE under an override, rather than writing a file nothing will read ----
+  // `AITP_NOTIFY_CONFIG` redirects the READERS (the reporter and `run-sheet`). This
+  // command is the WRITER, and it deliberately does not follow: writing the repo's
+  // own file while every run reads another one would leave a QA looking at a correct
+  // configuration that does nothing. Refusing names both files, which is the only
+  // version of this a reader can act on.
+  const override = notifyConfigOverride(process.env);
+  if (override) {
+    throw new Error(
+      `refusing to configure: ${NOTIFY_CONFIG_VAR} is set to ${override}, so runs on this ` +
+        `machine read THAT file while this command writes ${notifyConfigPath(root)}. ` +
+        'Unset it and run this again, or edit the file it names directly. (It exists so the ' +
+        "platform's own tests can point a spawned run at their own config without touching " +
+        'yours — it is not meant to be set for ordinary use.)',
+    );
   }
 
   // ---- merge, never replace ----
