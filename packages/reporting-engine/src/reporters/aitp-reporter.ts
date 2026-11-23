@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type {
   FullConfig,
@@ -14,14 +14,25 @@ import {
   newId,
   rootLogger,
   summarize,
+  summariseRunNetwork,
   type FailureContext,
   type Logger,
   type Run,
+  type NetworkSummaryInput,
+  type RunNetworkSummary,
   type RunTarget,
   type TestResult,
 } from '@aitp/shared';
 import { renderRunSummaryHtml } from '../html/summary';
 import { notifyOffBecause, notifyRun, notifyTestFolder } from '../notify/drop';
+
+/**
+ * The attachment name the reporter aggregates, and the ONE place it is written.
+ *
+ * A spec attaches under this name and the reporter looks for it; two spellings
+ * would mean the aggregate silently found nothing while every test reported (SS-AE).
+ */
+export const NETWORK_ATTACHMENT = 'network.json';
 
 export interface AitpReporterOptions {
   /** Directory for run.json / summary.html. Defaults to artifacts/reports. */
@@ -136,6 +147,37 @@ export default class AitpReporter implements Reporter {
       })),
     };
 
+    /**
+     * ANNOTATIONS, which this reporter used to drop entirely.
+     *
+     * Measured on 2026-11-18: the Ecom smoke suite records `sheet-drift`,
+     * `re-login`, `third-party-4xx` and `stepper`, and none of them reached
+     * `run.json` — so a report built from it would have printed "sheet drift: 0"
+     * while the truth was "nobody looked". That is the confident wrong number this
+     * repo keeps finding, and the fix is one line plus a type.
+     *
+     * Only set when there ARE any, so an absent field keeps meaning "this producer
+     * did not record them" and `[]` keeps meaning "this test had none". Playwright
+     * puts a test's annotations on BOTH the test and the result; the result's are
+     * the ones a spec pushed at runtime, and the test's are the static ones from
+     * `test.describe`/`test.fixme`, so both are taken and de-duplicated.
+     */
+    const annotations = [...(test.annotations ?? []), ...(result.annotations ?? [])];
+    if (annotations.length > 0) {
+      const seen = new Set<string>();
+      entry.annotations = annotations
+        .filter((annotation) => {
+          const key = `${annotation.type}\u0000${annotation.description ?? ''}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .map((annotation) => ({
+          type: annotation.type,
+          ...(annotation.description === undefined ? {} : { description: annotation.description }),
+        }));
+    }
+
     if (result.error) {
       entry.error = {
         message: stripAnsi(result.error.message ?? 'Unknown error'),
@@ -161,6 +203,22 @@ export default class AitpReporter implements Reporter {
     // pass/fail — not one row per attempt.
     this.run.results = this.results;
     this.run.summary = summarize(finalAttemptPerTest(this.results));
+
+    /**
+     * THE RUN-LEVEL NETWORK SUMMARY, read from the attachment FILES.
+     *
+     * Per-test records existed before this and were unreachable: they were attached
+     * with `body:` rather than a file, so Playwright stored them inline and
+     * `run.json` recorded `path: "inline"`. The run-level question a report and a
+     * mail actually ask — how many 5xx, and where — could not be answered at all.
+     *
+     * Built from EVERY attempt's record rather than the final attempt's, because a
+     * request a retried attempt made still reached the application. The summary is
+     * about traffic, not about verdicts, and the two are counted differently on
+     * purpose (`summary` above collapses retries; this does not).
+     */
+    const networkSummary = this.collectNetwork();
+    if (networkSummary) this.run.network = networkSummary;
     this.run.finishedAt = new Date().toISOString();
     this.run.summary.durationMs = Date.now() - this.startedAt;
     this.run.status =
@@ -243,6 +301,53 @@ export default class AitpReporter implements Reporter {
 
   printsToStdio(): boolean {
     return false;
+  }
+
+  /**
+   * Every `network.json` attachment this run wrote, aggregated — or `undefined`.
+   *
+   * `undefined` rather than an empty summary when no test reported, because
+   * "nothing was instrumented" and "nothing was requested" are different answers
+   * and a summary of zeroes states the second while meaning the first.
+   *
+   * An attachment that cannot be read is COUNTED as a reporting test and skipped,
+   * with a warning: a test that recorded something the reporter could not parse is
+   * not a test that saw no traffic, and silently dropping it would make
+   * `testsReporting` agree with a total it no longer explains.
+   */
+  private collectNetwork(): RunNetworkSummary | undefined {
+    const perTest: NetworkSummaryInput[][] = [];
+    let unreadable = 0;
+
+    for (const result of this.results) {
+      for (const attachment of result.attachments) {
+        if (attachment.name !== NETWORK_ATTACHMENT) continue;
+        // `inline` is the sentinel this reporter writes for a body-backed
+        // attachment. There is nothing on disk to read, and counting it as a
+        // reporting test with no requests would be the inline bug all over again.
+        if (attachment.path === 'inline') {
+          unreadable += 1;
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(readFileSync(attachment.path, 'utf8')) as {
+            requests?: NetworkSummaryInput[];
+          };
+          perTest.push(Array.isArray(parsed.requests) ? parsed.requests : []);
+        } catch {
+          unreadable += 1;
+        }
+      }
+    }
+
+    if (unreadable > 0) {
+      this.log.warn(
+        'Some network attachments could not be read, so the run summary is incomplete',
+        { unreadable, read: perTest.length },
+      );
+    }
+    if (perTest.length === 0) return undefined;
+    return summariseRunNetwork(perTest);
   }
 
   /** Fire-and-forget live event; never fails a run because the dashboard is down. */

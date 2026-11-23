@@ -1,4 +1,8 @@
-export { default as AitpReporter, finalAttemptPerTest } from './reporters/aitp-reporter';
+export {
+  default as AitpReporter,
+  finalAttemptPerTest,
+  NETWORK_ATTACHMENT,
+} from './reporters/aitp-reporter';
 export * from './html/summary';
 export * from './email/mailer';
 export * from './notify/zip';

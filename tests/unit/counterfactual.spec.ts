@@ -234,6 +234,15 @@ const COVERED = [
   // trusted to have been built carefully. M6 pins the single documented exception
   // as DATA rather than as a special case hidden in a spec.
   'tests/unit/ecom-smoke-manifest.spec.ts',
+  // Added 2026-11-23 with ECOM-1a-fix. Both suites exist because the previous batch
+  // reported two numbers it could not measure: annotations were dropped by the
+  // reporter, so "sheet drift: 0" could not be told from "nobody looked", and the
+  // per-test network records were attached INLINE, so run.json recorded
+  // path: "inline" and sixty-two attached answers were unreadable. The
+  // counterfactuals are mostly about the THREE STATES — absent, empty, some —
+  // which both fields had collapsed to two.
+  'tests/unit/run-network-summary.spec.ts',
+  'tests/unit/reporter-annotations.spec.ts',
   'tests/demo/kit-integrity-cli.spec.ts',
   // Added 2026-10-08 with v0.4.1: the STANDALONE check, after a renamed package
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every

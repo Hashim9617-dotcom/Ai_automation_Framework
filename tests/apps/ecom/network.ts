@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs';
+import { NETWORK_ATTACHMENT } from '@aitp/reporting-engine';
 import type { BrowserContext, Request, Response, TestInfo } from '@playwright/test';
 
 /**
@@ -205,6 +207,51 @@ export function summariseStatuses(record: NetworkRecord): string {
 }
 
 /**
+ * Attaches a run's network record AS A FILE. The one place it is written.
+ *
+ * ## Why a file and not `body:`
+ *
+ * It was `body:`, so Playwright stored the JSON inside its own report and the
+ * platform's `run.json` recorded `path: "inline"`. The data was then unreachable
+ * from `run.json`: the run-level question a report and a mail ask — how many 5xx,
+ * and where — could not be answered at all, while 62 tests each "attached" their
+ * answer. Measured on 2026-11-18 by trying to read it back and finding nothing.
+ *
+ * ## Why ONE function for both call sites
+ *
+ * There were two: the passing path attached one way and the failing path another,
+ * and the failing path is the one whose record matters most. Two attach calls is
+ * two spellings of the name and two decisions about file-versus-body, and a drifted
+ * copy reads exactly like a correct one (§AE). `NETWORK_ATTACHMENT` is imported
+ * from the reporter that AGGREGATES it, so the writer and the reader cannot
+ * disagree about the name either.
+ *
+ * Written into `testInfo.outputPath`, the per-test directory Playwright already
+ * manages and cleans, so this adds no lifecycle of its own.
+ */
+export async function attachNetworkRecord(
+  record: NetworkRecord,
+  testInfo: TestInfo,
+): Promise<void> {
+  const file = testInfo.outputPath(NETWORK_ATTACHMENT);
+  writeFileSync(
+    file,
+    `${JSON.stringify(
+      {
+        summary: summariseStatuses(record),
+        counts: record.byStatus,
+        total: record.requests.length,
+        requests: record.requests,
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
+  await testInfo.attach(NETWORK_ATTACHMENT, { path: file, contentType: 'application/json' });
+}
+
+/**
  * Attaches the record and fails the test on anything the guards caught.
  *
  * The attachment happens FIRST, before any assertion, so a failing test still
@@ -216,19 +263,19 @@ export async function assertNetworkClean(
   testInfo: TestInfo,
   consoleErrors: string[],
 ): Promise<void> {
-  await testInfo.attach('network.json', {
-    body: JSON.stringify(
-      {
-        summary: summariseStatuses(record),
-        counts: record.byStatus,
-        total: record.requests.length,
-        requests: record.requests,
-      },
-      null,
-      2,
-    ),
-    contentType: 'application/json',
-  });
+  /**
+   * A FILE, not an inline body — and that is the whole point of this call.
+   *
+   * It was `body:`, so Playwright stored the JSON inside its own report and the
+   * platform's `run.json` recorded `path: "inline"`. The data was then unreachable
+   * from `run.json`: the run-level question a report and a mail ask — how many 5xx,
+   * and where — could not be answered at all, while 62 tests each "attached" their
+   * answer. Measured on 2026-11-18 by trying to read it back and finding nothing.
+   *
+   * Written into `testInfo.outputPath`, which is the per-test directory Playwright
+   * already manages and cleans, so this adds no lifecycle of its own.
+   */
+  await attachNetworkRecord(record, testInfo);
 
   /**
    * THIRD-PARTY 4xx ARE REPORTED, not failed on and not hidden.

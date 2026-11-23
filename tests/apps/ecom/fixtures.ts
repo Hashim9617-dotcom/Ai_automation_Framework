@@ -3,7 +3,12 @@ import path from 'node:path';
 import { test as base, expect, requireUser, type EnvironmentConfig } from '@aitp/execution-engine';
 import { findRepoRoot } from '@aitp/shared';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
-import { recordNetwork, assertNetworkClean, type NetworkRecord } from './network';
+import {
+  assertNetworkClean,
+  attachNetworkRecord,
+  recordNetwork,
+  type NetworkRecord,
+} from './network';
 import { readableName } from './components/names';
 
 /**
@@ -231,10 +236,11 @@ export const test = base.extend<EcomFixtures, EcomWorkerFixtures>({
       if (testInfo.status === 'passed') {
         await assertNetworkClean(network, testInfo, ecomConsoleErrors);
       } else {
-        await testInfo.attach('network.json', {
-          body: JSON.stringify({ counts: network.byStatus, requests: network.requests }, null, 2),
-          contentType: 'application/json',
-        });
+        // THE SAME writer the passing path uses. This was a second `attach` with
+        // its own name spelling and its own body-versus-file decision — and it is
+        // the failing test whose record matters most, so it was the worse of the
+        // two to have unreachable from run.json.
+        await attachNetworkRecord(network, testInfo);
       }
     },
     { auto: true },

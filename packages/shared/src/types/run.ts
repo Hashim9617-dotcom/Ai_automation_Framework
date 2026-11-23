@@ -139,6 +139,67 @@ export interface TestResult {
   context?: FailureContext;
   steps: TestStepResult[];
   attachments: Array<{ name: string; path: string; contentType: string }>;
+  /**
+   * A test's own annotations, as the spec recorded them.
+   *
+   * ## Why this had to exist
+   *
+   * It did not, and the cost was measured: the Ecom smoke suite records
+   * `sheet-drift`, `re-login`, `third-party-4xx`, `stepper` and
+   * `list-layout-not-captured` as annotations, and the reporter dropped every one.
+   * `run.json` therefore said nothing about them, so "sheet drift: 0" could not be
+   * told from "nobody looked" — and a report built on `run.json` would have printed
+   * the first while meaning the second. That is the confident-wrong-number shape
+   * this repo keeps finding.
+   *
+   * OPTIONAL, and that is deliberate rather than lazy: every `run.json` written
+   * before this field existed is still valid, and an absent `annotations` means
+   * "written by a producer that did not record them" — which is a different
+   * statement from `[]`, "this test had none". The three states stay three.
+   */
+  annotations?: TestAnnotation[];
+}
+
+/** One annotation a spec attached to its result. Playwright's own shape. */
+export interface TestAnnotation {
+  type: string;
+  description?: string;
+}
+
+/** One endpoint that returned an error status, and how often. */
+export interface FailingEndpoint {
+  method: string;
+  /** Path only. A query string carries record ids and filter values. */
+  path: string;
+  status: number;
+  count: number;
+  /** False for another service's origin, which is never this run's failure. */
+  sameOrigin: boolean;
+}
+
+/**
+ * The run's requests, split by WHOSE they are.
+ *
+ * App-origin and third-party are kept apart because they mean different things: a
+ * 4xx from the application under test is a finding, and a 4xx from somebody else's
+ * CDN is not. Totalling them would produce one number that answers neither
+ * question — the same reason `failed` and `refused` are separate statuses here.
+ */
+export interface RunNetworkSummary {
+  /** Every response, including other origins'. */
+  totalRequests: number;
+  /** Count by status code, across every origin. */
+  byStatus: Record<string, number>;
+  /** Count by status code, application origin only. */
+  appByStatus: Record<string, number>;
+  /** Count by status code, other origins only. */
+  thirdPartyByStatus: Record<string, number>;
+  /** Non-GET requests to the application. For a read-only suite this must be 0. */
+  appWriteAttempts: number;
+  /** The five most frequent error-status endpoints, worst first. */
+  topFailingEndpoints: FailingEndpoint[];
+  /** How many test results contributed a record, so a 0 cannot read as "clean". */
+  testsReporting: number;
 }
 
 export interface RunSummary {
@@ -174,6 +235,22 @@ export interface Run {
    *   - absent       -> written before this field existed; unanswerable
    */
   target?: RunTarget | null;
+  /**
+   * What the run's requests did, aggregated across every test that recorded any.
+   *
+   * ## Why a run-level aggregate rather than per-test attachments alone
+   *
+   * The Ecom suite attaches a per-test `network.json`, and that was all there was.
+   * Measured on 2026-11-18: those attachments were written with `body:` rather than
+   * a file, so Playwright stored them inline, `run.json` recorded
+   * `path: "inline"`, and the data was unreachable from `run.json` afterwards. The
+   * run-level question — "how many 5xx did this run see, and where" — could not be
+   * answered at all, which is exactly what a report and a mail need.
+   *
+   * OPTIONAL: a run with no instrumented tests has no network summary, and that is
+   * not the same as a run that made no requests. Absent means "nothing recorded".
+   */
+  network?: RunNetworkSummary;
   /** Relative paths under artifacts/ for html report, trace, video, log. */
   artifacts: Record<string, string>;
   error?: string;
