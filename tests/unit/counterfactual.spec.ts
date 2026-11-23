@@ -220,6 +220,20 @@ const COVERED = [
   // half — without it, a comparison that always reports a change would read as a
   // working detector right up to the point somebody deleted it for crying wolf.
   'tests/unit/notify-config-override.spec.ts',
+  // Added 2026-11-23 with the Ecom session fix. D2 and D3 are the pair: D1 reports
+  // "no offenders", which is also what it would report over an empty file list or a
+  // matcher that matches nothing, so D2 asserts it had a subject and D3 hands the
+  // matcher the failing case directly.
+  'tests/unit/diagnose-tag-scope.spec.ts',
+  // Added 2026-11-23 with the drift classifier. C3 and C4 are the two cases named in
+  // the brief and they are the ones a looser matcher would absorb — C4's fixture
+  // deliberately pairs OTHER columns on the same page, so `real` there is a verdict
+  // rather than what the classifier says about everything.
+  'tests/unit/sheet-drift.spec.ts',
+  // Added 2026-11-23 with the evidence manifest. E2 is E1's discriminating half: a
+  // manifest that always reported all three kinds present would satisfy E1 forever,
+  // and E2 is the case where one is listed and not on disk.
+  'tests/unit/failure-evidence.spec.ts',
   // Added 2026-11-11 with the published schema. S3 is the half that matters: S1 over
   // a correct drop cannot tell a working validator from one that returns no problems
   // for anything, so each of the four drifts is planted — and the RENAME is planted

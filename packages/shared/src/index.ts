@@ -33,6 +33,7 @@ export * from './authored/execute';
 export * from './authored/run-identity';
 export * from './authored/report';
 export * from './authored/triage';
+export * from './authored/sheet-drift';
 export * from './matching/command-matcher';
 export * from './utils/env';
 export * from './utils/id';

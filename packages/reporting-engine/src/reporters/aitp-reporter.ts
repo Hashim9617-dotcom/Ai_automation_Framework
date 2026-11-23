@@ -13,8 +13,11 @@ import {
   TestOutcome,
   newId,
   rootLogger,
+  countBuckets,
+  driftCsv,
   summarize,
   summariseRunNetwork,
+  type DriftRow,
   type FailureContext,
   type Logger,
   type Run,
@@ -34,6 +37,19 @@ import { notifyOffBecause, notifyRun, notifyTestFolder } from '../notify/drop';
  * would mean the aggregate silently found nothing while every test reported (SS-AE).
  */
 export const NETWORK_ATTACHMENT = 'network.json';
+
+/**
+ * The per-test attachment holding classified sheet-drift rows.
+ *
+ * Exported from the reporter that AGGREGATES them and imported by the spec that
+ * WRITES them, for the same reason `NETWORK_ATTACHMENT` is: the writer and the
+ * reader cannot then disagree about the name, and a rename cannot leave one side
+ * silently finding nothing (§AE).
+ */
+export const SHEET_DRIFT_ATTACHMENT = 'sheet-drift.json';
+
+/** The file a QA opens. Beside run.json, so it travels with the run it describes. */
+export const SHEET_DRIFT_CSV = 'sheet-drift.csv';
 
 export interface AitpReporterOptions {
   /** Directory for run.json / summary.html. Defaults to artifacts/reports. */
@@ -244,6 +260,16 @@ export default class AitpReporter implements Reporter {
     writeFileSync(jsonPath, JSON.stringify(this.run, null, 2), 'utf8');
     writeFileSync(htmlPath, renderRunSummaryHtml(this.run), 'utf8');
 
+    /**
+     * THE DRIFT CSV, before the archive so it is inside it.
+     *
+     * Order matters and it is not cosmetic: `archiveIfNotClean` copies this
+     * directory, so a file written after it exists in `artifacts/reports` and NOT in
+     * `artifacts/runs/<runId>/` — present on the machine that ran and missing from
+     * the copy anybody else sees. The same trap `run.artifacts` has above.
+     */
+    this.writeSheetDrift();
+
     archiveIfNotClean(this.run, this.outputDir, this.log);
 
     /**
@@ -356,6 +382,67 @@ export default class AitpReporter implements Reporter {
     return summariseRunNetwork(perTest);
   }
 
+  /**
+   * Gathers the per-test drift rows and writes the CSV a QA reviews.
+   *
+   * ## Nothing is written when nothing was classified
+   *
+   * No attachment means no spec classified any columns — which is NOT "no drift".
+   * A header-only CSV sitting in every run would say "we looked and the sheet
+   * matches", and on a run with no sheet-aware specs at all that is a confident
+   * wrong answer. Absent file, absent claim; `driftCsv([])` writing a header row is
+   * for the different case where a spec DID look and found nothing.
+   *
+   * ## A failure to read is reported, never silently skipped
+   *
+   * An unreadable attachment is warned about with a count, so a CSV short of a
+   * module is distinguishable from a module with no drift. Same reason the network
+   * aggregate counts `testsReporting`.
+   */
+  private writeSheetDrift(): void {
+    const rows: DriftRow[] = [];
+    let unreadable = 0;
+    let found = 0;
+
+    for (const result of this.results) {
+      for (const attachment of result.attachments) {
+        if (attachment.name !== SHEET_DRIFT_ATTACHMENT) continue;
+        found += 1;
+        if (attachment.path === 'inline') {
+          unreadable += 1;
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(readFileSync(attachment.path, 'utf8')) as {
+            rows?: DriftRow[];
+          };
+          if (Array.isArray(parsed.rows)) rows.push(...parsed.rows);
+          else unreadable += 1;
+        } catch {
+          unreadable += 1;
+        }
+      }
+    }
+
+    if (unreadable > 0) {
+      this.log.warn('Some sheet-drift attachments could not be read, so the CSV is incomplete', {
+        unreadable,
+        read: found - unreadable,
+      });
+    }
+    if (found === 0) return;
+
+    const file = path.join(this.outputDir, SHEET_DRIFT_CSV);
+    writeFileSync(file, `${driftCsv(rows)}\r\n`, 'utf8');
+
+    const counts = countBuckets(rows);
+    this.log.info('Sheet drift written for QA review', {
+      file: path.relative(process.cwd(), file),
+      ...counts,
+      modules: new Set(rows.map((row) => row.module)).size,
+    });
+  }
+
   /** Fire-and-forget live event; never fails a run because the dashboard is down. */
   private async emit(event: string, payload: unknown): Promise<void> {
     if (!this.liveEndpoint) return;
@@ -425,6 +512,152 @@ function archiveIfNotClean(run: Run, reportsDir: string, log: Logger): void {
   cpSync(reportsDir, path.join(archiveDir, 'reports'), { recursive: true });
   if (existsSync(testResultsDir)) {
     cpSync(testResultsDir, path.join(archiveDir, 'test-results'), { recursive: true });
+  }
+
+  writeEvidenceManifest(run, archiveDir, log);
+}
+
+/** The three kinds of evidence recorded for a failed or flaky test. */
+export const EVIDENCE_KINDS = ['trace', 'screenshot', 'network'] as const;
+export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
+
+/**
+ * The kinds whose absence is WARNED about, as opposed to merely recorded.
+ *
+ * `trace` and `screenshot` are configured in `playwright.config.ts` for every
+ * project, so a failed test without them is a gap in this platform. `network.json`
+ * is an application suite's own convention — the Ecom fixture attaches one on every
+ * test through an `auto` fixture, and the demo and unit surfaces have no network to
+ * record. Warning about it everywhere would print a missing-evidence line for every
+ * failed unit test, and a warning that fires when nothing is wrong is a warning
+ * people learn to scroll past.
+ *
+ * It is still RECORDED for every test, because the manifest's job is to say what is
+ * there. The two lists are different questions: what did we get, and what should
+ * have been there.
+ */
+export const REQUIRED_EVIDENCE: readonly EvidenceKind[] = ['trace', 'screenshot'];
+
+export const EVIDENCE_MANIFEST = 'evidence.json';
+
+/** Which evidence kind an attachment is, or `null` if it is not evidence. */
+export function evidenceKindOf(attachment: {
+  name: string;
+  contentType?: string;
+}): EvidenceKind | null {
+  if (attachment.name === 'trace') return 'trace';
+  if (attachment.name === NETWORK_ATTACHMENT) return 'network';
+  if (attachment.name === 'screenshot' || attachment.contentType === 'image/png') {
+    return 'screenshot';
+  }
+  return null;
+}
+
+/**
+ * RECORDS WHAT EVIDENCE EACH FAILED OR FLAKY TEST LEFT, and says what is missing.
+ *
+ * ## Why a copy is not enough
+ *
+ * `cpSync` of `test-results` is a claim that the evidence is in the archive, and it
+ * is only as true as what Playwright left on disk. `trace: 'retain-on-failure'`
+ * deletes the trace of an attempt that PASSED — so for a flaky test the retained
+ * trace belongs to the failed attempt, which is the one worth having, but nothing
+ * here checked that it was there. A copy of an empty directory succeeds silently and
+ * the archive then looks complete: a directory exists, the log says "archived", and
+ * the evidence is gone. That is this repo's oldest shape — a step that reports
+ * success without asserting its own effect.
+ *
+ * So the archive writes down, per test, which of the three kinds it found, and warns
+ * by NAME about any failed or flaky test missing one. The manifest is the auditable
+ * half: "the archive exists" and "the archive has what I need" are different
+ * questions, and only the second one matters at three in the morning.
+ *
+ * ## It warns rather than throwing
+ *
+ * A run whose evidence is incomplete has still produced a verdict about the
+ * application, and failing the run over the state of its own artifacts would make a
+ * reporting gap look like a product defect — the same reason `notifyRun` cannot
+ * change an exit code. The warning names the tests, so the gap is loud without being
+ * mistaken for something it is not.
+ */
+function writeEvidenceManifest(run: Run, archiveDir: string, log: Logger): void {
+  /**
+   * GROUPED BY TEST, not by attempt — which the first version got wrong.
+   *
+   * `run.results` holds one entry per ATTEMPT, so a flaky test appears twice: the
+   * attempt that failed, carrying the trace and the screenshot, and the attempt that
+   * passed, carrying neither because `retain-on-failure` deleted them. Reported per
+   * attempt, the passing one showed `missing: ["trace", "screenshot"]` and warned —
+   * on a run where the evidence was all present and correct.
+   *
+   * The requirement is about a TEST: a test that failed or flaked must have left all
+   * three somewhere across its attempts. So the evidence is unioned over attempts,
+   * and the outcome reported is the final one, which is what the run reports.
+   */
+  const byTest = new Map<
+    string,
+    { title: string; outcome: string; attempts: number; present: Set<EvidenceKind> }
+  >();
+
+  for (const result of run.results) {
+    if (result.outcome !== TestOutcome.Failed && result.outcome !== TestOutcome.Flaky) continue;
+    const entry = byTest.get(result.id) ?? {
+      title: result.title,
+      outcome: result.outcome,
+      attempts: 0,
+      present: new Set<EvidenceKind>(),
+    };
+    entry.attempts += 1;
+    // The LAST attempt's outcome wins, because that is the verdict the run carries.
+    entry.outcome = result.outcome;
+    for (const attachment of result.attachments ?? []) {
+      const kind = evidenceKindOf(attachment);
+      // ON DISK, not merely listed. An attachment recorded as `inline` has no file,
+      // and a path that no longer exists is the case this whole function is for.
+      if (!kind) continue;
+      if (attachment.path && attachment.path !== 'inline' && existsSync(attachment.path)) {
+        entry.present.add(kind);
+      }
+    }
+    byTest.set(result.id, entry);
+  }
+
+  const entries = [...byTest.entries()].map(([id, entry]) => ({
+    id,
+    title: entry.title,
+    outcome: entry.outcome,
+    attempts: entry.attempts,
+    present: EVIDENCE_KINDS.filter((kind) => entry.present.has(kind)),
+    missing: EVIDENCE_KINDS.filter((kind) => !entry.present.has(kind)),
+  }));
+
+  mkdirSync(archiveDir, { recursive: true });
+  writeFileSync(
+    path.join(archiveDir, EVIDENCE_MANIFEST),
+    `${JSON.stringify({ runId: run.id, kinds: EVIDENCE_KINDS, tests: entries }, null, 2)}\n`,
+    'utf8',
+  );
+
+  // Only the REQUIRED kinds raise a warning; `network` is recorded either way. See
+  // the note on `REQUIRED_EVIDENCE` for why the two lists differ.
+  const incomplete = entries
+    .map((entry) => ({
+      entry,
+      lacking: entry.missing.filter((kind) => REQUIRED_EVIDENCE.includes(kind)),
+    }))
+    .filter((row) => row.lacking.length > 0);
+
+  if (incomplete.length > 0) {
+    log.warn('Some failed or flaky tests archived WITHOUT all their evidence', {
+      runId: run.id,
+      tests: incomplete.map((row) => `${row.entry.title} (missing ${row.lacking.join(', ')})`),
+    });
+  } else if (entries.length > 0) {
+    log.info('Every failed or flaky test archived with the evidence configured for it', {
+      runId: run.id,
+      tests: entries.length,
+      recorded: entries.map((entry) => `${entry.title}: ${entry.present.join(', ') || 'none'}`),
+    });
   }
 }
 

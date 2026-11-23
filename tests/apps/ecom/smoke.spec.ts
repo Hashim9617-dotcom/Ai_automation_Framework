@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { findRepoRoot } from '@aitp/shared';
-import { test, expect } from './fixtures';
+import { classifyColumns, countBuckets, describeCounts, findRepoRoot } from '@aitp/shared';
+import { SHEET_DRIFT_CSV } from '@aitp/reporting-engine';
+import { test, expect, signedInPage } from './fixtures';
 import { ModulePage } from './components';
 import { summariseStatuses } from './network';
+import { attachDriftRows } from './sheet-drift';
 
 /**
  * THE ECOM READ-ONLY SMOKE SUITE, driven by `config/apps/ecom/smoke.json`.
@@ -87,22 +89,40 @@ test.describe('Ecom list pages load @ecom @smoke @readonly', () => {
         expect(await module.grid.isPresent(), `${entry.module} rendered no grid`).toBe(true);
       }
 
-      // ---- the SOFT half: what the sheet expects, recorded not enforced ----
+      /**
+       * ---- the SOFT half: what the sheet expects, CLASSIFIED and recorded ----
+       *
+       * The previous version lower-cased both sides and reported everything that
+       * did not match exactly, which put drift on 16 of 29 modules as one flat
+       * list. That list is unactionable because it mixes two jobs with two owners:
+       * `"Code"` against a page saying `"CATEGORY CODE"` needs nobody, and `"GST"`
+       * against `"VAT %"` needs a decision. `classifyColumns` separates them, and
+       * the rules are in `packages/shared/src/authored/sheet-drift.ts` with the
+       * cases that must NOT be absorbed asserted by name in
+       * `tests/unit/sheet-drift.spec.ts`.
+       *
+       * The ANNOTATION carries counts only. The column names go into
+       * `sheet-drift.csv`, which a QA opens deliberately — a run.json with every
+       * column name of every module in it is how a report grows unreadable, and
+       * how a sheet's contents end up in an email nobody meant to send.
+       */
       const expected = entry.expectedColumns ?? [];
       if (expected.length > 0) {
         const actual = await module.grid.headers();
-        const lower = actual.map((h) => h.toLowerCase());
-        const missing = expected.filter((c) => !lower.includes(c.toLowerCase()));
-        if (missing.length > 0) {
-          testInfo.annotations.push({
-            type: 'sheet-drift',
-            description:
-              `${entry.caseId} ${entry.module}: the sheet expects ${expected.length} column(s), ` +
-              `${missing.length} not on the page — ${missing.join(', ')}. The sheet is ` +
-              'AI-generated and has never been through a human run, so this is a note for the ' +
-              'QA rather than an application defect.',
-          });
-        }
+        const rows = classifyColumns(expected, actual, {
+          module: entry.module,
+          caseId: entry.caseId,
+        });
+        const counts = countBuckets(rows);
+        testInfo.annotations.push({
+          type: 'sheet-drift',
+          description:
+            `${entry.caseId} ${entry.module}: ${describeCounts(counts)} ` +
+            `(of ${expected.length} expected column(s)). The sheet is AI-generated and has ` +
+            'never been through a human run, so "real" is a note for the QA rather than an ' +
+            `application defect. Column names are in ${SHEET_DRIFT_CSV}.`,
+        });
+        await attachDriftRows(rows, testInfo);
       }
 
       testInfo.annotations.push({
@@ -163,29 +183,48 @@ test.describe('Ecom create forms open and close @ecom @smoke @readonly', () => {
   }
 });
 
+/**
+ * THE SESSION TESTS RUN UNSEEDED, and that is a correctness requirement.
+ *
+ * The fixture seeds the worker's sessionStorage into every document a test's context
+ * opens, which is what makes one sign-in serve a whole worker. For a test whose
+ * SUBJECT is the session, that seeding is the thing being claimed: "an authenticated
+ * route is reachable without re-entering credentials" is trivially true of a context
+ * that is handed a live access token before any application script runs.
+ *
+ * So AUTH-001 and AUTH-009 sign in for themselves in `unseededContext`. They cost one
+ * extra sign-in each and they are the only two tests here that assert anything about
+ * the session itself — the other sixty assert things about pages, and for those the
+ * seeded context is exactly right.
+ *
+ * Logout moved out of this file entirely, to `logout-safety.spec.ts`, because the
+ * dangerous case is not the click but the NAVIGATION AFTER it: that is the moment an
+ * init script could re-seed a logged-out page, and it needs a test of its own that
+ * fails if seeding ever leaks in.
+ */
 test.describe('Ecom auth and dashboard @ecom @smoke @readonly', () => {
-  test('AUTH-001 a signed-in session reaches the application', async ({ page, ensureSignedIn }) => {
-    // wrong: asserting the login FORM works by filling it again — which is a
-    // second sign-in, not a check that the first one took. The fixture has already
-    // signed this worker in, so the claim being made is that the resulting session
-    // reaches an authenticated page, which is what every other test depends on.
+  test('AUTH-001 a signed-in session reaches the application', async ({ unseededContext, env }) => {
+    // wrong: taking the SEEDED `page` fixture, which is handed a live access token
+    // before any application script runs — so this would assert that seeding works,
+    // not that signing in produces a session that reaches the application. The
+    // distinction is the whole reason `unseededContext` exists.
+    const page = await signedInPage(unseededContext, env);
     await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
-    const reLogged = await ensureSignedIn(page);
-    if (reLogged) await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
     expect(page.url()).toContain('/dashboard');
   });
 
   test('AUTH-009 an authenticated route is reachable without re-entering credentials', async ({
-    page,
-    ensureSignedIn,
+    unseededContext,
+    env,
   }) => {
-    // wrong: navigating to a page that is public anyway, which proves nothing
-    // about the session. A module list page is behind auth, so reaching one
-    // without a login form is the discriminating observation.
+    // wrong: navigating to a page that is public anyway, which proves nothing about
+    // the session — or doing it in a seeded context, where the credentials were
+    // never needed in the first place and "without re-entering" is vacuous. One
+    // sign-in, then a SECOND navigation in the same tab, is the discriminating
+    // observation: the session has to survive from one to the other on its own.
+    const page = await signedInPage(unseededContext, env);
     const module = new ModulePage(page, 'Department');
     await module.open();
-    const reLogged = await ensureSignedIn(page);
-    if (reLogged) await module.open();
     expect(page.url()).toContain('/admin/domains/Department');
     expect(await module.heading()).not.toBeNull();
   });
@@ -214,35 +253,5 @@ test.describe('Ecom auth and dashboard @ecom @smoke @readonly', () => {
     const main = page.getByRole('main').first();
     await expect(main).toBeVisible();
     expect((await main.innerText()).trim().length).toBeGreaterThan(0);
-  });
-
-  test('AUTH-010 signing out returns to the login route', async ({ browser, env }, testInfo) => {
-    // wrong: logging out in the SHARED worker context, which would destroy the
-    // session every later test in that worker depends on — and the failures would
-    // land on whichever module happened to run next, looking like an application
-    // problem. Its own context is not tidiness; it is the only way this test can
-    // exist beside the others.
-    const context = await browser.newContext({ ignoreHTTPSErrors: true });
-    try {
-      const page = await context.newPage();
-      const { signIn } = await import('./fixtures');
-      await signIn(page, env);
-      expect(page.url(), 'the sign-in did not leave the login route').not.toContain('/login');
-
-      const module = new ModulePage(page, 'Department');
-      await module.topBar.openUserMenu();
-      const logout = module.topBar.logout().first();
-      await expect(logout).toBeVisible();
-      await logout.click();
-
-      await page.waitForURL(/\/(login|signin|sign-in)\/?$/i, { timeout: 30_000 });
-      expect(page.url()).toMatch(/\/(login|signin|sign-in)\/?$/i);
-      testInfo.annotations.push({
-        type: 'own-context',
-        description: 'logout ran in its own context',
-      });
-    } finally {
-      await context.close();
-    }
   });
 });

@@ -2,6 +2,13 @@ export {
   default as AitpReporter,
   finalAttemptPerTest,
   NETWORK_ATTACHMENT,
+  SHEET_DRIFT_ATTACHMENT,
+  SHEET_DRIFT_CSV,
+  EVIDENCE_KINDS,
+  EVIDENCE_MANIFEST,
+  REQUIRED_EVIDENCE,
+  evidenceKindOf,
+  type EvidenceKind,
 } from './reporters/aitp-reporter';
 export * from './html/summary';
 export * from './email/mailer';
