@@ -1,7 +1,7 @@
 {
   "kitVersion": "0.4.1",
-  "commit": "2e278193be0701de934db5b62aa0cdfd958fd213",
-  "generatedAt": "2026-11-23T13:55:49.383Z",
+  "commit": "a3463a52770f5a634223aaa182d197f87f832845",
+  "generatedAt": "2026-11-23T14:20:46.278Z",
   "lockedPrefixes": [
     ".claude",
     ".cursor",
@@ -174,7 +174,7 @@
     "packages/shared/src/authored/resolve-authored.ts": "3dbf617088f8c9611bbf309dfabec0ef4bd05d0d2c826b96c5ae3cae154920fb",
     "packages/shared/src/authored/resolver.ts": "02c54a834f5fac5aa125e4133f8db60b57b99ebd89286f6e8f9a6f7c9f498207",
     "packages/shared/src/authored/run-identity.ts": "c07b7c5da809392ef748f96a57ed725eac196004c09806cd1513dbd4a6ac8aaa",
-    "packages/shared/src/authored/sheet-drift.ts": "cff3d235d93c889aee0f14f41d022d056dbea5db089f37f5786e3c584b660632",
+    "packages/shared/src/authored/sheet-drift.ts": "3eb492f0c68eccb5007157297b4374d9ee0aa462d39048a9bb7248900f3e59cb",
     "packages/shared/src/authored/sheet-layout.ts": "8c1933608dc127f79005108914cdb1473364e2a97f5b76f81081fb70ff0a6116",
     "packages/shared/src/authored/sheet.ts": "11f5cabc56a629221460d50852159969f76ddf185672f193d18ca607956504a6",
     "packages/shared/src/authored/triage.ts": "1bedfe03e8c2882001a238bea992c7e983c5352a5c6c9526552d6ca386ce00f7",
@@ -376,7 +376,7 @@
     "tests/unit/review-emit.spec.ts": "afa0940f4e4dc48d6ebdb88872e5e45ed018ff6e5935db4d18211ece82973e7b",
     "tests/unit/run-network-summary.spec.ts": "8158cdc2642377e64f0ad244bd4b107fbdbbe4deb2b6c8e0f50d4a00ce859515",
     "tests/unit/session-and-throttle.spec.ts": "05ae083f1dbe8fb12e614d53ccb1e5a4e1fa22e8187c9e5a6a03142b2f2c274b",
-    "tests/unit/sheet-drift.spec.ts": "c00bac81c0c37238b16b251a29b9f51c0fc93796b81cfb4b3df5464625d5957f",
+    "tests/unit/sheet-drift.spec.ts": "94ecde66353260b6b6e1da784ad88ed093ad29ab59c827191cdf657ace479f70",
     "tests/unit/sheet-layout.spec.ts": "2c673af9d561348a8dd488bbe9176638e1594332aee00eb6533fc8d08afebb3a",
     "tests/unit/surface-partition.spec.ts": "1cf93b448b40abe952d7d06ff4594160920b5c799a471f47568d830d4c658da6",
     "tests/unit/triage-refusal.spec.ts": "a036925863dfb68ef69dcc8fe02fa8b6ec9cbf73f24077d24d1f292192bb8012",

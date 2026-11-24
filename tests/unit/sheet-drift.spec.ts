@@ -52,7 +52,7 @@ function one(expected: string, found: readonly string[]): DriftRow {
   return rows[0]!;
 }
 
-test.describe('sheet drift is classified into three buckets @unit', () => {
+test.describe('sheet drift is classified into four buckets @unit', () => {
   test('C1: an identical header after normalisation is a MATCH, glyphs and case included', () => {
     // wrong: comparing raw strings, which fails on this application's headers —
     // they are upper-cased and several carry a U+EB0B private-use icon glyph that
@@ -109,6 +109,9 @@ test.describe('sheet drift is classified into three buckets @unit', () => {
     const symbol = one('Symbol', page);
     expect(symbol.bucket).toBe('real');
     expect(symbol.found).toBeNull();
+    // And it is not rescued by the reverse direction either: `Symbol` is one token
+    // and no page header's tokens are a subset of `{symbol}`.
+    expect(symbol.rule).toBe('none');
 
     // The discriminating half, in the same fixture: the same page DOES pair these.
     expect(one('Code', page).bucket).toBe('match');
@@ -130,14 +133,38 @@ test.describe('sheet drift is classified into three buckets @unit', () => {
     expect(one('Min', ['MINIMUM']).bucket).toBe('phrasing');
   });
 
-  test('C6: containment is ONE-DIRECTIONAL, so a generic page column invents nothing', () => {
-    // wrong: checking containment both ways. The sheet saying `Supplier Name` and
-    // the page saying `Name` reads identically to the rule as `Code` vs
-    // `CATEGORY CODE` — but it may be a different column entirely, and a classifier
-    // that guesses is worse than one that reports a drift somebody then dismisses in
-    // two seconds. The expected side must be the CONTAINED side.
-    expect(one('Code', ['CATEGORY CODE']).bucket).toBe('phrasing');
-    expect(one('Supplier Name', ['Name']).bucket).toBe('real');
+  test('C6: the DIRECTION of containment picks the bucket — phrasing or narrower', () => {
+    // wrong: merging the two directions into `phrasing`, which would say the sheet
+    // and the page agree when the page column may be the more general of the two —
+    // `Supplier Name` against a page column `Name`, on a page that also has
+    // `Customer Name`, is ambiguous in a way `Code` against `CATEGORY CODE` is not.
+    // Or leaving the reverse in `real`, which is what it did until 2026-11-23 and
+    // which overstated the one number somebody acts on: Products reported 4 real of
+    // 8, several of them this shape.
+    expect([one('Code', ['CATEGORY CODE']).bucket, one('Code', ['CATEGORY CODE']).rule]).toEqual([
+      'phrasing',
+      'token-containment',
+    ]);
+    const narrower = one('Product Name', ['Name', 'Product Code', 'Status']);
+    expect([narrower.bucket, narrower.rule]).toEqual(['narrower', 'reverse-containment']);
+    expect(narrower.found).toBe('Name');
+    // `Product Code` shares `product` but also has `code`, which the sheet column
+    // does not — so it is not a subset and does not become the counterpart.
+    expect(narrower.candidates).toBe(1);
+  });
+
+  test('C6b: a page header that normalises to NOTHING pairs with nothing', () => {
+    // wrong: "every token of the found header is among the expected name's" is
+    // VACUOUSLY TRUE of a header with no tokens, and this application has those — a
+    // header whose whole text is a U+EB0B icon glyph. Without the emptiness guard,
+    // one such column would pair with every expected name on the page and every REAL
+    // drift would be reported as NARROWER against an invisible column. Built from a
+    // char code, never typed as an escape (CLAUDE.md).
+    const glyphOnly = String.fromCodePoint(0xeb0b);
+    expect(headerTokens(glyphOnly)).toEqual([]);
+    const row = one('GST', [glyphOnly, 'VAT %']);
+    expect(row.bucket).toBe('real');
+    expect(row.found).toBeNull();
   });
 
   test('C7: an ambiguous pairing is chosen deterministically and SAYS how many there were', () => {
@@ -180,31 +207,32 @@ test.describe('sheet drift is classified into three buckets @unit', () => {
     // run.json grows to megabytes and how a sheet's contents end up in an email.
     // Counts in the annotation, names in the CSV a QA opens deliberately.
     const rows = classifyColumns(
-      ['Code', 'GST', 'Category Code', 'Symbol'],
+      ['Code', 'GST', 'Category Code', 'Symbol', 'Category Code Extra'],
       ['CATEGORY CODE', 'VAT %'],
       where,
     );
-    expect(countBuckets(rows)).toEqual({ match: 1, phrasing: 1, real: 2 });
-    expect(describeCounts(countBuckets(rows))).toBe('match 1, phrasing 1, real 2');
+    expect(countBuckets(rows)).toEqual({ match: 1, phrasing: 1, narrower: 1, real: 2 });
+    expect(describeCounts(countBuckets(rows))).toBe('match 1, phrasing 1, narrower 1, real 2');
   });
 });
 
 test.describe('the drift CSV is reviewable and carries no row data @unit', () => {
-  test('V1: real rows come FIRST, because the file is read top-down', () => {
+  test('V1: rows are ordered real, narrower, phrasing, match — the file is read top-down', () => {
     // wrong: page order or sheet order, which buries the rows that need a decision
     // under the ones that need nothing — on a 29-module run the `real` rows would be
     // scattered through several hundred lines. A bucket is a ranking, and the
     // ranking has to be visible in the artifact rather than only in the counts.
     const rows = classifyColumns(
-      ['Category Code', 'Code', 'GST'],
+      ['Category Code', 'Code', 'GST', 'Category Code Extra'],
       ['CATEGORY CODE', 'VAT %'],
       where,
     );
     const lines = driftCsv(rows).split('\r\n');
     expect(lines[0]).toBe(DRIFT_CSV_HEADER);
-    expect(lines[1]).toContain('"real"');
-    expect(lines[2]).toContain('"phrasing"');
-    expect(lines[3]).toContain('"match"');
+    // All four buckets, in the order a reader should spend their attention.
+    expect(
+      lines.slice(1).map((line) => /"(real|narrower|phrasing|match)"/.exec(line)?.[1]),
+    ).toEqual(['real', 'narrower', 'phrasing', 'match']);
   });
 
   test('V2: a header containing a comma or a quote survives the round trip', () => {

@@ -47,7 +47,10 @@
  * 2. **PHRASING** — some found header `f` for which EVERY token of the expected name
  *    is either (a) one of `f`'s tokens, or (b) a prefix of one of `f`'s tokens at
  *    least three characters long. Both halves must be satisfied by the SAME `f`.
- * 3. **REAL** — neither.
+ * 3. **NARROWER** — some found header `f`, itself non-empty, whose EVERY token
+ *    appears among the EXPECTED name's tokens. The page column is the more general
+ *    of the two: the sheet says `Product Name` and the page says `Name`.
+ * 4. **REAL** — none of them. There is no counterpart at all.
  *
  * Worked, including the ones that must NOT pass:
  *
@@ -57,17 +60,29 @@
  * | `Code` | `CATEGORY CODE` | phrasing | (a) |
  * | `Contact` | `CONTACT PERSON` | phrasing | (a) |
  * | `Min` | `MINIMUM` | phrasing | (b), 3-char prefix |
+ * | `Product Name` | `Name` | **narrower** | page tokens are a subset of the sheet's |
  * | `Qty` | `QUANTITY` | **real** | `qty` is not a prefix of `quantity` |
  * | `GST` | `VAT %` | **real** | no shared token, prefixes nothing |
  * | `Symbol` | `Code`, `Name`… | **real** | not there |
  *
- * ## Containment is checked in ONE direction, and that is the point
+ * ## The DIRECTION of containment decides WHICH bucket, not whether there is one
  *
- * The expected name's tokens must be covered by the found header's. The reverse —
- * the sheet says `Category Code` and the page says `Code` — is NOT phrasing, because
- * `Supplier Name` against a page column `Name` reads identically to the rule and may
- * well be a different column. One direction is the half that cannot invent a
- * counterpart out of a generic word.
+ * Expected ⊆ found is PHRASING: the page is more specific and the sheet is a
+ * shorthand for it, which needs nobody. Found ⊆ expected is NARROWER: the page
+ * column is more general, and that is a different conversation — the sheet may be
+ * naming a distinction the page does not make, or it may simply be verbose.
+ *
+ * These were one bucket until 2026-11-23, both falling into REAL when the direction
+ * ran the wrong way, and the smoke run showed what that costs: `Products` reported
+ * 4 real of 8 expected columns, several of them `Product Name` against a page column
+ * `Name`. Counting those as "no counterpart" overstates the one number that must
+ * stay trustworthy, and `real` is the number somebody acts on.
+ *
+ * Keeping them APART rather than merging them into phrasing is the point. A reverse
+ * match can be a genuine mismatch — `Supplier Name` against a page column `Name` on
+ * a page that also has `Customer Name` is ambiguous in a way `Code` against
+ * `CATEGORY CODE` is not — so NARROWER is a bucket a QA reads, sitting between the
+ * two in the CSV's ordering rather than being quietly absorbed by either.
  */
 
 /** Unicode's own definition of "not text": format, private-use, surrogate, control. */
@@ -76,10 +91,11 @@ const NON_TEXT = /[\p{Cf}\p{Co}\p{Cs}\p{Cc}]/gu;
 /** The shortest prefix that may stand for a whole word. `min` for `minimum`. */
 export const MIN_PREFIX = 3;
 
-export type DriftBucket = 'match' | 'phrasing' | 'real';
+export type DriftBucket = 'match' | 'phrasing' | 'narrower' | 'real';
 
 /** Which rule produced the verdict. Recorded so a pairing can be argued with. */
-export type DriftRule = 'exact' | 'token-containment' | 'prefix-abbreviation' | 'none';
+export type DriftRule =
+  'exact' | 'token-containment' | 'prefix-abbreviation' | 'reverse-containment' | 'none';
 
 export interface DriftRow {
   module: string;
@@ -103,6 +119,7 @@ export interface DriftRow {
 export interface DriftCounts {
   match: number;
   phrasing: number;
+  narrower: number;
   real: number;
 }
 
@@ -202,20 +219,40 @@ export function classifyColumns(
       continue;
     }
 
+    /**
+     * THE REVERSE DIRECTION, and `entry.tokens.length > 0` is load-bearing.
+     *
+     * "every token of the found header is among the expected name's" is VACUOUSLY
+     * TRUE of a header with no tokens — and this application has those: a header
+     * whose whole text is a U+EB0B icon glyph normalises to nothing. Without the
+     * guard, one such header would pair with every expected column on the page and
+     * every REAL drift would be reported as NARROWER against an invisible column.
+     */
+    const narrower = foundTokens
+      .filter((entry) => entry.tokens.length > 0 && containedIn(entry.tokens, tokens))
+      .map((entry) => entry.header);
+    if (narrower.length > 0) {
+      rows.push(row('narrower', 'reverse-containment', narrower));
+      continue;
+    }
+
     rows.push(row('real', 'none', []));
   }
   return rows;
 }
 
 export function countBuckets(rows: readonly DriftRow[]): DriftCounts {
-  const counts: DriftCounts = { match: 0, phrasing: 0, real: 0 };
+  const counts: DriftCounts = { match: 0, phrasing: 0, narrower: 0, real: 0 };
   for (const row of rows) counts[row.bucket] += 1;
   return counts;
 }
 
 /** One line per module for a run.json annotation. Counts, never the names. */
 export function describeCounts(counts: DriftCounts): string {
-  return `match ${counts.match}, phrasing ${counts.phrasing}, real ${counts.real}`;
+  return (
+    `match ${counts.match}, phrasing ${counts.phrasing}, narrower ${counts.narrower}, ` +
+    `real ${counts.real}`
+  );
 }
 
 export const DRIFT_CSV_HEADER = 'Module,Case ID,Expected (sheet),Found (app header),Bucket,Rule';
@@ -228,17 +265,19 @@ function cell(value: string): string {
 /**
  * The CSV a QA reviews, worst first.
  *
- * `real` before `phrasing` before `match`, because the file is read top-down by
- * somebody with limited time and the rows that need a decision are the ones that
- * must not be below the fold. Within a bucket, by module then case then column, so
- * two runs over the same sheet produce comparable files.
+ * `real`, then `narrower`, then `phrasing`, then `match` — the file is read top-down
+ * by somebody with limited time, so the rows that need a decision must not be below
+ * the fold. `narrower` sits second because it is the bucket where the sheet may be
+ * naming a distinction the page does not make, which is a question; `phrasing` is
+ * below it because it is usually nothing. Within a bucket, by module then case then
+ * column, so two runs over the same sheet produce comparable files.
  *
  * HEADER NAMES ONLY. No cell value, no row content, no record identifier — the same
  * rule the smoke manifest is built under, and the reason this file can be attached
  * to a report that leaves the machine.
  */
 export function driftCsv(rows: readonly DriftRow[]): string {
-  const rank: Record<DriftBucket, number> = { real: 0, phrasing: 1, match: 2 };
+  const rank: Record<DriftBucket, number> = { real: 0, narrower: 1, phrasing: 2, match: 3 };
   const sorted = [...rows].sort(
     (a, b) =>
       rank[a.bucket] - rank[b.bucket] ||
