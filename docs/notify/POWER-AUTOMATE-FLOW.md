@@ -190,12 +190,35 @@ way for **cc**, and rename it **Filter CC**.
 Inside the **"If no"** branch of step 5, add **Office 365 Outlook → Send an email
 (V2)**.
 
-| Field       | What to put                   |
-| ----------- | ----------------------------- |
-| **To**      | the expression below          |
-| **CC**      | the expression below          |
-| **Subject** | dynamic content: **subject**  |
-| **Body**    | dynamic content: **bodyHtml** |
+| Field       | What to put                                    |
+| ----------- | ---------------------------------------------- |
+| **To**      | the expression below                           |
+| **CC**      | the expression below                           |
+| **Subject** | dynamic content: **subject**                   |
+| **Body**    | the **expression** below — NOT dynamic content |
+
+> **To see what the body looks like before building any of this**, run
+> `pnpm notify:preview --app <slug> --run <dir-with-run.json>`. It writes
+> `preview.html` and `preview.txt` beside the run and sends nothing — no ready file,
+> no zip, no recipients. Open the HTML in **Outlook**, not a browser: a browser is a
+> different renderer and will flatter it.
+
+**Body** — paste this into the **Expression** tab, not the **Dynamic content** tab:
+
+```
+@{body('Parse_JSON')?['bodyHtml']}
+```
+
+> **Why an expression and not dynamic content.** Picking **bodyHtml** from the
+> dynamic-content list makes Power Automate treat the field as a block of text and
+> wrap it in its own `<p>` element before sending. The body is a complete
+> `<!doctype html>` document, so the result is a document nested inside a paragraph
+> inside another document — and Outlook's renderer responds to that by dropping the
+> outer margins, which shows up as a report with no white space down either side.
+> Setting the same value as an expression hands the string over untouched.
+>
+> The two look identical in the designer. The difference only appears in a received
+> mail, which is why this is written down rather than left to be noticed.
 
 **To:**
 
@@ -216,11 +239,33 @@ Now open **Advanced options** on the same card:
 | **Is HTML**    | **Yes** — without this the mail arrives as raw HTML source |
 | **Importance** | the expression below                                       |
 
-**Importance** — High when anything failed:
+**Importance** — read it from the file, and fall back to `Normal`:
 
 ```
-@{if(greater(body('Parse_JSON')?['counts']?['failed'], 0), 'High', 'Normal')}
+@{coalesce(body('Parse_JSON')?['importance'], 'Normal')}
 ```
+
+> **Why read it rather than compute it.** The ready file now carries `importance`
+> directly, decided by the platform from `failed > 0`. Computing it again in the flow
+> is a second place the rule lives, and the two would eventually disagree — the
+> platform would change what counts as urgent and the mail would not.
+>
+> **Why `coalesce` and not the field alone.** `importance` is additive: every ready
+> file written before the field existed has no `importance`, and an archived drop
+> replayed through this flow would hand the Outlook card a null. `coalesce` makes
+> that a `Normal` mail instead of a failed action, which is the right outcome for a
+> field that only ever changes an icon.
+>
+> If your flow parses the trigger body with a **Compose** action rather than the
+> **Parse JSON** action this guide creates, the same expression is
+> `@{coalesce(outputs('Compose')?['importance'], 'Normal')}` — the field name is the
+> same either way; only the action you read it from changes.
+
+> **A plain-text fallback is also available.** `bodyText` carries the same report as
+> text, for a reader on a watch or a screen reader, or a gateway that strips HTML.
+> The Outlook V2 card sends one body, so this guide uses the HTML one; if you later
+> move to a connector that sends multipart mail, `bodyText` is the other half. It is
+> additive and optional in exactly the way `importance` is, so coalesce it too.
 
 #### Attach the report
 

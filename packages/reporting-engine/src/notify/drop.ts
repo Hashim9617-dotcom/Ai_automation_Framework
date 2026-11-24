@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Logger, Run } from '@aitp/shared';
-import { renderReportEmailHtml, verdictOf } from './body';
+import { renderReportEmailHtml, renderReportEmailText, verdictOf, type RunTrigger } from './body';
 import {
   compareRuns,
   describeRunForHistory,
@@ -18,7 +18,6 @@ import {
   type NotifyConfig,
 } from './config';
 import { REPORT_ZIP_LIMIT_BYTES, isReportZipTooLarge, zipSources, type BundleSource } from './zip';
-import { formatDuration } from './body';
 
 /**
  * THE DROP: everything a Power Automate flow needs, in one file, written LAST.
@@ -78,6 +77,23 @@ export interface ReadyDrop {
   };
   bodyHtml: string;
   /**
+   * The same report as plain text, for the multipart fallback.
+   *
+   * OPTIONAL in the type so every archived `ready.json` written before this field
+   * existed still parses as a `ReadyDrop` — the same reason `annotations` and
+   * `network` are optional on a run. The flow coalesces it.
+   */
+  bodyText?: string;
+  /**
+   * Outlook's Importance header: `High` when something failed, `Normal` otherwise.
+   *
+   * A notification that is always High is a notification nobody triages, so this is
+   * keyed on `failed > 0` and NOT on the verdict — a run that passed after a retry
+   * is worth reading and is not worth interrupting somebody for. OPTIONAL and
+   * coalesced in the flow, so an older drop still sends.
+   */
+  importance?: 'High' | 'Normal';
+  /**
    * The archive's file name, or `null` when none was written.
    *
    * `null` rather than absent, and never `''`: the flow's Parse JSON needs the field
@@ -100,15 +116,29 @@ export interface ReadyDrop {
 export function subjectFor(input: {
   app: string;
   environment: string;
+  verdict: string;
   passed: number;
-  failed: number;
-  durationMs: number;
-  ranBy: string;
+  total: number;
+  startedAt: string;
 }): string {
+  /**
+   * `[APP][ENV] VERDICT — p/t passed — date`.
+   *
+   * The VERDICT is third because a subject line is read left to right and truncated
+   * right: in a crowded inbox the three things that have to survive are which
+   * system, which environment, and whether it is broken. The previous subject led
+   * with counts and buried the verdict in arithmetic the reader had to do.
+   *
+   * The date is the run's own start, formatted from the instant already recorded —
+   * no clock is read here, so the same run always produces the same subject.
+   */
+  const started = new Date(input.startedAt);
+  const date = Number.isNaN(started.getTime())
+    ? input.startedAt
+    : started.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   return (
-    `[${input.app.toUpperCase()}] ${input.environment} run — ` +
-    `${input.passed} passed, ${input.failed} failed ` +
-    `(${formatDuration(input.durationMs)}) — ${input.ranBy}`
+    `[${input.app.toUpperCase()}][${input.environment.toUpperCase()}] ${input.verdict} — ` +
+    `${input.passed}/${input.total} passed — ${date}`
   );
 }
 
@@ -121,6 +151,8 @@ export interface BuildReadyDropInput {
   reportZipName: string | null;
   reportZipTooLarge: boolean;
   comparison: Parameters<typeof renderReportEmailHtml>[0]['comparison'];
+  /** What started the run, resolved by the caller (§AJ). */
+  trigger?: RunTrigger | undefined;
 }
 
 export function buildReadyDrop(input: BuildReadyDropInput): ReadyDrop {
@@ -144,24 +176,35 @@ export function buildReadyDrop(input: BuildReadyDropInput): ReadyDrop {
     subject: subjectFor({
       app: input.application,
       environment: input.environment,
+      verdict: verdictOf(input.run),
       passed: summary.passed,
-      failed: summary.failed,
-      durationMs: summary.durationMs,
-      ranBy: input.app.ranBy,
+      total: summary.total,
+      startedAt: input.run.startedAt ?? input.run.createdAt,
     }),
     verdict: verdictOf(input.run),
     counts: { ...summary },
-    bodyHtml: renderReportEmailHtml({
-      run: input.run,
-      application: input.application,
-      environment: input.environment,
-      baseUrl: input.baseUrl,
-      ranBy: input.app.ranBy,
-      comparison: input.comparison,
-      reportZipName: input.reportZipName ?? undefined,
-      reportZipTooLarge: input.reportZipTooLarge,
-    }),
+    // ONE input object for both renderings, so the HTML and the text cannot be
+    // given different facts about the same run.
+    bodyHtml: renderReportEmailHtml(emailInputOf(input)),
+    bodyText: renderReportEmailText(emailInputOf(input)),
+    importance: summary.failed > 0 ? 'High' : 'Normal',
     reportZipName: input.reportZipName,
+    reportZipTooLarge: input.reportZipTooLarge,
+  };
+}
+
+/** The body renderers' input, built once from the drop's input. */
+function emailInputOf(input: BuildReadyDropInput): Parameters<typeof renderReportEmailHtml>[0] {
+  return {
+    run: input.run,
+    application: input.application,
+    environment: input.environment,
+    baseUrl: input.baseUrl,
+    ranBy: input.app.ranBy,
+    comparison: input.comparison,
+    trigger: input.trigger,
+    includeScreenshots: input.app.includeScreenshots,
+    reportZipName: input.reportZipName ?? undefined,
     reportZipTooLarge: input.reportZipTooLarge,
   };
 }
@@ -212,6 +255,14 @@ export interface NotifyRunInput {
    * smuggle anything in; it only makes the walk bigger.
    */
   bundleSources?: readonly BundleSource[] | undefined;
+  /**
+   * What started this run — resolved by the caller, never read here (§AJ).
+   *
+   * `jenkins` when the pipeline set its own variables, `manual` otherwise. The
+   * notify package reads no environment, which is what lets the body's sentinel
+   * test assert that no environment value can reach a mail.
+   */
+  trigger?: RunTrigger | undefined;
   /** Resolved by the caller via `notifyOffBecause`, never read here (§AJ). */
   disabled: boolean;
   /** Which of the reasons, so the skip line says the right sentence. */
@@ -341,6 +392,37 @@ export function notifyRun(input: NotifyRunInput): NotifyOutcome {
     // order because `previousRunRecord` bounds its answer by this run's finishedAt.
     recordRun(historyDir, record);
 
+    /**
+     * ---- the human summary, BEFORE the bundle so it is IN the bundle ----
+     *
+     * The same text that becomes `bodyText`, written once and used twice: a reader
+     * who opens the attachment gets the mail's own words rather than a third summary
+     * that can disagree with them.
+     *
+     * It goes into the reports directory, which `archiveIfNotClean` has ALREADY
+     * copied by the time notify runs — so `summary.md` is in the bundle and not in
+     * `artifacts/runs/<id>/`. Said out loud because that asymmetry is the kind of
+     * thing somebody later reads as a bug.
+     *
+     * The zip fields are deliberately absent from this rendering: a file inside the
+     * bundle has no business describing the bundle, and its name is not decided yet.
+     */
+    if (existsSync(input.reportDir)) {
+      writeAtomically(
+        path.join(input.reportDir, 'summary.md'),
+        renderReportEmailText({
+          run: input.run,
+          application: input.application,
+          environment: input.environment,
+          baseUrl: input.baseUrl,
+          ranBy: app.ranBy,
+          comparison,
+          trigger: input.trigger,
+          includeScreenshots: app.includeScreenshots,
+        }),
+      );
+    }
+
     // ---- the archive, FIRST ----
     let reportZipName: string | null = null;
     let reportZipTooLarge = false;
@@ -384,6 +466,7 @@ export function notifyRun(input: NotifyRunInput): NotifyOutcome {
       reportZipName,
       reportZipTooLarge,
       comparison,
+      trigger: input.trigger,
     });
     const readyPath = path.join(folder, `${input.run.id}${READY_SUFFIX}`);
     writeAtomically(readyPath, `${JSON.stringify(drop, null, 2)}\n`);
@@ -443,6 +526,23 @@ export type NotifyOffReason = 'flag' | 'fixture-surface';
  * the fail-open shape: a test that forgot to redirect would quietly post a report
  * about the platform's own unit tests into a customer project's folder.
  */
+/**
+ * What started this run — `jenkins` or `manual`. The environment is PASSED IN (§AJ).
+ *
+ * Jenkins sets `BUILD_NUMBER` and `JENKINS_URL` on every build, and nothing else
+ * does. Either one is enough; both are checked because a pipeline can run a step in
+ * a container that inherits only some of them, and the cost of being wrong is one
+ * word in a mail header rather than a wrong destination.
+ *
+ * `manual` is the answer when neither is set, not "unknown": somebody typed a
+ * command. The field is still optional on the way in, so a caller that does not
+ * resolve it gets "not recorded" rather than a guess made on its behalf.
+ */
+export function notifyTrigger(env: Record<string, string | undefined>): RunTrigger {
+  const jenkins = (env.BUILD_NUMBER ?? '').trim() !== '' || (env.JENKINS_URL ?? '').trim() !== '';
+  return jenkins ? 'jenkins' : 'manual';
+}
+
 export const NOTIFY_TEST_FOLDER_VAR = 'AITP_NOTIFY_TEST_FOLDER';
 
 export function notifyTestFolder(env: Record<string, string | undefined>): string | undefined {

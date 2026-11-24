@@ -19,6 +19,7 @@ import {
   summariseRunNetwork,
   type DriftRow,
   type FailureContext,
+  type SheetDriftSummary,
   type Logger,
   type Run,
   type NetworkSummaryInput,
@@ -28,7 +29,7 @@ import {
 } from '@aitp/shared';
 import { renderRunSummaryHtml } from '../html/summary';
 import { NOTIFY_CONFIG_VAR } from '../notify/config';
-import { notifyOffBecause, notifyRun, notifyTestFolder } from '../notify/drop';
+import { notifyOffBecause, notifyRun, notifyTestFolder, notifyTrigger } from '../notify/drop';
 
 /**
  * The attachment name the reporter aggregates, and the ONE place it is written.
@@ -236,6 +237,10 @@ export default class AitpReporter implements Reporter {
      */
     const networkSummary = this.collectNetwork();
     if (networkSummary) this.run.network = networkSummary;
+    // BEFORE run.json is written, or the summary would be absent from the record
+    // the API and the mail both read. The CSV is written after, from these rows.
+    const driftRows = this.collectSheetDrift();
+    if (driftRows) this.run.sheetDrift = this.summariseSheetDrift(driftRows);
     this.run.finishedAt = new Date().toISOString();
     this.run.summary.durationMs = Date.now() - this.startedAt;
     this.run.status =
@@ -268,7 +273,7 @@ export default class AitpReporter implements Reporter {
      * `artifacts/runs/<runId>/` — present on the machine that ran and missing from
      * the copy anybody else sees. The same trap `run.artifacts` has above.
      */
-    this.writeSheetDrift();
+    if (driftRows) this.writeSheetDriftCsv(driftRows);
 
     archiveIfNotClean(this.run, this.outputDir, this.log);
 
@@ -301,6 +306,10 @@ export default class AitpReporter implements Reporter {
         // its parent, which is how a test points a REAL child at its own config file
         // instead of writing the developer's (§AJ: supplied here, never read there).
         configFileOverride: process.env[NOTIFY_CONFIG_VAR],
+        // Resolved HERE and passed in, like everything else the notify package needs
+        // from the environment (§AJ) — the body renderer's whole guarantee is that it
+        // has no route to one.
+        trigger: notifyTrigger(process.env),
         root: path.dirname(path.dirname(this.outputDir)),
         run: this.run,
         application: this.run.target.application,
@@ -414,7 +423,17 @@ export default class AitpReporter implements Reporter {
    * module is distinguishable from a module with no drift. Same reason the network
    * aggregate counts `testsReporting`.
    */
-  private writeSheetDrift(): void {
+  /**
+   * Gathers the per-test drift rows. Called BEFORE `run.json` is written.
+   *
+   * The summary derived from these rows goes into `run.json`, and the same rows
+   * become `sheet-drift.csv` — one pass, two renderings, so the mail's "real 23"
+   * and the CSV's 23 rows cannot disagree.
+   *
+   * `null` when no spec classified anything, which is NOT "no drift": a header-only
+   * CSV and a zeroed summary in every run would both claim somebody looked.
+   */
+  private collectSheetDrift(): DriftRow[] | null {
     const rows: DriftRow[] = [];
     let unreadable = 0;
     let found = 0;
@@ -445,15 +464,34 @@ export default class AitpReporter implements Reporter {
         read: found - unreadable,
       });
     }
-    if (found === 0) return;
+    return found === 0 ? null : rows;
+  }
 
+  /** The per-module totals, worst first — ordered ONCE, here, not by each reader. */
+  private summariseSheetDrift(rows: readonly DriftRow[]): SheetDriftSummary {
+    const perModule = new Map<string, DriftRow[]>();
+    for (const row of rows) {
+      const existing = perModule.get(row.module);
+      if (existing) existing.push(row);
+      else perModule.set(row.module, [row]);
+    }
+    const byModule = [...perModule.entries()]
+      .map(([module, moduleRows]) => ({ module, counts: countBuckets(moduleRows) }))
+      .sort(
+        (a, b) =>
+          b.counts.real - a.counts.real ||
+          b.counts.narrower - a.counts.narrower ||
+          a.module.localeCompare(b.module),
+      );
+    return { ...countBuckets(rows), modules: perModule.size, byModule };
+  }
+
+  private writeSheetDriftCsv(rows: readonly DriftRow[]): void {
     const file = path.join(this.outputDir, SHEET_DRIFT_CSV);
     writeFileSync(file, `${driftCsv(rows)}\r\n`, 'utf8');
-
-    const counts = countBuckets(rows);
     this.log.info('Sheet drift written for QA review', {
       file: path.relative(process.cwd(), file),
-      ...counts,
+      ...countBuckets(rows),
       modules: new Set(rows.map((row) => row.module)).size,
     });
   }

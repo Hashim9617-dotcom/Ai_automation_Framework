@@ -87,6 +87,16 @@
       "minLength": 1,
       "description": "A complete, self-contained HTML document with inline styles and table layout, built for Outlook's Word rendering engine. No <style> block, no script, no remote images. The flow puts it in the mail body as-is."
     },
+    "bodyText": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The same report as plain text, for the multipart fallback: a watch, a screen reader, a plain-text client and a gateway that strips HTML all show this one. OPTIONAL and additive — a ready file written before this field existed has no 'bodyText', so the flow must coalesce it rather than assume it. The same text is also summary.md inside the bundle."
+    },
+    "importance": {
+      "type": "string",
+      "enum": ["High", "Normal"],
+      "description": "Outlook's Importance header. 'High' when failed > 0, 'Normal' otherwise — keyed on failures and NOT on the verdict, because a run that passed after a retry is worth reading and is not worth interrupting somebody for. OPTIONAL and additive: coalesce to 'Normal' in the flow, or an older ready file sends with no importance at all."
+    },
     "reportZipName": {
       "type": ["string", "null"],
       "description": "The archive's file name, sitting in the SAME folder as this file, or null when no archive was written. Never an empty string: the flow needs to tell 'no archive' from 'a field that was dropped'."

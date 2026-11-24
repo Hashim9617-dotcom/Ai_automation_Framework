@@ -314,4 +314,52 @@ test.describe('the published ready schema matches what the code writes @unit', (
     expect(schema.properties?.schemaVersion?.const).toBe(READY_SCHEMA_VERSION);
     expect(dropFor().schemaVersion).toBe(READY_SCHEMA_VERSION);
   });
+
+  test('S7: every field the FLOW DOC reads is a field the schema publishes', () => {
+    // wrong: nothing checking the doc at all, which is where this drifts. §AG says
+    // whatever you tell a human to write, write it and run it first — and a Power
+    // Automate expression cannot be run here, so the half that CAN be checked is
+    // checked: the doc tells somebody to read `?['importance']`, and if the code
+    // never writes that field they build a flow that silently sends nothing useful.
+    //
+    // The failure direction is the quiet one. A flow reading a field that does not
+    // exist gets `null`, and `coalesce` turns that into a plausible default — so the
+    // mail arrives looking correct and the setting does nothing, forever.
+    const doc = readFileSync(path.join(ROOT, 'docs', 'notify', 'POWER-AUTOMATE-FLOW.md'), 'utf8');
+    const read = (source: string): string[] => [
+      ...new Set([...source.matchAll(/\?\['([A-Za-z0-9_]+)'\]/g)].map((match) => match[1]!)),
+    ];
+
+    const fields = read(doc);
+    // §T — the scan had a subject. A regex that matched nothing would report every
+    // doc clean, which is this repo's oldest shape.
+    expect(fields.length, 'no field references found in the flow doc').toBeGreaterThan(5);
+
+    const published = new Set(Object.keys(loadSchema().properties ?? {}));
+    // The nested ones the doc reaches into, which are not top-level properties.
+    const nested = new Set([
+      'total',
+      'passed',
+      'failed',
+      'skipped',
+      'flaky',
+      'durationMs',
+      'passRate',
+    ]);
+    const unknown = fields.filter((field) => !published.has(field) && !nested.has(field));
+    expect(unknown, `the flow doc reads fields the schema does not publish: ${unknown}`).toEqual(
+      [],
+    );
+
+    // The two fields this batch added are actually referenced, so the doc was
+    // updated rather than merely not contradicted.
+    expect(fields).toContain('importance');
+    expect(fields).toContain('bodyHtml');
+
+    // And the matcher OBJECTS to a field that does not exist, on synthetic source —
+    // without this, an empty `unknown` could mean the regex stopped working.
+    const planted = read("@{body('Parse_JSON')?['notAFieldAnybodyWrites']}");
+    expect(planted).toEqual(['notAFieldAnybodyWrites']);
+    expect(published.has(planted[0]!)).toBe(false);
+  });
 });

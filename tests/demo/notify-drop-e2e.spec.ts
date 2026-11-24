@@ -288,7 +288,14 @@ test.describe('a real demo run drops a report email @demo', () => {
       expect(parsed.environment).toBe('local');
       expect(parsed.ranBy).toBe('me@contoso.com');
       expect(parsed.to).toEqual(['qa@contoso.com']);
-      expect(parsed.subject).toContain('[BUNDLED-DEMO] local run');
+      // `[APP][ENV] VERDICT — p/t passed — date`. A subject is read left to right and
+      // truncated right, so the verdict comes before the arithmetic.
+      expect(parsed.subject).toContain('[BUNDLED-DEMO][LOCAL] PASSED — 1/1 passed');
+      // The additive fields reach a REAL drop, not only a unit fixture.
+      expect(parsed.importance, 'a passing run should not be High importance').toBe('Normal');
+      expect(parsed.bodyText, 'no plain-text fallback in a real drop').toContain(
+        'AI Testing Platform',
+      );
       expect(parsed.verdict).toBe('PASSED');
       expect(parsed.counts.total).toBeGreaterThan(0);
       expect(parsed.bodyHtml).toContain('<!doctype html>');

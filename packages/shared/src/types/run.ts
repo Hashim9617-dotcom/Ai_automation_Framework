@@ -5,6 +5,7 @@ import type {
   HealingGateVerdict,
   HealingProposal,
 } from './ai';
+import type { DriftCounts } from '../authored/sheet-drift';
 import type { LocatorResolution } from './locator';
 import type { RunTarget } from '../command/target';
 
@@ -185,6 +186,20 @@ export interface FailingEndpoint {
  * CDN is not. Totalling them would produce one number that answers neither
  * question — the same reason `failed` and `refused` are separate statuses here.
  */
+/**
+ * Sheet-drift totals for a run, overall and per module.
+ *
+ * `byModule` is sorted by `real` descending at the point of construction rather than
+ * by whoever renders it, so the mail's "top 5 by real" and anything else that reads
+ * this agree about which five. An ordering decided twice is an ordering that
+ * disagrees eventually.
+ */
+export interface SheetDriftSummary extends DriftCounts {
+  /** How many modules were classified at all, which bounds every number above. */
+  modules: number;
+  byModule: Array<{ module: string; counts: DriftCounts }>;
+}
+
 export interface RunNetworkSummary {
   /** Every response, including other origins'. */
   totalRequests: number;
@@ -251,6 +266,20 @@ export interface Run {
    * not the same as a run that made no requests. Absent means "nothing recorded".
    */
   network?: RunNetworkSummary;
+  /**
+   * Sheet-drift totals, overall and per module.
+   *
+   * ONE SOURCE, two renderings. The classified rows produce both `sheet-drift.csv`
+   * and this field, in the same pass over the same attachments — so the mail's
+   * "real 23" and the CSV's 23 rows cannot disagree. The alternative considered and
+   * rejected was parsing the counts back out of the per-module annotation's prose,
+   * which would have made a human-readable sentence into a machine interface.
+   *
+   * OPTIONAL, for the same reason `network` is: a run where no spec classified any
+   * columns has no drift summary, and that is not the same as a run whose sheet
+   * matched perfectly. Absent means "nothing looked".
+   */
+  sheetDrift?: SheetDriftSummary;
   /** Relative paths under artifacts/ for html report, trace, video, log. */
   artifacts: Record<string, string>;
   error?: string;

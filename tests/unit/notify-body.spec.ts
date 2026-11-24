@@ -17,9 +17,11 @@ import {
   describeRunForHistory,
   errorHeadline,
   moduleFrom,
+  failureRows,
   previousRunRecord,
   recordRun,
   renderReportEmailHtml,
+  renderReportEmailText,
   testCaseIdFrom,
   testNameFrom,
   verdictOf,
@@ -108,6 +110,93 @@ function inputOf(run: Run, overrides: Partial<ReportEmailInput> = {}): ReportEma
 }
 
 test.describe('the report email body @unit', () => {
+  test('B15: a FLAKY test shows the error from the attempt that failed', () => {
+    // wrong: reading the error off the attempt that DECIDED the outcome, which for a
+    // flaky test is the one that passed and has no error. Found by reading a preview,
+    // not by reasoning: the row said `(no error message recorded)` and the one piece
+    // of information somebody opens that section for was on an earlier row of
+    // `run.results`, being thrown away.
+    const failedAttempt = resultOf({
+      id: 'same',
+      title: 'Categories › CAT-001 list loads',
+      outcome: TestOutcome.Failed,
+      error: { message: 'the grid never rendered' },
+      retry: 0,
+    });
+    const passingRetry = resultOf({
+      id: 'same',
+      title: 'Categories › CAT-001 list loads',
+      outcome: TestOutcome.Flaky,
+      retry: 1,
+    });
+    const rows = failureRows(runOf([failedAttempt, passingRetry]));
+
+    expect(rows, 'a flaky test is one row, not two').toHaveLength(1);
+    expect(rows[0]!.error?.message).toBe('the grid never rendered');
+    // And it is MARKED as recovered, because "it failed and then worked" asks for
+    // something different from "it failed" — a section calling both FAILURES with no
+    // distinction sends somebody chasing a problem that is already intermittent.
+    expect(rows[0]!.recovered).toBe(true);
+    expect(renderReportEmailText(inputOf(runOf([failedAttempt, passingRetry])))).toContain(
+      'FLAKY — a retry passed',
+    );
+
+    // The discriminating half: a test that only ever failed is NOT marked recovered,
+    // so the flag is a reading rather than a constant.
+    const hard = failureRows(runOf([failedAttempt]));
+    expect(hard[0]!.recovered).toBe(false);
+  });
+
+  test('B17: the module is the SUITE, not the Playwright project or the spec file', () => {
+    // wrong: the first `›` segment, which is what this did. It is correct for a
+    // two-segment fixture title and wrong for every real run — a live run.json title
+    // starts with the PROJECT, so the module table came out as `chromium` (64 cases)
+    // and `live-setup` (2), and the per-execution table had been printing `chromium`
+    // in its Module column since it was written. Found by reading a preview of a real
+    // run; a project name looks enough like a grouping to survive review.
+    //
+    // Real titles, copied from a run.json rather than imagined — which is the whole
+    // reason the bug existed: the fixtures were tidier than production.
+    expect(
+      moduleFrom(
+        'chromium › apps\\ecom\\smoke.spec.ts › Ecom list pages load @ecom @smoke @readonly › APPM-001 Approval Matrix list page loads',
+      ),
+      'the project or the tags leaked into the module',
+    ).toBe('Ecom list pages load');
+    expect(moduleFrom('live-setup › support\\live-setup.ts › the kit has not been modified')).toBe(
+      'live-setup',
+    );
+    // The two-segment shape every other test in this file uses still works, so the
+    // fix did not trade one set of titles for another.
+    expect(moduleFrom('Products › DEPT-001 list loads')).toBe('Products');
+    // And a title with no nesting has no module rather than a guess.
+    expect(moduleFrom('a test with no module')).toBeNull();
+  });
+
+  test('B16: the plain-text body carries every section, and no live URL', () => {
+    // wrong: no text body at all, which is what a watch, a screen reader and a
+    // gateway that strips HTML would show. Or a text body built from a SECOND
+    // aggregation of the same run — two renderings that disagree on the run where it
+    // mattered. It reads the same helpers as the HTML, so this asserts the sections
+    // are present and that the URL is reduced to a host like the HTML's is.
+    const text = renderReportEmailText(
+      inputOf(runOf([resultOf({ id: 't1', title: 'Departments › DEPT-001 list loads' })]), {
+        baseUrl: 'https://qa.example.test/admin/domains/Department?id=LEAK',
+        includeScreenshots: false,
+        trigger: 'jenkins',
+      }),
+    );
+    for (const heading of ['BY MODULE', 'HTTP', 'SAFETY', 'SHEET DRIFT']) {
+      expect(text, `the text body has no ${heading} section`).toContain(heading);
+    }
+    expect(text).toContain('Triggered by : jenkins');
+    expect(text).toContain('Screenshots not included for this application.');
+    expect(text).toContain('built by Hashim Khan');
+    // The HOST only — a query string can carry a record id, and this one does.
+    expect(text).toContain('qa.example.test');
+    expect(text, 'a URL query reached the plain-text body').not.toContain('LEAK');
+  });
+
   test('B1: it contains no construct Outlook silently drops', () => {
     // wrong: a `<style>` block and flexbox tiles — which is exactly what the web
     // renderer has — so the mail arrives unstyled with its summary in a vertical
@@ -140,12 +229,34 @@ test.describe('the report email body @unit', () => {
     expect(html).toContain('Application');
     expect(html).toContain('<strong>ecom</strong>');
     expect(html).toContain('<strong>qa</strong>');
-    expect(html).toContain('https://qa.example.test');
+    /**
+     * The HOST, not the URL — and the full URL must be ABSENT.
+     *
+     * A host tells a reader dev from UAT, which is the question. A path or a query
+     * can carry a record id, and a run-sheet URL does. Asserting the absence as well
+     * as the presence is what makes this a rule rather than a coincidence of this
+     * fixture having no path.
+     */
+    expect(html).toContain('qa.example.test');
+    expect(html).not.toContain('https://qa.example.test');
     expect(html).toContain('me@contoso.com');
+    // Both zones, from the recorded instant — the UTC half is the instant itself.
     expect(html).toContain('2026-11-10T09:00:01.000Z');
+    expect(html).toContain('where the run happened');
     expect(html).toContain('2026-11-10T09:02:11.000Z');
     expect(html).toContain('2m 10s');
     expect(html).toContain('PASSED');
+    // And the new sections are all there, in the order the brief asks for.
+    const order = ['By module', 'HTTP', 'Write attempts to the application', 'Sheet drift'];
+    const positions = order.map((heading) => html.indexOf(heading));
+    expect(
+      positions.every((at) => at >= 0),
+      `a section is missing: ${order}`,
+    ).toBe(true);
+    expect(positions, 'the sections are out of order').toEqual(
+      [...positions].sort((a, b) => a - b),
+    );
+    expect(html).toContain('built by Hashim Khan');
   });
 
   test('B3: a failing run is headed FAILED even when run.status disagrees', () => {
@@ -359,7 +470,31 @@ test.describe('the report email body @unit', () => {
     expect(source).not.toContain('process.env');
     expect(source).not.toContain('readFileSync');
     expect(source).not.toContain('Date.now');
-    expect(source).not.toContain('new Date');
+
+    /**
+     * READING THE CLOCK, not using the Date type.
+     *
+     * This was `not.toContain('new Date')`, and it failed the moment the body learned
+     * to print a start time in local and UTC — because formatting a RECORDED instant
+     * needs `new Date(iso)`. The pattern was too coarse: it banned the type rather
+     * than the clock, and the two are not the same thing.
+     *
+     * `new Date()` with no argument is the clock. `new Date(run.startedAt)` is
+     * arithmetic on a value the run already carries, and it keeps the property B10
+     * exists for — the same input renders the same body, forever, so a diff of two
+     * renderings means something.
+     *
+     * Narrowing a guard is the move that hides a real problem, so the narrower
+     * pattern is asserted to still CATCH the thing it is about, on synthetic source.
+     */
+    expect(source).not.toMatch(/new Date\(\s*\)/);
+    expect('const now = new Date();', 'the narrowed pattern no longer catches the clock').toMatch(
+      /new Date\(\s*\)/,
+    );
+    expect(
+      'new Date(run.startedAt)',
+      'the narrowed pattern rejects a recorded instant',
+    ).not.toMatch(/new Date\(\s*\)/);
   });
 
   test('B11: history records are newest-first, and a run is never compared with itself', () => {

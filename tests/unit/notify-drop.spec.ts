@@ -169,21 +169,36 @@ test.describe('the notification drop @unit', () => {
     expect(ready.reportZipTooLarge).toBe(false);
   });
 
-  test('D2: the subject names the app, environment, counts, duration and sender', () => {
+  test('D2: the subject leads with app, environment and VERDICT, then the counts', () => {
     // wrong: a subject that needs the mail opened to learn whether anything failed —
-    // which is what every report email that gets ignored has in common. The app is
-    // UPPER-CASED and first because a phone notification truncates, and the first
-    // question is always which system.
+    // which is what every report email that gets ignored has in common. A subject is
+    // read left to right and truncated right, so the three things that must survive
+    // a phone notification are which system, which environment, and whether it is
+    // broken. The previous version led with counts and left the verdict to be
+    // inferred by arithmetic.
     expect(
       subjectFor({
         app: 'ecom',
         environment: 'qa',
+        verdict: 'FAILED',
         passed: 40,
-        failed: 2,
-        durationMs: 130_000,
-        ranBy: 'me@contoso.com',
+        total: 42,
+        startedAt: '2026-11-24T06:15:00.000Z',
       }),
-    ).toBe('[ECOM] qa run — 40 passed, 2 failed (2m 10s) — me@contoso.com');
+    ).toBe('[ECOM][QA] FAILED — 40/42 passed — 24 Nov 2026');
+
+    // And the DATE comes from the run's own instant, so the same run always produces
+    // the same subject — no clock is read.
+    expect(
+      subjectFor({
+        app: 'dms',
+        environment: 'app',
+        verdict: 'PASSED WITH FLAKY',
+        passed: 42,
+        total: 42,
+        startedAt: '2026-01-02T23:00:00.000Z',
+      }),
+    ).toContain('[DMS][APP] PASSED WITH FLAKY — 42/42 passed — ');
   });
 
   test('D3: the ready file name is the RUN ID plus the suffix the flow matches', () => {
@@ -363,8 +378,13 @@ test.describe('the notification drop @unit', () => {
     expect(outcome.written).toBe(true);
     const ready = readyIn(f.folder);
     expect(ready.verdict).toBe('FAILED');
-    expect(ready.subject).toContain('1 failed');
+    expect(ready.subject).toContain('[ECOM][QA] FAILED — 1/2 passed');
     expect(ready.bodyHtml).toContain('grid never rendered');
+    // The plain-text fallback carries the same failure, from the same input.
+    expect(ready.bodyText, 'no plain-text fallback was written').toContain('grid never rendered');
+    // Importance is keyed on `failed`, not on the verdict: a run that passed after a
+    // retry is worth reading and is not worth interrupting somebody for.
+    expect(ready.importance).toBe('High');
   });
 
   test('D10: a second run carries the comparison with the first', () => {
