@@ -101,6 +101,9 @@ function fixture(): { root: string; folder: string; reportDir: string; config: N
       apps: {
         ecom: {
           folder,
+          // Off, so these tests are about the drop rather than about screenshots;
+          // `notify-screenshots.spec.ts` is where the flag is the subject.
+          includeScreenshots: false,
           to: ['qa@contoso.com'],
           cc: ['lead@contoso.com'],
           ranBy: 'me@contoso.com',

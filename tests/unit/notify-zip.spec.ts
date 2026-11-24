@@ -5,10 +5,11 @@ import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { test, expect } from '@playwright/test';
 import {
-  EXCLUDED_FROM_REPORT_ZIP,
+  ALLOWED_IN_NOTIFY_BUNDLE,
   REPORT_ZIP_LIMIT_BYTES,
   isReportZipTooLarge,
   zipDirectory,
+  zipSources,
 } from '../../packages/reporting-engine/src/notify/zip';
 
 /**
@@ -136,28 +137,41 @@ test.describe('the report archive @unit', () => {
     // fails here rather than cancelling out.
     const dir = scratch();
     try {
-      // Text that deflates well, and bytes that do not — both paths matter.
-      writeFileSync(path.join(dir, 'index.html'), '<html>'.repeat(500), 'utf8');
-      mkdirSync(path.join(dir, 'data'), { recursive: true });
-      writeFileSync(path.join(dir, 'data', 'notes.txt'), 'plain text', 'utf8');
+      /**
+       * ALLOWED names, because the filter is not this test's subject.
+       *
+       * These were `index.html` and `data/*`, which the allowlist now excludes — so
+       * this read back an empty archive and failed on the format it was testing. The
+       * fixture is the thing to change, not the filter: a nested path is still
+       * exercised, through the one allowed nested shape there is.
+       */
+      const html = '<html>'.repeat(500);
+      writeFileSync(path.join(dir, 'run.json'), html, 'utf8');
+      writeFileSync(path.join(dir, 'summary.md'), 'plain text', 'utf8');
+      mkdirSync(path.join(dir, 'test-results', 'a-test'), { recursive: true });
       const noise = incompressible(2048);
-      writeFileSync(path.join(dir, 'data', 'noise.bin'), noise);
+      writeFileSync(path.join(dir, 'test-results', 'a-test', 'test-failed-1.png'), noise);
 
-      const result = zipDirectory(dir);
+      // Screenshots opted IN, because the subject here is the zip format and the
+      // nested path is the only nested shape the allowlist has. The gate itself is
+      // `notify-screenshots.spec.ts`.
+      const result = zipDirectory(dir, { includeScreenshots: true });
       expect(result.entryCount).toBe(3);
 
       const read = readZip(result.bytes);
       expect(read.map((e) => e.name).sort()).toEqual([
-        'data/noise.bin',
-        'data/notes.txt',
-        'index.html',
+        'run.json',
+        'summary.md',
+        'test-results/a-test/test-failed-1.png',
       ]);
 
       // Contents are byte-identical, which is the only thing that matters.
       const byName = new Map(read.map((e) => [e.name, e]));
-      expect(byName.get('index.html')!.contents.toString('utf8')).toBe('<html>'.repeat(500));
-      expect(byName.get('data/notes.txt')!.contents.toString('utf8')).toBe('plain text');
-      expect(byName.get('data/noise.bin')!.contents.equals(noise)).toBe(true);
+      expect(byName.get('run.json')!.contents.toString('utf8')).toBe(html);
+      expect(byName.get('summary.md')!.contents.toString('utf8')).toBe('plain text');
+      expect(byName.get('test-results/a-test/test-failed-1.png')!.contents.equals(noise)).toBe(
+        true,
+      );
 
       // FORWARD SLASHES, on every platform. A zip written with backslashes opens
       // as one file called `data\notes.txt` in most readers, and the report's
@@ -176,21 +190,122 @@ test.describe('the report archive @unit', () => {
     // what distinguishes a size win from a size loss.
     const dir = scratch();
     try {
+      // Allowed names, for the reason Z1 gives: the subject here is the method
+      // choice, and a fixture the filter drops tests nothing.
       const compressible = 'a'.repeat(4096);
-      writeFileSync(path.join(dir, 'text.txt'), compressible, 'utf8');
+      writeFileSync(path.join(dir, 'summary.md'), compressible, 'utf8');
       const noise = incompressible(4096);
-      writeFileSync(path.join(dir, 'noise.bin'), noise);
+      mkdirSync(path.join(dir, 'test-results', 'a-test'), { recursive: true });
+      writeFileSync(path.join(dir, 'test-results', 'a-test', 'test-failed-1.png'), noise);
 
-      const read = readZip(zipDirectory(dir).bytes);
+      const read = readZip(zipDirectory(dir, { includeScreenshots: true }).bytes);
       const byName = new Map(read.map((e) => [e.name, e]));
-      expect(byName.get('text.txt')!.method, 'compressible text was not deflated').toBe(8);
-      expect(byName.get('noise.bin')!.method, 'incompressible bytes were deflated anyway').toBe(0);
+      const png = 'test-results/a-test/test-failed-1.png';
+      expect(byName.get('summary.md')!.method, 'compressible text was not deflated').toBe(8);
+      expect(byName.get(png)!.method, 'incompressible bytes were deflated anyway').toBe(0);
       // Both still read back correctly, so the choice is about size and not
       // about correctness.
-      expect(byName.get('text.txt')!.contents.toString('utf8')).toBe(compressible);
-      expect(byName.get('noise.bin')!.contents.equals(noise)).toBe(true);
+      expect(byName.get('summary.md')!.contents.toString('utf8')).toBe(compressible);
+      expect(byName.get(png)!.contents.equals(noise)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('Z5: every FORBIDDEN kind named in the brief is absent, and every allowed kind is present', () => {
+    // wrong: asserting only the absences. A filter that matched nothing would pass
+    // all of them and produce an empty bundle — which is the rule-that-refuses-
+    // everything shape, and reads as perfect safety. Both halves in one fixture, so
+    // neither can be satisfied alone, and across TWO sources because that is how a
+    // real suite run is assembled.
+    const reports = scratch();
+    const results = scratch();
+    try {
+      // ---- the forbidden kinds, one of each ----
+      mkdirSync(path.join(reports, 'html', 'data'), { recursive: true });
+      writeFileSync(path.join(reports, 'html', 'index.html'), 'REPORT', 'utf8');
+      writeFileSync(path.join(reports, 'html', 'data', 'trace-1.zip'), 'TRACEBYTES', 'utf8');
+      // A trace NOT named `.zip` — the old denylist caught traces by extension only.
+      writeFileSync(path.join(reports, 'html', 'data', 'trace-2.bin'), 'TRACEBYTES', 'utf8');
+      writeFileSync(path.join(reports, 'network.json'), '{"requests":[]}', 'utf8');
+      writeFileSync(path.join(reports, 'summary.html'), '<html></html>', 'utf8');
+      mkdirSync(path.join(results, 'a-test'), { recursive: true });
+      writeFileSync(path.join(results, 'a-test', 'video.webm'), 'VIDEOBYTES', 'utf8');
+      writeFileSync(path.join(results, 'a-test', 'trace.zip'), 'TRACEBYTES', 'utf8');
+      writeFileSync(path.join(results, 'a-test', 'network.json'), '{"requests":[]}', 'utf8');
+      writeFileSync(path.join(results, 'a-test', 'local.json'), 'SESSIONSTATE', 'utf8');
+
+      // ---- and every allowed kind ----
+      writeFileSync(path.join(reports, 'run.json'), '{"id":"run_x"}', 'utf8');
+      writeFileSync(path.join(reports, 'junit.xml'), '<testsuites/>', 'utf8');
+      writeFileSync(path.join(reports, 'sheet-drift.csv'), 'Module,Case ID\r\n', 'utf8');
+      writeFileSync(path.join(reports, 'summary.md'), '# run', 'utf8');
+      writeFileSync(path.join(results, 'a-test', 'test-failed-1.png'), 'PNGBYTES', 'utf8');
+
+      const names = readZip(
+        zipSources(
+          [
+            { root: reports, prefix: '' },
+            { root: results, prefix: 'test-results' },
+          ],
+          // Opted in, so "every allowed kind is present" means every kind an
+          // application CAN allow. The per-app gate is `notify-screenshots.spec.ts`.
+          { includeScreenshots: true },
+        ).bytes,
+      )
+        .map((entry) => entry.name)
+        .sort();
+
+      expect(names).toEqual([
+        'junit.xml',
+        'run.json',
+        'sheet-drift.csv',
+        'summary.md',
+        'test-results/a-test/test-failed-1.png',
+      ]);
+    } finally {
+      rmSync(reports, { recursive: true, force: true });
+      rmSync(results, { recursive: true, force: true });
+    }
+  });
+
+  test('Z6: a PLANTED secret value appears nowhere in the bundle bytes', () => {
+    // wrong: checking file NAMES only. A name-based check cannot see a secret that
+    // arrived inside an allowed file — and it is the bytes that get mailed. The
+    // needle is synthetic and generated here, so a stale copy of it cannot make this
+    // pass; and an allowed file carrying a DIFFERENT marker is asserted present, or
+    // "the needle is absent" would also be true of an empty bundle.
+    const reports = scratch();
+    const results = scratch();
+    const secret = `AITP-PLANTED-SECRET-${Math.random().toString(36).slice(2)}`;
+    const marker = `AITP-ALLOWED-MARKER-${Math.random().toString(36).slice(2)}`;
+    try {
+      mkdirSync(path.join(results, 'a-test'), { recursive: true });
+      // In each forbidden kind, including inside a trace and a video.
+      writeFileSync(path.join(results, 'a-test', 'trace.zip'), secret, 'utf8');
+      writeFileSync(path.join(results, 'a-test', 'video.webm'), secret, 'utf8');
+      writeFileSync(path.join(results, 'a-test', 'network.json'), secret, 'utf8');
+      writeFileSync(path.join(reports, '.env'), `TOKEN=${secret}`, 'utf8');
+      writeFileSync(path.join(reports, 'summary.html'), secret, 'utf8');
+      // And as a FILE NAME, which a payload scan alone would miss.
+      writeFileSync(path.join(reports, `${secret}.json`), 'nothing', 'utf8');
+      writeFileSync(path.join(reports, 'run.json'), `{"marker":"${marker}"}`, 'utf8');
+
+      const bytes = zipSources([
+        { root: reports, prefix: '' },
+        { root: results, prefix: 'test-results' },
+      ]).bytes;
+
+      // latin1 so every byte maps to one character: a UTF-8 decode could drop or
+      // replace a sequence and hide the needle by accident.
+      const raw = bytes.toString('latin1');
+      expect(raw, 'the planted secret is in the bundle bytes').not.toContain(secret);
+      // The discriminating half: an allowed file's content really is in there, so
+      // the search is looking at a bundle with something in it.
+      expect(raw, 'the allowed marker is missing — the bundle is empty').toContain(marker);
+    } finally {
+      rmSync(reports, { recursive: true, force: true });
+      rmSync(results, { recursive: true, force: true });
     }
   });
 
@@ -217,11 +332,19 @@ test.describe('the report archive @unit', () => {
       writeFileSync(path.join(dir, '.env.local'), 'SENTINEL-ENV-VALUE', 'utf8');
       writeFileSync(path.join(dir, 'db-password.txt'), 'SENTINEL-PASSWORD', 'utf8');
 
+      // An ALLOWED file beside them, so this cannot pass by zipping nothing — the
+      // rule-that-refuses-everything shape, which looks identical from outside.
+      writeFileSync(path.join(dir, 'run.json'), '{"id":"run_x"}', 'utf8');
+
       const result = zipDirectory(dir);
       const names = readZip(result.bytes).map((e) => e.name);
 
-      // The report itself survives, or the exclusion is just "zip nothing".
-      expect(names, 'the report body was excluded too').toContain('index.html');
+      // The allowed file survives, which is what makes every exclusion below a
+      // verdict rather than the filter's answer to everything.
+      expect(names, 'the run record was excluded too').toContain('run.json');
+      // And the Playwright report does NOT. It used to be the whole point of the
+      // bundle; its `data/` directory holds every attachment a run produced.
+      expect(names, 'the Playwright HTML report reached the archive').not.toContain('index.html');
 
       for (const forbidden of [
         'data/abc123.zip',
@@ -254,11 +377,13 @@ test.describe('the report archive @unit', () => {
         'auth/app.json',
         'data/abc123.zip',
         'db-password.txt',
+        'index.html',
         'storageState.txt',
       ]);
-      // §T — the denylist had a subject. An empty rule list would exclude
-      // nothing and every assertion above would read as a clean archive.
-      expect(EXCLUDED_FROM_REPORT_ZIP.length).toBeGreaterThan(3);
+      // §T — the allowlist had a subject. An empty rule list would exclude
+      // EVERYTHING and every assertion above would read as a clean archive while
+      // the bundle was empty, which is why `run.json` is asserted present.
+      expect(ALLOWED_IN_NOTIFY_BUNDLE.length).toBeGreaterThan(3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

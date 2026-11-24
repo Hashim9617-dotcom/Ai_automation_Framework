@@ -91,12 +91,70 @@ test.describe('pnpm notify:setup, as a real process @demo', () => {
           // wrong sender is traceable rather than mysterious.
           ranBySource: 'explicit',
           allowedDomain: 'contoso.com',
+          // OFF, without anybody asking for it off. Every application starts here,
+          // because a failure screenshot is a picture of the application and only
+          // the application's owner knows whether that may be mailed.
+          includeScreenshots: false,
         },
       },
     });
     // It tells the reader what it did and what to do next, naming the whole command.
     expect(result.stdout).toContain('POWER-AUTOMATE-FLOW.md');
     expect(result.stdout).toContain('recipients outside it are refused');
+    expect(result.stdout, 'the screenshot setting was not reported').toContain('not included');
+
+    /**
+     * ---- the THREE-STATE flag, in the real process ----
+     *
+     * `--include-screenshots` decides whether pictures of the application may leave
+     * the machine, so absent means UNCHANGED rather than false. Two-state would mean
+     * that re-running this command to add a recipient silently switches off the
+     * screenshots an application had opted into — a security change nobody asked for
+     * and nobody would be told about.
+     *
+     * All three transitions, in sequence, through the loader each time: a unit test
+     * of the config cannot see argv, and argv is where this rule lives.
+     */
+    const screenshotsFor = (): boolean =>
+      (configIn(root) as { apps: Record<string, { includeScreenshots: boolean }> }).apps[
+        'bundled-demo'
+      ]!.includeScreenshots;
+
+    /**
+     * `--ran-by` is passed EVERY time, and leaving it out is what broke the first
+     * version of this block.
+     *
+     * Without it the CLI resolves the sender from this machine's own identity, and
+     * recipients are bounded by the sender's domain — so `qa@contoso.com` was refused
+     * as out-of-domain and the command exited 1. The failure read as "the flag does
+     * not work", which it was not: it is the §AJ shape, a test whose subject was
+     * decided by the machine it ran on.
+     */
+    const again = (extra: string[]) =>
+      run(root, [
+        '--app',
+        'bundled-demo',
+        '--folder',
+        folder,
+        '--to',
+        'qa@contoso.com',
+        '--ran-by',
+        'me@contoso.com',
+        ...extra,
+      ]);
+
+    const on = again(['--include-screenshots']);
+    expect(on.status, `${on.stdout}${on.stderr}`).toBe(0);
+    expect(screenshotsFor(), 'the flag did not turn screenshots on').toBe(true);
+
+    // The one that matters: no flag, and the opt-in SURVIVES.
+    const unchanged = again([]);
+    expect(unchanged.status, `${unchanged.stdout}${unchanged.stderr}`).toBe(0);
+    expect(screenshotsFor(), 're-running without the flag silently turned it off').toBe(true);
+
+    const off = again(['--no-include-screenshots']);
+    expect(off.status, `${off.stdout}${off.stderr}`).toBe(0);
+    expect(screenshotsFor(), 'the negative flag did not turn screenshots off').toBe(false);
   });
 
   test('S2: a second application MERGES — it never replaces the file', () => {

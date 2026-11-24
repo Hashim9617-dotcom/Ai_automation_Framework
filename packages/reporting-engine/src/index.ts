@@ -7,6 +7,7 @@ export {
   EVIDENCE_KINDS,
   EVIDENCE_MANIFEST,
   REQUIRED_EVIDENCE,
+  requiredEvidenceFor,
   evidenceKindOf,
   type EvidenceKind,
 } from './reporters/aitp-reporter';

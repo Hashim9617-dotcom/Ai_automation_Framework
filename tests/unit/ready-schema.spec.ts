@@ -157,6 +157,7 @@ function validate(value: unknown, schema: JsonSchema, at = '$'): string[] {
 
 const APP: NotifyAppConfig = {
   folder: 'C:\\synced\\Ecom QA',
+  includeScreenshots: false,
   to: ['qa@contoso.com'],
   cc: ['lead@contoso.com'],
   ranBy: 'me@contoso.com',

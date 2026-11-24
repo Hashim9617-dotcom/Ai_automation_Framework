@@ -133,6 +133,31 @@ export interface NotifyAppConfig {
   ranBy: string;
   ranBySource: RanBySource;
   /**
+   * May failure screenshots travel in this application's notify bundle?
+   *
+   * ## Per application, because the answer is about the DATA, not the platform
+   *
+   * A failure screenshot is a picture of the application at the moment it broke, so
+   * it shows whatever was on screen. Whether that may be mailed is a property of the
+   * system under test and nothing else can know it:
+   *
+   * - **DMS** is a live UAT system. Its captures hold real names and real document
+   *   titles, so a screenshot is personal data and must not travel.
+   * - **Ecom** is a dev environment with no live or personal data in it, stated by
+   *   the person who owns it, so a screenshot is a debugging aid and nothing more.
+   *
+   * ## FALSE unless the file says otherwise, including for an app nobody thought of
+   *
+   * An absent key reads as `false`, so every existing configuration and every
+   * application added later starts with screenshots OFF. That is the fail-closed
+   * direction: the cost of the default being wrong is a bundle missing a picture,
+   * and the cost of the other default is personal data in somebody's inbox.
+   *
+   * Set it with `pnpm notify:setup --app <slug> --include-screenshots`, which says
+   * what the value became; nothing infers it.
+   */
+  includeScreenshots: boolean;
+  /**
    * The only domain recipients may be in — DERIVED from `ranBy`, never typed.
    *
    * Stored rather than recomputed on read so that a `ranBy` edited by hand cannot
@@ -396,10 +421,30 @@ export function loadNotifyConfigFile(file: string): NotifyConfig | null {
       );
     }
 
+    /**
+     * ABSENT MEANS FALSE, and a non-boolean is REFUSED rather than coerced.
+     *
+     * `"true"` as a string, or `1`, would be somebody editing the file by hand and
+     * meaning yes — and quietly accepting either would make the rule "whatever
+     * JavaScript thinks is truthy", which includes `"false"`. A security default is
+     * the wrong place for that, so the only two values that mean anything are the
+     * two booleans and everything else stops the run by name.
+     */
+    const includeScreenshots = app.includeScreenshots ?? false;
+    if (typeof includeScreenshots !== 'boolean') {
+      throw new Error(
+        `${where}: "includeScreenshots" must be true or false, found ` +
+          `${JSON.stringify(includeScreenshots)}. It decides whether failure screenshots — ` +
+          'pictures of the application, which on a live system carry real data — may be ' +
+          'mailed, so it is not inferred from a truthy value.',
+      );
+    }
+
     parsed[slug] = {
       folder,
       to,
       cc,
+      includeScreenshots,
       ranBy,
       ranBySource: ranBySource as RanBySource,
       allowedDomain: allowedDomain.toLowerCase(),

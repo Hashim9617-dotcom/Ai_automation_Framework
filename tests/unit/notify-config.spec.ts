@@ -55,6 +55,9 @@ function rootWith(contents: string | undefined): string {
 /** A valid entry. Typed, not cast (§AD), so a field the loader reads cannot be forgotten. */
 const VALID_ENTRY: NotifyAppConfig = {
   folder: 'C:\\synced\\Contoso - Ecom QA',
+  // The fail-closed default. Asserted as a VALUE here rather than omitted, because
+  // the type requiring it is what stops a fixture quietly meaning "whatever".
+  includeScreenshots: false,
   to: ['qa@contoso.com'],
   cc: ['lead@contoso.com'],
   ranBy: 'me@contoso.com',

@@ -17,7 +17,7 @@ import {
   type NotifyAppConfig,
   type NotifyConfig,
 } from './config';
-import { REPORT_ZIP_LIMIT_BYTES, isReportZipTooLarge, zipDirectory } from './zip';
+import { REPORT_ZIP_LIMIT_BYTES, isReportZipTooLarge, zipSources, type BundleSource } from './zip';
 import { formatDuration } from './body';
 
 /**
@@ -201,6 +201,17 @@ export interface NotifyRunInput {
   baseUrl: string;
   /** The directory whose contents become the attachment, if it exists. */
   reportDir: string;
+  /**
+   * Where the bundle's files are gathered from, and where each sits inside it.
+   *
+   * Defaults to `reportDir` at the bundle's top level, which is what a sheet run
+   * wants. A suite run passes two — the reports directory and `test-results` —
+   * because the allowed kinds do not live together.
+   *
+   * The ALLOWLIST decides what survives either way, so naming a wider root cannot
+   * smuggle anything in; it only makes the walk bigger.
+   */
+  bundleSources?: readonly BundleSource[] | undefined;
   /** Resolved by the caller via `notifyOffBecause`, never read here (§AJ). */
   disabled: boolean;
   /** Which of the reasons, so the skip line says the right sentence. */
@@ -334,8 +345,14 @@ export function notifyRun(input: NotifyRunInput): NotifyOutcome {
     let reportZipName: string | null = null;
     let reportZipTooLarge = false;
     let zipPath: string | undefined;
-    if (existsSync(input.reportDir)) {
-      const zipped = zipDirectory(input.reportDir);
+    const sources: readonly BundleSource[] = input.bundleSources ?? [
+      { root: input.reportDir, prefix: '' },
+    ];
+    if (sources.some((source) => existsSync(source.root))) {
+      // The application's own answer, read from its config and passed in — never a
+      // default chosen here. `zipSources` defaults to the restrictive value, so a
+      // config without the key produces a bundle with no pictures in it.
+      const zipped = zipSources(sources, { includeScreenshots: app.includeScreenshots });
       reportZipName = `${input.application}-${input.environment}-${input.run.id}.zip`;
       reportZipTooLarge = isReportZipTooLarge(zipped.bytes.length);
       zipPath = path.join(folder, reportZipName);

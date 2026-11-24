@@ -306,7 +306,22 @@ export default class AitpReporter implements Reporter {
         application: this.run.target.application,
         environment: this.run.target.environment,
         baseUrl: this.run.target.baseUrl,
-        reportDir: path.join(this.outputDir, 'html'),
+        /**
+         * THE REPORTS DIRECTORY, not `html` inside it — the allowlist changed what
+         * this means.
+         *
+         * It used to be `html/`, because the bundle WAS the Playwright report. That
+         * report is no longer allowed to travel (its `data/` directory holds every
+         * attachment a run produced, traces included), so pointing at it would now
+         * produce an empty bundle. The allowed kinds — `run.json`, `junit.xml`,
+         * `sheet-drift.csv`, `summary.md` — are written here, and the failure
+         * screenshots are Playwright's, one directory across.
+         */
+        reportDir: this.outputDir,
+        bundleSources: [
+          { root: this.outputDir, prefix: '' },
+          { root: path.join(path.dirname(this.outputDir), 'test-results'), prefix: 'test-results' },
+        ],
         disabled: offBecause !== null,
         log: this.log,
       });
@@ -522,21 +537,41 @@ export const EVIDENCE_KINDS = ['trace', 'screenshot', 'network'] as const;
 export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
 
 /**
- * The kinds whose absence is WARNED about, as opposed to merely recorded.
+ * The kind whose absence is ALWAYS a gap. See `requiredEvidenceFor` for the rest.
  *
- * `trace` and `screenshot` are configured in `playwright.config.ts` for every
- * project, so a failed test without them is a gap in this platform. `network.json`
- * is an application suite's own convention — the Ecom fixture attaches one on every
- * test through an `auto` fixture, and the demo and unit surfaces have no network to
- * record. Warning about it everywhere would print a missing-evidence line for every
- * failed unit test, and a warning that fires when nothing is wrong is a warning
- * people learn to scroll past.
- *
- * It is still RECORDED for every test, because the manifest's job is to say what is
- * there. The two lists are different questions: what did we get, and what should
- * have been there.
+ * `trace` is configured for every project in `playwright.config.ts`
+ * (`retain-on-failure`), browserless ones included, so a failed test without one is
+ * wrong wherever it ran.
  */
-export const REQUIRED_EVIDENCE: readonly EvidenceKind[] = ['trace', 'screenshot'];
+export const REQUIRED_EVIDENCE: readonly EvidenceKind[] = ['trace'];
+
+/**
+ * What THIS RUN should have produced, derived from what it DID produce.
+ *
+ * A fixed list of required kinds was wrong in both directions and the second was
+ * found by running it: `network.json` is an application suite's convention, so
+ * demanding it everywhere warned on every failed demo test — and `screenshot` is
+ * impossible in a browserless project, so demanding it warned on every failed UNIT
+ * test. Measured 2026-11-24: two failing zip tests reported "missing screenshot" for
+ * tests that have no page and never could have one.
+ *
+ * Neither list could be hand-written without being wrong for some surface (§AE). So
+ * the rule is derived: a kind is required when at least one failed or flaky test in
+ * this run produced it, which is the run demonstrating that it CAN. That catches the
+ * failure mode that matters — one test lost its trace while its neighbours kept
+ * theirs — and stays quiet about a kind the surface cannot produce at all.
+ *
+ * `REQUIRED_EVIDENCE` is unioned in as a floor, because a derived set alone has a
+ * silent hole: if EVERY failed test lost its trace, nothing would be observed and
+ * nothing would be required.
+ */
+export function requiredEvidenceFor(
+  entries: ReadonlyArray<{ present: readonly EvidenceKind[] }>,
+): EvidenceKind[] {
+  const observed = new Set<EvidenceKind>(REQUIRED_EVIDENCE);
+  for (const entry of entries) for (const kind of entry.present) observed.add(kind);
+  return EVIDENCE_KINDS.filter((kind) => observed.has(kind));
+}
 
 export const EVIDENCE_MANIFEST = 'evidence.json';
 
@@ -638,12 +673,14 @@ function writeEvidenceManifest(run: Run, archiveDir: string, log: Logger): void 
     'utf8',
   );
 
-  // Only the REQUIRED kinds raise a warning; `network` is recorded either way. See
-  // the note on `REQUIRED_EVIDENCE` for why the two lists differ.
+  // Only the required kinds raise a warning, and which those are is DERIVED from
+  // what this run produced — see `requiredEvidenceFor`. Everything is recorded
+  // either way: what we got and what should have been there are two questions.
+  const required = requiredEvidenceFor(entries);
   const incomplete = entries
     .map((entry) => ({
       entry,
-      lacking: entry.missing.filter((kind) => REQUIRED_EVIDENCE.includes(kind)),
+      lacking: entry.missing.filter((kind) => required.includes(kind)),
     }))
     .filter((row) => row.lacking.length > 0);
 

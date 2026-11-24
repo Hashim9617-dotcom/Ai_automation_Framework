@@ -1,6 +1,6 @@
 import { deflateRawSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -97,19 +97,87 @@ function dosDateTime(date: Date): { time: number; date: number } {
  * name what comes out rather than what goes in. It is paired with a test that
  * plants each excluded shape and proves none of them lands.
  */
-export const EXCLUDED_FROM_REPORT_ZIP: ReadonlyArray<{
+/**
+ * WHAT MAY TRAVEL IN A NOTIFY BUNDLE — an ALLOWLIST, and the shape is the point.
+ *
+ * ## What this replaces, and why the old shape could not hold
+ *
+ * It was `EXCLUDED_FROM_REPORT_ZIP`: traces by extension, `auth/*.json`, anything
+ * `storageState`-shaped, `.env`, password-shaped names. Every entry correct, and the
+ * SHAPE fail-open — a denylist protects the kinds somebody thought of, and the next
+ * file a report directory acquires travels by default (§AC).
+ *
+ * That was not hypothetical. The denylist did NOT exclude:
+ *
+ * - **the Playwright HTML report**, which is most of what the bundle WAS, and whose
+ *   `data/` directory holds every attachment a run produced;
+ * - **`network.json`**, every request path and status the run saw;
+ * - **videos**, which are a recording of an authenticated session;
+ * - a trace written under any name not ending `.zip`.
+ *
+ * And it was measured, on this application, that a trace carries the access token
+ * and the account password through its network capture
+ * (`tests/apps/ecom/trace-secrecy.spec.ts`). A bundle that can carry a trace is a
+ * bundle that can mail a credential.
+ *
+ * ## So the rule is inverted: nothing travels unless it is named here
+ *
+ * A path this list does not match is EXCLUDED and recorded in `excluded`, which the
+ * caller logs and the mail prints — a bundle that drops something says so rather
+ * than implying it is complete. Adding a kind means editing this array, beside the
+ * reason it is safe, where a reviewer will see it.
+ *
+ * Rules match the bundle-RELATIVE path, forward-slashed, so a rule can say where a
+ * file must sit as well as what it is called: `run.json` means the run record at the
+ * top of the bundle, not some `run.json` three directories down inside a report.
+ */
+export const ALLOWED_IN_NOTIFY_BUNDLE: ReadonlyArray<{
   label: string;
   test: (p: string) => boolean;
+  /**
+   * When set, this rule only applies if the caller opted in for this application.
+   *
+   * An entry on the allowlist that is NOT unconditionally safe needs somewhere to
+   * say so, and that somewhere has to be the list itself — a second list of
+   * "conditional kinds" kept beside it would be the two-sources-of-truth shape, and
+   * the one that drifts is the one that opens the gate.
+   */
+  optIn?: 'includeScreenshots';
 }> = [
-  // Playwright traces, wherever they sit. Each one is a working session for up
-  // to an hour from capture.
-  { label: 'a Playwright trace', test: (p) => p.endsWith('.zip') },
-  // Saved sign-in state: cookies and tokens in plaintext.
-  { label: 'saved session state', test: (p) => /(^|\/)auth\/[^/]+\.json$/.test(p) },
-  { label: 'a storageState file', test: (p) => /storagestate/i.test(p) },
-  // Anything env-shaped, in case a report directory ever acquires one.
-  { label: 'an env file', test: (p) => /(^|\/)\.env(\.|$)/.test(p) },
-  { label: 'a credential dump', test: (p) => /(password|secret|credential)/i.test(p) },
+  {
+    // AitpReporter's own record: counts, outcomes, annotations, the network SUMMARY.
+    // No request bodies, no headers, no cell values.
+    label: 'the machine-readable run record',
+    test: (p) => p === 'run.json',
+  },
+  { label: 'the JUnit result file', test: (p) => p === 'junit.xml' },
+  {
+    // Header names and bucket verdicts only — `tests/unit/sheet-drift.spec.ts` V3
+    // holds that no cell value can reach it.
+    label: 'the sheet-drift review file',
+    test: (p) => p === 'sheet-drift.csv',
+  },
+  { label: 'the human summary', test: (p) => p === 'summary.md' },
+  {
+    /**
+     * Playwright's own failure screenshot, PER-APPLICATION OPT-IN, and only under
+     * `test-results`.
+     *
+     * A screenshot shows the application at the moment it broke, so it carries
+     * whatever was on screen. On a live UAT system like DMS that is real names and
+     * real document titles; on a dev environment like Ecom it is nothing. The
+     * platform cannot tell those apart, so it does not try: the application's own
+     * notify config says, and `includeScreenshots` defaults to false.
+     *
+     * Bounded two ways beyond that: to the name Playwright gives a failure shot, so
+     * a spec cannot widen this by attaching an image of its own, and to
+     * `test-results`, so the HTML report's `data/` directory cannot come in through
+     * this rule.
+     */
+    label: 'a failure screenshot',
+    test: (p) => /^test-results\/.+\/test-failed-\d+\.png$/.test(p),
+    optIn: 'includeScreenshots',
+  },
 ];
 
 export interface ZipResult {
@@ -145,18 +213,88 @@ function walk(root: string, prefix = ''): string[] {
  * would reasonably believe it controlled the archive's timestamps and it never
  * could.
  */
-export function zipDirectory(root: string): ZipResult {
-  const relative = walk(root).sort();
+export function zipDirectory(root: string, options: BundleOptions = {}): ZipResult {
+  return zipSources([{ root, prefix: '' }], options);
+}
+
+/**
+ * What this application has opted into.
+ *
+ * Every field DEFAULTS TO THE RESTRICTIVE VALUE when absent, so a caller that forgets
+ * one gets the safe bundle rather than the complete one. That is the only direction
+ * worth defaulting in: a missing picture is an inconvenience and a mailed one can be
+ * personal data.
+ */
+export interface BundleOptions {
+  /** `false` unless the application's notify config says otherwise. */
+  includeScreenshots?: boolean | undefined;
+}
+
+/**
+ * One source directory, and where its files sit inside the bundle.
+ *
+ * Several are needed because the allowed kinds do not live together: `run.json`,
+ * `junit.xml`, `sheet-drift.csv` and `summary.md` are the reporter's, under
+ * `artifacts/reports`, and the failure screenshots are Playwright's, under
+ * `artifacts/test-results`. Zipping their common parent would walk every archive
+ * and saved session under `artifacts/` and lean on the allowlist to catch all of
+ * it — naming the roots keeps the walk small as well as the filter strict.
+ */
+export interface BundleSource {
+  root: string;
+  /** Forward-slashed prefix inside the bundle. `''` means the bundle's top level. */
+  prefix: string;
+}
+
+/**
+ * Builds a bundle from several roots, keeping ONLY what the allowlist names.
+ *
+ * @throws when the result would need ZIP64, rather than writing a half-valid archive.
+ */
+export function zipSources(
+  sources: readonly BundleSource[],
+  options: BundleOptions = {},
+): ZipResult {
   const excluded: Array<{ name: string; why: string }> = [];
   const entries: Entry[] = [];
 
-  for (const name of relative) {
-    const rule = EXCLUDED_FROM_REPORT_ZIP.find((candidate) => candidate.test(name));
-    if (rule) {
-      excluded.push({ name, why: rule.label });
+  // The rules in play for THIS application. An opt-in rule the caller did not ask
+  // for is not merely skipped — it is removed from the list, so a path it would have
+  // matched falls through to the allowlist's own refusal and is reported with the
+  // reason, rather than being silently absent from the bundle.
+  const rules = ALLOWED_IN_NOTIFY_BUNDLE.filter(
+    (rule) => !rule.optIn || options[rule.optIn] === true,
+  );
+
+  const candidates: Array<{ name: string; full: string }> = [];
+  for (const source of sources) {
+    if (!existsSync(source.root)) continue;
+    for (const rel of walk(source.root)) {
+      candidates.push({
+        name: source.prefix ? `${source.prefix}/${rel}` : rel,
+        full: path.join(source.root, rel),
+      });
+    }
+  }
+  candidates.sort((a, b) => a.name.localeCompare(b.name));
+
+  for (const candidate of candidates) {
+    const name = candidate.name;
+    if (!rules.some((allowed) => allowed.test(name))) {
+      // NOT allowed for this application. Recorded so the mail can name what it left
+      // behind — "the report is in the project folder" only helps a reader who knows
+      // what is missing from the attachment. The reason distinguishes a kind that
+      // never travels from one this application has simply not opted into.
+      const optedOut = ALLOWED_IN_NOTIFY_BUNDLE.find((rule) => rule.optIn && rule.test(name));
+      excluded.push({
+        name,
+        why: optedOut
+          ? `${optedOut.label} — not included for this application`
+          : 'not on the notify allowlist',
+      });
       continue;
     }
-    const full = path.join(root, name);
+    const full = candidate.full;
     const source = readFileSync(full);
     if (source.length > MAX_ENTRY_BYTES) {
       throw new Error(

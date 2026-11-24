@@ -234,6 +234,11 @@ const COVERED = [
   // manifest that always reported all three kinds present would satisfy E1 forever,
   // and E2 is the case where one is listed and not on disk.
   'tests/unit/failure-evidence.spec.ts',
+  // Added 2026-11-24 with per-app screenshot gating. S1 bundles the SAME run twice
+  // with nothing different but the flag, which is what stops it passing over an
+  // implementation that ignores the flag and reflects its input; S3's `on` case is
+  // what makes the `false` readings beside it a reading rather than a constant.
+  'tests/unit/notify-screenshots.spec.ts',
   // Added 2026-11-11 with the published schema. S3 is the half that matters: S1 over
   // a correct drop cannot tell a working validator from one that returns no problems
   // for anything, so each of the four drifts is planted — and the RENAME is planted

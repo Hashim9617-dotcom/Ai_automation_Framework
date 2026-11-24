@@ -307,9 +307,9 @@ test.describe('the report email body @unit', () => {
     // wrong: either one carrying it. The two have different protections and both are
     // planted here, because a test of one proves nothing about the other: the body's
     // protection is that it reads no environment at all (B10 asserts that as a scan),
-    // and the zip's is its exclusion denylist. A denylist is only as good as the
-    // shapes somebody thought of, so the sentinel goes in BOTH an env var and a real
-    // `.env` file inside the directory being archived.
+    // and the bundle's is its ALLOWLIST — nothing travels unless a rule names it. So
+    // the sentinel goes in BOTH an env var and a real `.env` file inside the
+    // directory being bundled.
     const SENTINEL = 'sentinel-6f2a9c4e-do-not-ship';
     const previous = process.env.AITP_SENTINEL_SECRET;
     process.env.AITP_SENTINEL_SECRET = SENTINEL;
@@ -322,7 +322,9 @@ test.describe('the report email body @unit', () => {
       expect(process.env.AITP_SENTINEL_SECRET).toBe(SENTINEL);
 
       const reportDir = mkdtempSync(path.join(tmpdir(), 'aitp-sentinel-'));
-      writeFileSync(path.join(reportDir, 'index.html'), '<p>a real report file</p>', 'utf8');
+      // An ALLOWED file, so the bundle is not empty. `index.html` used to serve here
+      // and no longer can: the Playwright report is off the allowlist.
+      writeFileSync(path.join(reportDir, 'run.json'), '{"id":"run_sentinel"}', 'utf8');
       writeFileSync(path.join(reportDir, '.env'), `SECRET=${SENTINEL}\n`, 'utf8');
       mkdirSync(path.join(reportDir, 'auth'), { recursive: true });
       writeFileSync(path.join(reportDir, 'auth', 'qa.json'), `{"token":"${SENTINEL}"}`, 'utf8');
@@ -331,8 +333,8 @@ test.describe('the report email body @unit', () => {
       // The BYTES, not the entry names: a file excluded by name but still deflated
       // into the archive would pass a name check and ship the secret.
       expect(zipped.bytes.includes(Buffer.from(SENTINEL, 'utf8'))).toBe(false);
-      // And the real file DID make it in, which is what stops this passing over an
-      // archive that excluded everything.
+      // And the allowed file DID make it in, which is what stops this passing over a
+      // bundle that excluded everything — the shape an allowlist fails into.
       expect(zipped.entryCount).toBe(1);
       expect(zipped.excluded.map((entry) => entry.name).sort()).toEqual(['.env', 'auth/qa.json']);
     } finally {

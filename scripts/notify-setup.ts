@@ -45,6 +45,7 @@ const log = rootLogger.child('notify-setup');
 const USAGE = [
   'usage: pnpm notify:setup --app <slug> --folder <path> --to <addr>[,<addr>...]',
   '                        [--cc <addr>[,<addr>...]] [--ran-by <email>]',
+  '                        [--include-screenshots | --no-include-screenshots]',
 ].join('\n');
 
 function valueOf(flag: string): string | undefined {
@@ -56,6 +57,23 @@ function valueOf(flag: string): string | undefined {
   // a different problem entirely.
   if (!value || value.startsWith('--')) return undefined;
   return value;
+}
+
+/**
+ * A THREE-STATE boolean flag: on, off, or "leave it as it was".
+ *
+ * `--include-screenshots` decides whether pictures of the application may be mailed,
+ * and the two-state version of this is dangerous in both directions. Absent meaning
+ * FALSE would mean that re-running setup to change a recipient silently stops the
+ * screenshots an application had opted into. Absent meaning TRUE is worse. So absent
+ * means UNCHANGED, `--include-screenshots` means on, `--no-include-screenshots`
+ * means off, and the resulting value is printed either way — a security setting
+ * nobody is told about is a security setting nobody knows.
+ */
+function booleanFlag(flag: string): boolean | undefined {
+  if (process.argv.includes(`--no-${flag.replace(/^--/, '')}`)) return false;
+  if (process.argv.includes(flag)) return true;
+  return undefined;
 }
 
 const listOf = (flag: string): string[] =>
@@ -279,10 +297,19 @@ function main(): void {
   // that wiped `dms` would be a silent regression: the dms drop would simply stop,
   // and nothing would say why.
   const existing: NotifyConfig | null = loadNotifyConfig(root);
+  /**
+   * UNCHANGED unless a flag says otherwise, and `false` for an application that has
+   * never been configured. Fail-closed on both paths.
+   */
+  const screenshotFlag = booleanFlag('--include-screenshots');
+  const includeScreenshots =
+    screenshotFlag ?? existing?.apps[application]?.includeScreenshots ?? false;
+
   const entry: NotifyAppConfig = {
     folder: resolvedFolder,
     to,
     cc,
+    includeScreenshots,
     ranBy: ranBy.email,
     ranBySource: ranBy.source,
     allowedDomain,
@@ -316,6 +343,11 @@ function main(): void {
       `  cc          : ${cc.length ? cc.join(', ') : '(none)'}`,
       `  ran by      : ${ranBy.email}  (from ${ranBy.source})`,
       `  domain       : ${allowedDomain}  — recipients outside it are refused`,
+      `  screenshots : ${
+        includeScreenshots
+          ? 'INCLUDED in the bundle — only do this where the application holds no live data'
+          : 'not included (default). Add --include-screenshots to change it.'
+      }`,
       `  written to  : ${path.join(NOTIFY_CONFIG_RELATIVE)}  (gitignored; holds no credential)`,
       `  other apps  : ${
         Object.keys(merged.apps)
