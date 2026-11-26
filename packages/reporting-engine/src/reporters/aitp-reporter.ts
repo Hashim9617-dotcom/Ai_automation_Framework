@@ -13,11 +13,16 @@ import {
   TestOutcome,
   newId,
   rootLogger,
+  apiCallsCsv,
+  boundEndpoints,
   countBuckets,
   driftCsv,
   summarize,
+  summariseEndpoints,
   summariseRunNetwork,
   type DriftRow,
+  type EndpointRow,
+  type EndpointTestInput,
   type FailureContext,
   type SheetDriftSummary,
   type Logger,
@@ -28,6 +33,7 @@ import {
   type TestResult,
 } from '@aitp/shared';
 import { renderRunSummaryHtml } from '../html/summary';
+import { moduleFrom } from '../notify/body';
 import { NOTIFY_CONFIG_VAR } from '../notify/config';
 import { notifyOffBecause, notifyRun, notifyTestFolder, notifyTrigger } from '../notify/drop';
 
@@ -51,6 +57,15 @@ export const SHEET_DRIFT_ATTACHMENT = 'sheet-drift.json';
 
 /** The file a QA opens. Beside run.json, so it travels with the run it describes. */
 export const SHEET_DRIFT_CSV = 'sheet-drift.csv';
+
+/**
+ * The per-endpoint table, written beside `run.json` and allowed into the bundle.
+ *
+ * One constant, imported by the writer, by the notify allowlist and by the mail
+ * body that points a reader at it — so the file the mail names and the file that
+ * travels cannot be two different names (§AE).
+ */
+export const API_CALLS_CSV = 'api-calls.csv';
 
 export interface AitpReporterOptions {
   /** Directory for run.json / summary.html. Defaults to artifacts/reports. */
@@ -235,8 +250,13 @@ export default class AitpReporter implements Reporter {
      * about traffic, not about verdicts, and the two are counted differently on
      * purpose (`summary` above collapses retries; this does not).
      */
-    const networkSummary = this.collectNetwork();
-    if (networkSummary) this.run.network = networkSummary;
+    const network = this.collectNetwork();
+    if (network) {
+      // The BOUNDED head goes into run.json; `writeApiCallsCsv` below gets all of
+      // them. One list, two renderings, so the mail's counts and the CSV's rows
+      // cannot contradict each other.
+      this.run.network = { ...network.summary, endpoints: boundEndpoints(network.endpoints) };
+    }
     // BEFORE run.json is written, or the summary would be absent from the record
     // the API and the mail both read. The CSV is written after, from these rows.
     const driftRows = this.collectSheetDrift();
@@ -274,6 +294,10 @@ export default class AitpReporter implements Reporter {
      * the copy anybody else sees. The same trap `run.artifacts` has above.
      */
     if (driftRows) this.writeSheetDriftCsv(driftRows);
+    // Only when something was recorded. A header-only api-calls.csv in a run with
+    // no instrumented tests would say "we looked and there was no traffic", which
+    // is the one thing it would not mean.
+    if (network && network.endpoints.length > 0) this.writeApiCallsCsv(network.endpoints);
 
     archiveIfNotClean(this.run, this.outputDir, this.log);
 
@@ -371,8 +395,17 @@ export default class AitpReporter implements Reporter {
    * not a test that saw no traffic, and silently dropping it would make
    * `testsReporting` agree with a total it no longer explains.
    */
-  private collectNetwork(): RunNetworkSummary | undefined {
+  private collectNetwork(): { summary: RunNetworkSummary; endpoints: EndpointRow[] } | undefined {
     const perTest: NetworkSummaryInput[][] = [];
+    /**
+     * The SAME records, carrying the module the title resolved to.
+     *
+     * Two arrays over one read rather than two reads, because re-reading the
+     * attachments for the endpoint table would let the two answers disagree about
+     * which records exist — the §AE shape, where the drifted copy reads exactly
+     * like the correct one.
+     */
+    const perTestWithModule: EndpointTestInput[] = [];
     let unreadable = 0;
 
     for (const result of this.results) {
@@ -389,7 +422,9 @@ export default class AitpReporter implements Reporter {
           const parsed = JSON.parse(readFileSync(attachment.path, 'utf8')) as {
             requests?: NetworkSummaryInput[];
           };
-          perTest.push(Array.isArray(parsed.requests) ? parsed.requests : []);
+          const requests = Array.isArray(parsed.requests) ? parsed.requests : [];
+          perTest.push(requests);
+          perTestWithModule.push({ module: moduleFrom(result.title), requests });
         } catch {
           unreadable += 1;
         }
@@ -403,7 +438,31 @@ export default class AitpReporter implements Reporter {
       );
     }
     if (perTest.length === 0) return undefined;
-    return summariseRunNetwork(perTest);
+    return {
+      summary: summariseRunNetwork(perTest),
+      endpoints: summariseEndpoints(perTestWithModule),
+    };
+  }
+
+  /**
+   * THE FULL ENDPOINT TABLE, before the archive so it is inside it.
+   *
+   * Same ordering trap as the drift CSV: `archiveIfNotClean` copies this directory,
+   * so a file written afterwards exists on the machine that ran and not in the copy
+   * anybody else sees.
+   *
+   * Every row, with nothing capped — the bound is on `run.json` and on the mail,
+   * and this is the file both of them point at when they truncate.
+   */
+  private writeApiCallsCsv(rows: readonly EndpointRow[]): void {
+    const file = path.join(this.outputDir, API_CALLS_CSV);
+    writeFileSync(file, apiCallsCsv(rows), 'utf8');
+    this.log.info('API call table written', {
+      file: path.relative(process.cwd(), file),
+      endpoints: rows.length,
+      app: rows.filter((row) => row.sameOrigin).length,
+      thirdParty: rows.filter((row) => !row.sameOrigin).length,
+    });
   }
 
   /**

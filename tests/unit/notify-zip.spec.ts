@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { test, expect } from '@playwright/test';
+import { apiCallsCsv, summariseEndpoints } from '@aitp/shared';
 import {
   ALLOWED_IN_NOTIFY_BUNDLE,
   REPORT_ZIP_LIMIT_BYTES,
@@ -306,6 +307,83 @@ test.describe('the report archive @unit', () => {
     } finally {
       rmSync(reports, { recursive: true, force: true });
       rmSync(results, { recursive: true, force: true });
+    }
+  });
+
+  test('Z6b: a secret planted in a QUERY, a PATH SEGMENT or a HEADER is not in api-calls.csv', () => {
+    // wrong: Z6 plants its secret in files the allowlist REFUSES, so it proves the
+    // refusal works and nothing about the files that are allowed through. The
+    // endpoint table is the first allowed file built from live URLs — a query
+    // string, a path segment, a header name — so it is the first one where an
+    // allowed file could carry a value out. The needle is generated per run, so no
+    // stale copy can make this pass.
+    //
+    // Headers are in this fixture even though nothing records them, because the
+    // claim being tested is "a header value cannot reach the CSV" and a test that
+    // simply never supplies one asserts nothing. `EndpointRequestInput` has no
+    // header field, so an extra key is the strongest form the input can take: it
+    // must be IGNORED rather than serialised into some unexpected column.
+    const dir = scratch();
+    const secret = `AITP-URL-SECRET-${Math.random().toString(36).slice(2)}`;
+    try {
+      const csv = apiCallsCsv(
+        summariseEndpoints([
+          {
+            module: 'Tax',
+            requests: [
+              { method: 'GET', path: `/api/tax?token=${secret}`, status: 200, sameOrigin: true },
+              { method: 'GET', path: `/api/reset/${secret}`, status: 200, sameOrigin: true },
+              {
+                method: 'GET',
+                path: '/api/tax',
+                status: 200,
+                sameOrigin: true,
+                // An unknown field, as a header map would arrive if one were ever added.
+                ...({ headers: { authorization: `Bearer ${secret}` } } as object),
+              },
+            ],
+          },
+        ]),
+      );
+      writeFileSync(path.join(dir, 'api-calls.csv'), csv, 'utf8');
+      writeFileSync(path.join(dir, 'run.json'), '{"marker":"present"}', 'utf8');
+
+      expect(csv, 'the planted secret is in api-calls.csv').not.toContain(secret);
+
+      /**
+       * And it is absent from the DECOMPRESSED bundle, not from the raw bytes.
+       *
+       * The first version of this searched `bytes.toString('latin1')` the way Z6
+       * does, and went red on its own discriminating half: `api-calls.csv` is text,
+       * so the writer DEFLATES it, and the plaintext is not in the file at all.
+       *
+       * That failure is the lucky direction. The absence assertion above it would
+       * have been satisfied by the same compression — a scan that cannot find what
+       * it is looking for reports clean forever (§AA). Z6 gets away with a raw scan
+       * because everything it plants is in a file the allowlist REFUSES, so the
+       * bytes genuinely are not there; this test plants inside a file that is
+       * allowed through, which is exactly the case a raw scan cannot do.
+       */
+      const entries = readZip(zipSources([{ root: dir, prefix: '' }]).bytes);
+      const names = entries.map((entry) => entry.name).sort();
+      expect(names, 'api-calls.csv is not in the bundle').toContain('api-calls.csv');
+      for (const entry of entries) {
+        expect(
+          entry.contents.toString('utf8'),
+          `the planted secret is inside ${entry.name}`,
+        ).not.toContain(secret);
+      }
+
+      // §W — the discriminating half, now asked of the decompressed content. The
+      // CSV really did travel and really does describe those endpoints, so "the
+      // secret is absent" is not also true of an empty or missing file.
+      const inBundle = entries
+        .find((entry) => entry.name === 'api-calls.csv')!
+        .contents.toString('utf8');
+      expect(inBundle).toContain('/api/reset/:id');
+      expect(inBundle).toContain('Method,API,Origin');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

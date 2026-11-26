@@ -1,5 +1,6 @@
 export * from './types/run';
 export * from './types/network-summary';
+export * from './types/network-endpoints';
 export * from './types/test-case';
 export * from './types/locator';
 export * from './types/ai';

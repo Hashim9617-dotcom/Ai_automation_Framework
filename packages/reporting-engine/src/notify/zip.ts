@@ -157,6 +157,24 @@ export const ALLOWED_IN_NOTIFY_BUNDLE: ReadonlyArray<{
     label: 'the sheet-drift review file',
     test: (p) => p === 'sheet-drift.csv',
   },
+  {
+    /**
+     * The per-endpoint call table.
+     *
+     * Method, templated path, origin, counts, status mix, slowest call and module
+     * names. No query string — dropped when the request is recorded AND again when
+     * the path is templated — no headers and no bodies, because none of those is
+     * ever read. Id-like path segments become `:id`, so a record identifier from a
+     * live system cannot travel in a URL either.
+     *
+     * Unconditional rather than opt-in, which is a judgement and worth saying: a
+     * path template is schema, like the `/admin/domains/<Entity>` routes already in
+     * every run.json, where a screenshot is a picture of data. `Z6` is the test that
+     * holds this claim to a planted secret.
+     */
+    label: 'the API call table',
+    test: (p) => p === 'api-calls.csv',
+  },
   { label: 'the human summary', test: (p) => p === 'summary.md' },
   {
     /**

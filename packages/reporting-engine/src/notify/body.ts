@@ -1,4 +1,12 @@
-import { TestOutcome, formatStatusCounts, type Run, type TestResult } from '@aitp/shared';
+import {
+  TestOutcome,
+  formatStatusCounts,
+  formatStatusMix,
+  hasErrorStatus,
+  type EndpointRow,
+  type Run,
+  type TestResult,
+} from '@aitp/shared';
 import type { RunComparison } from './history';
 
 /**
@@ -187,6 +195,28 @@ const HEAD = `${FONT};font-size:11px;letter-spacing:.04em;text-transform:upperca
 
 /** How many failures the mail lists before it says "+N more". */
 export const MAX_LISTED_FAILURES = 10;
+
+/**
+ * How many endpoints the "API calls" section shows before it points at the CSV.
+ *
+ * Fifteen is enough for every failing endpoint plus the busiest handful, and short
+ * enough that the section stays a summary. `api-calls.csv` in the bundle has every
+ * row, which is what makes a cap honest rather than a loss.
+ */
+export const MAX_LISTED_ENDPOINTS = 15;
+
+/** The bundle file the API-calls section points a reader at. */
+export const API_CALLS_FILE = 'api-calls.csv';
+
+/** How many module names one endpoint row prints before it says "+N". */
+const MAX_MODULES_IN_ROW = 4;
+
+/** `Products, Tax +3` — bounded, with the true count never lost. */
+function modulesCell(row: EndpointRow): string {
+  const shown = row.modules.slice(0, MAX_MODULES_IN_ROW).join(', ');
+  const hidden = row.moduleCount - Math.min(row.modules.length, MAX_MODULES_IN_ROW);
+  return hidden > 0 ? `${shown} +${hidden}` : shown;
+}
 
 /** What started the run. Resolved by the caller from its own argv/environment (§AJ). */
 export type RunTrigger = 'manual' | 'jenkins';
@@ -632,6 +662,58 @@ export function renderReportEmailHtml(input: ReportEmailInput): string {
     }
   </td></tr>`;
 
+  // ---- (e2) the API calls table ----
+  /**
+   * WHICH ENDPOINTS, not just how many responses of each kind.
+   *
+   * The HTTP block above answers "was anything broken"; this answers "what did
+   * this run actually talk to, and which module made it". Ordered failures-first
+   * so the section's top is the part somebody has to act on, and bounded, because
+   * a run that visits 29 modules touches a few hundred distinct paths.
+   */
+  const endpoints = run.network?.endpoints;
+  const shownEndpoints = endpoints ? endpoints.rows.slice(0, MAX_LISTED_ENDPOINTS) : [];
+  const endpointBlock = `<tr><td style="padding:22px 24px 0">
+    <div style="${FONT};font-size:15px;font-weight:700;color:#1f2328">API calls</div>
+    <div style="${FONT};font-size:12px;color:#5b6370;padding-bottom:6px">
+      Anything that returned 4xx or 5xx first. Path templates only — no query strings, no bodies, no headers; record ids are replaced by <span style="font-family:Consolas,Courier New,monospace">:id</span>.
+    </div>
+    ${
+      endpoints && endpoints.rows.length > 0
+        ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e3e5e8">
+      <thead><tr bgcolor="#fafbfc">
+        <th style="${HEAD}">Method</th>
+        <th style="${HEAD}">API</th>
+        <th style="${HEAD};text-align:right">Calls</th>
+        <th style="${HEAD}">Status codes</th>
+        <th style="${HEAD}">Modules</th>
+      </tr></thead>
+      <tbody>${shownEndpoints
+        .map(
+          (row) => `<tr>
+        <td style="${CELL};font-family:Consolas,Courier New,monospace">${escapeHtml(row.method)}</td>
+        <td style="${CELL};font-family:Consolas,Courier New,monospace">${escapeHtml(row.api)}${
+          row.sameOrigin
+            ? ''
+            : ' <span style="color:#5b6370;font-family:inherit">(third party)</span>'
+        }</td>
+        <td style="${CELL};text-align:right">${row.calls}</td>
+        <td style="${CELL}${hasErrorStatus(row) ? ';color:#a21b1b;font-weight:700' : ''}">${escapeHtml(formatStatusMix(row.byStatus))}</td>
+        <td style="${CELL};color:#5b6370">${escapeHtml(modulesCell(row))}</td>
+      </tr>`,
+        )
+        .join('')}</tbody>
+    </table>
+    ${
+      endpoints.total > shownEndpoints.length
+        ? `<div style="${FONT};font-size:12px;color:#5b6370;padding-top:5px">+${endpoints.total - shownEndpoints.length} more in ${API_CALLS_FILE}.</div>`
+        : ''
+    }`
+        : // ABSENT is not zero, the same distinction the HTTP block draws.
+          `<div style="${FONT};font-size:13px;color:#5b6370">No endpoint records in this run — no test was instrumented, which is not the same as a run that called nothing.</div>`
+    }
+  </td></tr>`;
+
   // ---- (f) the safety line ----
   const reLogins = reLoginCount(run);
   const safetyBlock = `<tr><td style="padding:16px 24px 0">
@@ -738,6 +820,8 @@ export function renderReportEmailHtml(input: ReportEmailInput): string {
   ${failureBlock}
 
   ${httpBlock}
+
+  ${endpointBlock}
 
   ${safetyBlock}
 
@@ -892,6 +976,29 @@ export function renderReportEmailText(input: ReportEmailInput): string {
       'No network records in this run — no test was instrumented, which is not the same as a',
     );
     out.push('run that made no requests.');
+  }
+  out.push('');
+
+  // (e2) API calls
+  out.push('API CALLS');
+  const endpoints = run.network?.endpoints;
+  if (endpoints && endpoints.rows.length > 0) {
+    out.push('Anything that returned 4xx or 5xx first. Path templates only — no query');
+    out.push('strings, no bodies, no headers; record ids are replaced by :id.');
+    const shown = endpoints.rows.slice(0, MAX_LISTED_ENDPOINTS);
+    for (const row of shown) {
+      out.push(
+        `  ${row.method} ${row.api}${row.sameOrigin ? '' : ' (third party)'} — ` +
+          `${row.calls} call(s), ${formatStatusMix(row.byStatus)}` +
+          `${row.modules.length > 0 ? ` [${modulesCell(row)}]` : ''}`,
+      );
+    }
+    if (endpoints.total > shown.length) {
+      out.push(`+${endpoints.total - shown.length} more in ${API_CALLS_FILE}.`);
+    }
+  } else {
+    out.push('No endpoint records in this run — no test was instrumented, which is not the');
+    out.push('same as a run that called nothing.');
   }
   out.push('');
 

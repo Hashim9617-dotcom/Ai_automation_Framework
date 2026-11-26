@@ -6,13 +6,16 @@ import {
   FailureCategory,
   RunStatus,
   TestOutcome,
+  boundEndpoints,
   describeTarget,
   emptySummary,
   findRepoRoot,
+  summariseEndpoints,
   type Run,
   type TestResult,
 } from '@aitp/shared';
 import {
+  MAX_LISTED_ENDPOINTS,
   compareRuns,
   describeRunForHistory,
   errorHeadline,
@@ -186,7 +189,7 @@ test.describe('the report email body @unit', () => {
         trigger: 'jenkins',
       }),
     );
-    for (const heading of ['BY MODULE', 'HTTP', 'SAFETY', 'SHEET DRIFT']) {
+    for (const heading of ['BY MODULE', 'HTTP', 'API CALLS', 'SAFETY', 'SHEET DRIFT']) {
       expect(text, `the text body has no ${heading} section`).toContain(heading);
     }
     expect(text).toContain('Triggered by : jenkins');
@@ -195,6 +198,103 @@ test.describe('the report email body @unit', () => {
     // The HOST only — a query string can carry a record id, and this one does.
     expect(text).toContain('qa.example.test');
     expect(text, 'a URL query reached the plain-text body').not.toContain('LEAK');
+  });
+
+  test('B18: the API calls section leads with failures and points at the CSV', () => {
+    // wrong: a section ordered by call count, where the one endpoint that returned
+    // 500 sits below forty static-asset rows — which is the order the data arrives
+    // in, so it is what a renderer that does no sorting produces. The fixture
+    // discriminates because the failing row has the FEWEST calls: under a count
+    // order it would be last, so this cannot pass by accident.
+    const run = runOf([resultOf({ id: 't1', title: 'Tax › TAX-001 list loads' })]);
+    run.network = {
+      totalRequests: 52,
+      byStatus: { '200': 51, '500': 1 },
+      appByStatus: { '200': 51, '500': 1 },
+      thirdPartyByStatus: {},
+      appWriteAttempts: 0,
+      topFailingEndpoints: [],
+      testsReporting: 1,
+      endpoints: boundEndpoints(
+        summariseEndpoints([
+          {
+            module: 'Tax',
+            requests: [
+              ...Array.from({ length: 40 }, () => ({
+                method: 'GET',
+                path: '/static/app.js',
+                status: 200,
+                sameOrigin: true,
+                durationMs: 5,
+              })),
+              { method: 'GET', path: '/api/tax/9', status: 500, sameOrigin: true, durationMs: 90 },
+            ],
+          },
+        ]),
+      ),
+    };
+
+    const html = renderReportEmailHtml(inputOf(run));
+    expect(html).toContain('API calls');
+    // The failing endpoint's row comes BEFORE the busy one in the document.
+    expect(html.indexOf('/api/tax/:id')).toBeGreaterThan(-1);
+    expect(html.indexOf('/api/tax/:id')).toBeLessThan(html.indexOf('/static/app.js'));
+    // Counts and the status mix are both there, in the agreed shape.
+    expect(html).toContain(`500${'×'}1`);
+    expect(html).toContain(`200${'×'}40`);
+    // The templated id is what travels, never the record's own number.
+    expect(html, 'a record id reached the mail').not.toContain('/api/tax/9');
+
+    const text = renderReportEmailText(inputOf(run));
+    expect(text).toContain('API CALLS');
+    expect(text.indexOf('/api/tax/:id')).toBeLessThan(text.indexOf('/static/app.js'));
+    expect(text).not.toContain('/api/tax/9');
+  });
+
+  test('B19: a bounded API section says how many it is NOT showing, and where they are', () => {
+    // wrong: slicing and stopping. A reader with no "+N more" line believes the
+    // table is the whole traffic of the run — and the CSV that has the rest is in
+    // the bundle, unmentioned, so nobody opens it. The §AB shape: a number quoted
+    // without the assumption it was taken under.
+    const run = runOf([resultOf({ id: 't1', title: 'Tax › TAX-001 list loads' })]);
+    const many = Array.from({ length: MAX_LISTED_ENDPOINTS + 7 }, (_, index) => ({
+      method: 'GET',
+      path: `/api/e${index}/x`,
+      status: 200,
+      sameOrigin: true,
+      durationMs: 1,
+    }));
+    run.network = {
+      totalRequests: many.length,
+      byStatus: { '200': many.length },
+      appByStatus: { '200': many.length },
+      thirdPartyByStatus: {},
+      appWriteAttempts: 0,
+      topFailingEndpoints: [],
+      testsReporting: 1,
+      endpoints: boundEndpoints(summariseEndpoints([{ module: 'Tax', requests: many }])),
+    };
+
+    const html = renderReportEmailHtml(inputOf(run));
+    expect(html).toContain('+7 more in api-calls.csv.');
+    expect(renderReportEmailText(inputOf(run))).toContain('+7 more in api-calls.csv.');
+
+    // And a run UNDER the cap says nothing of the sort, so the line is a fact about
+    // this run rather than boilerplate that is always true.
+    const small = runOf([resultOf({ id: 't1', title: 'Tax › TAX-001 list loads' })]);
+    small.network = { ...run.network, endpoints: boundEndpoints(summariseEndpoints([])) };
+    expect(renderReportEmailHtml(inputOf(small))).not.toContain('more in api-calls.csv');
+  });
+
+  test('B20: ABSENT endpoint records are not rendered as "no traffic"', () => {
+    // wrong: an empty table, which says the run called nothing. A run with no
+    // instrumented test has no endpoint record at all, and the three states — not
+    // recorded, recorded and empty, recorded with rows — are three different
+    // sentences to a reader deciding whether to go looking for a problem.
+    const run = runOf([resultOf({ id: 't1', title: 'Tax › TAX-001 list loads' })]);
+    const html = renderReportEmailHtml(inputOf(run));
+    expect(html).toContain('No endpoint records in this run');
+    expect(renderReportEmailText(inputOf(run))).toContain('No endpoint records in this run');
   });
 
   test('B1: it contains no construct Outlook silently drops', () => {

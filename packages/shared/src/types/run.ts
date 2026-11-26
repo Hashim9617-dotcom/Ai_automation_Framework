@@ -215,6 +215,52 @@ export interface RunNetworkSummary {
   topFailingEndpoints: FailingEndpoint[];
   /** How many test results contributed a record, so a 0 cannot read as "clean". */
   testsReporting: number;
+  /**
+   * The per-endpoint table, BOUNDED — or absent.
+   *
+   * Optional for the same reason the whole summary is: a run from before this
+   * field existed, or one whose records could not be read, has none, and that is
+   * not the same as a run that touched no endpoints. Absent means "not computed".
+   *
+   * The bound is documented on `RunEndpointSummary`, and `api-calls.csv` inside
+   * the notify bundle carries every row with nothing capped.
+   */
+  endpoints?: RunEndpointSummary;
+}
+
+/** One endpoint, aggregated across every test that touched it. */
+export interface EndpointRow {
+  method: string;
+  /** The path with the query dropped and id-like segments replaced by `:id`. */
+  api: string;
+  /** True for the application's own origin; false for anybody else's. */
+  sameOrigin: boolean;
+  calls: number;
+  /** Count per status code, e.g. `{ "200": 40, "304": 12 }`. */
+  byStatus: Record<string, number>;
+  /**
+   * The modules that called it — possibly CAPPED. `moduleCount` is the authority
+   * for how many there really were, so a capped list can never be mistaken for a
+   * complete one.
+   */
+  modules: string[];
+  moduleCount: number;
+  /** The slowest single call to this endpoint, in milliseconds. */
+  maxDurationMs: number;
+}
+
+/**
+ * The bounded endpoint table as it reaches `run.json`.
+ *
+ * `total` and `shown` are both recorded because they answer different questions,
+ * and `rows.length` answers only the second one.
+ */
+export interface RunEndpointSummary {
+  /** How many distinct endpoints the run touched, before any cap. */
+  total: number;
+  /** How many of them are in `rows`. Equal to `total` when nothing was cut. */
+  shown: number;
+  rows: EndpointRow[];
 }
 
 export interface RunSummary {

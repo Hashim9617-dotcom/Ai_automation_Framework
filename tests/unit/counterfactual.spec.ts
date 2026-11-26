@@ -276,6 +276,12 @@ const COVERED = [
   // folder made the v0.4 kit die with MODULE_NOT_FOUND and no KIT MODIFIED. Every
   // test here names the false pass — or the cryptic refusal — it exists to prevent.
   'tests/unit/kit-check-standalone.spec.ts',
+  // Added 2026-11-26 with ECOM-1a-stabilize. The endpoint table is the first file
+  // built from live URLs that the notify ALLOWLIST lets travel, so most of its
+  // counterfactuals are about what must not survive into a row — and N4 and N12 are
+  // the two that keep the rules from being satisfied by refusing or reordering
+  // everything.
+  'tests/unit/network-endpoints.spec.ts',
 ];
 
 /**
