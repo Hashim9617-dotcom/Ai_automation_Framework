@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { TestOutcome, type Run, type TestResult } from '@aitp/shared';
+import { TestOutcome, type DriftCounts, type Run, type TestResult } from '@aitp/shared';
 
 /**
  * ENOUGH OF EACH RUN TO COMPARE THE NEXT ONE AGAINST IT.
@@ -49,6 +49,30 @@ export interface RunRecord {
   status: string;
   /** One entry per distinct test: its stable id, its title, and how it ended. */
   outcomes: Array<{ id: string; title: string; outcome: TestOutcome }>;
+  /**
+   * THE RUN'S DRIFT TOTALS, so a change between two GREEN runs is investigable.
+   *
+   * Added 2026-11-26 after exactly that went unanswerable. Two full runs two days
+   * apart reported `match 119` and then `match 116` over an identical 153 clauses,
+   * and the classifier change in between could not account for it — `narrower` is
+   * evaluated AFTER `match`, so a column that matched exactly cannot be reclassified
+   * into it. The page had rendered different headers, and nothing could say which.
+   *
+   * The evidence was gone because `archiveIfNotClean` archives a run only when it
+   * has failures or flakes: both of those runs were green on the list pages, so each
+   * overwrote the other's `sheet-drift.csv` in `artifacts/reports/`. This record is
+   * written for EVERY run that notifies, green included, which is why the four
+   * numbers belong here rather than in the archive.
+   *
+   * Four integers, not the rows: the per-column detail is `sheet-drift.csv`, and a
+   * history file carrying every column name of every module for every kept run is
+   * how a directory becomes unreadable. The totals are enough to SEE a change; the
+   * CSV of the run that shows one is what explains it.
+   *
+   * OPTIONAL, because a run where no spec classified any columns has no drift at
+   * all — which is not the same as a run whose sheet matched perfectly.
+   */
+  sheetDrift?: DriftCounts;
 }
 
 export function runHistoryDir(root: string, application: string): string {
@@ -85,6 +109,19 @@ export function describeRunForHistory(
       title: result.title,
       outcome: result.outcome,
     })),
+    // The four totals only, and the key is OMITTED rather than zeroed when the run
+    // classified nothing: `{match:0,…}` would read as a run whose sheet matched
+    // nothing, which is the opposite of "nobody looked".
+    ...(run.sheetDrift
+      ? {
+          sheetDrift: {
+            match: run.sheetDrift.match,
+            phrasing: run.sheetDrift.phrasing,
+            narrower: run.sheetDrift.narrower,
+            real: run.sheetDrift.real,
+          } satisfies DriftCounts,
+        }
+      : {}),
   };
 }
 

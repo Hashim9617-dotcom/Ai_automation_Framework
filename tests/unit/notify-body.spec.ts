@@ -629,6 +629,41 @@ test.describe('the report email body @unit', () => {
     expect(previousRunRecord(onlyDir, current)).toBeNull();
   });
 
+  test('B21: a run record carries the drift TOTALS, so two green runs are comparable', () => {
+    // wrong: a record with outcomes only — which is what it was, and why a real
+    // question went unanswerable. Two full runs two days apart reported `match 119`
+    // then `match 116` over an identical 153 clauses, and the only artefact that
+    // could have named the columns was `artifacts/reports/sheet-drift.csv`, which
+    // the second run overwrote. It overwrote it because BOTH runs were green on the
+    // list pages and `archiveIfNotClean` keeps a run only when something failed.
+    // This record is written for every run that notifies, so it is where the four
+    // numbers survive.
+    const run = runOf([resultOf({ id: 'a', title: 'Tax › TAX-001 list loads' })]);
+    run.sheetDrift = {
+      match: 104,
+      phrasing: 9,
+      narrower: 7,
+      real: 14,
+      modules: 19,
+      byModule: [{ module: 'Tax', counts: { match: 6, phrasing: 0, narrower: 0, real: 2 } }],
+    };
+    const record = describeRunForHistory(run, 'ecom', 'qa');
+    expect(record.sheetDrift).toEqual({ match: 104, phrasing: 9, narrower: 7, real: 14 });
+    // The per-module rows are NOT carried: the detail belongs in sheet-drift.csv,
+    // and a kept history of every column name of every module is how a directory
+    // becomes unreadable. The totals are enough to SEE a change.
+    expect(JSON.stringify(record)).not.toContain('byModule');
+
+    // ABSENT, not zeroed, when nothing classified any columns — `{match:0,…}` reads
+    // as a sheet that matched nothing, which is the opposite of "nobody looked".
+    const nothing = describeRunForHistory(
+      runOf([resultOf({ id: 'a', title: 'Tax › TAX-001 list loads' })]),
+      'ecom',
+      'qa',
+    );
+    expect('sheetDrift' in nothing).toBe(false);
+  });
+
   test('B12: the attachment line says which of the three states this run is in', () => {
     // wrong: claiming an attachment that a size limit dropped. A manager clicking a
     // paperclip that is not there is the specific failure the 10 MB check exists for,
