@@ -115,21 +115,33 @@ and paste exactly:
 > If the dropdown offers both _Identifier_ and _File Identifier_, use **Identifier**.
 > Picking the wrong one gives a "file not found" that reads like a permissions problem.
 
-### Step 3 — Parse JSON
+### Step 3 — Compose the parsed file
 
-**New step → Data Operation → Parse JSON.**
+**New step → Data Operation → Compose.**
 
-| Field       | What to put                                                 |
-| ----------- | ----------------------------------------------------------- |
-| **Content** | dynamic content: **File Content** (from step 2)             |
-| **Schema**  | paste the whole of [`ready-schema.json`](ready-schema.json) |
+| Field      | What to put          |
+| ---------- | -------------------- |
+| **Inputs** | the expression below |
 
-That file is in this repo beside this page, and a unit test checks it against what the
-platform actually writes — so if the platform ever changes the shape, that test fails
-before you ever see a broken flow.
+```
+@{json(body('Get_file_content'))}
+```
 
-After this step, every field has a friendly name in the dynamic-content list:
-**subject**, **bodyHtml**, **to**, **cc**, **verdict**, **counts**, and so on.
+**Leave the action named `Compose`.** Every expression below reads
+`outputs('Compose')`, so renaming it means editing all of them.
+
+> **Why Compose and not Parse JSON.** Parse JSON is the action most guides reach
+> for, and it works — but it holds a copy of the schema pasted into the flow, so a
+> field the platform adds later makes the action fail until somebody re-pastes it.
+> Compose parses the same JSON and the field names are identical; it simply does not
+> keep a second copy of the shape. [`ready-schema.json`](ready-schema.json) is still
+> the published contract, and a unit test checks it against what the platform
+> actually writes — so the shape is pinned somewhere that fails loudly, rather than
+> inside a flow nobody opens.
+>
+> The cost is that **Compose gives no friendly dynamic-content names.** Every field
+> is read as an expression, which is why each one below is written out in full
+> instead of being described as "pick it from the list".
 
 ### Step 4 — Keep only recipients in your own domain
 
@@ -138,9 +150,13 @@ address must not be able to send one outside the organisation.
 
 **New step → Data Operation → Filter array.**
 
-| Field    | What to put                               |
-| -------- | ----------------------------------------- |
-| **From** | dynamic content: **to** (from Parse JSON) |
+| Field    | What to put          |
+| -------- | -------------------- |
+| **From** | the expression below |
+
+```
+@{outputs('Compose')?['to']}
+```
 
 Switch the condition row to **edit in advanced mode** and paste exactly — replacing
 `contoso.com` with your own domain:
@@ -150,7 +166,8 @@ Switch the condition row to **edit in advanced mode** and paste exactly — repl
 ```
 
 Rename this action **Filter To**. Then **add a second Filter array** exactly the same
-way for **cc**, and rename it **Filter CC**.
+way for `cc` — its **From** is `@{outputs('Compose')?['cc']}` — and rename it
+**Filter CC**.
 
 > A `cc` is delivered exactly like a `to`, so it gets the same filter. Skipping it is
 > the mistake that makes the whole step pointless.
@@ -160,7 +177,7 @@ way for **cc**, and rename it **Filter CC**.
 **New step → Control → Condition.** In advanced mode, paste:
 
 ```
-@not(equals(length(body('Filter_To')), length(body('Parse_JSON')?['to'])))
+@not(equals(length(body('Filter_To')), length(outputs('Compose')?['to'])))
 ```
 
 > Action names in an expression use underscores for spaces. If you renamed the
@@ -168,14 +185,22 @@ way for **cc**, and rename it **Filter CC**.
 
 **In the "If yes" branch**, add **Office 365 Outlook → Send an email (V2)**:
 
-| Field       | What to put                                                                    |
-| ----------- | ------------------------------------------------------------------------------ |
-| **To**      | your own address                                                               |
-| **Subject** | `[NOT SENT] recipients outside the domain — ` then dynamic content **subject** |
-| **Body**    | the expression below                                                           |
+| Field       | What to put                 |
+| ----------- | --------------------------- |
+| **To**      | your own address            |
+| **Subject** | the first expression below  |
+| **Body**    | the second expression below |
+
+**Subject:**
 
 ```
-@{concat('This report was NOT sent to its intended recipients because some are outside the allowed domain.<br><br>Requested to: ', join(body('Parse_JSON')?['to'], ', '), '<br>Allowed to: ', join(body('Filter_To'), ', '), '<br>Requested cc: ', join(body('Parse_JSON')?['cc'], ', '), '<br>Allowed cc: ', join(body('Filter_CC'), ', '), '<br><br>Fix the recipient list with: pnpm notify:setup --app ', body('Parse_JSON')?['app'])}
+@{concat('[NOT SENT] recipients outside the domain — ', outputs('Compose')?['subject'])}
+```
+
+**Body:**
+
+```
+@{concat('This report was NOT sent to its intended recipients because some are outside the allowed domain.<br><br>Requested to: ', join(outputs('Compose')?['to'], ', '), '<br>Allowed to: ', join(body('Filter_To'), ', '), '<br>Requested cc: ', join(outputs('Compose')?['cc'], ', '), '<br>Allowed cc: ', join(body('Filter_CC'), ', '), '<br><br>Fix the recipient list with: pnpm notify:setup --app ', outputs('Compose')?['app'])}
 ```
 
 **Leave the "If no" branch empty for now** — step 6 goes in it.
@@ -190,12 +215,12 @@ way for **cc**, and rename it **Filter CC**.
 Inside the **"If no"** branch of step 5, add **Office 365 Outlook → Send an email
 (V2)**.
 
-| Field       | What to put                                    |
-| ----------- | ---------------------------------------------- |
-| **To**      | the expression below                           |
-| **CC**      | the expression below                           |
-| **Subject** | dynamic content: **subject**                   |
-| **Body**    | the **expression** below — NOT dynamic content |
+| Field       | What to put                                              |
+| ----------- | -------------------------------------------------------- |
+| **To**      | the expression below                                     |
+| **CC**      | the expression below                                     |
+| **Subject** | the expression below                                     |
+| **Body**    | the **expression** below — never the Dynamic content tab |
 
 > **To see what the body looks like before building any of this**, run
 > `pnpm notify:preview --app <slug> --run <dir-with-run.json>`. It writes
@@ -206,11 +231,11 @@ Inside the **"If no"** branch of step 5, add **Office 365 Outlook → Send an em
 **Body** — paste this into the **Expression** tab, not the **Dynamic content** tab:
 
 ```
-@{body('Parse_JSON')?['bodyHtml']}
+@{outputs('Compose')?['bodyHtml']}
 ```
 
-> **Why an expression and not dynamic content.** Picking **bodyHtml** from the
-> dynamic-content list makes Power Automate treat the field as a block of text and
+> **Why an expression and not dynamic content.** Pasting the same value into the
+> dynamic-content tab makes Power Automate treat the field as a block of text and
 > wrap it in its own `<p>` element before sending. The body is a complete
 > `<!doctype html>` document, so the result is a document nested inside a paragraph
 > inside another document — and Outlook's renderer responds to that by dropping the
@@ -219,6 +244,12 @@ Inside the **"If no"** branch of step 5, add **Office 365 Outlook → Send an em
 >
 > The two look identical in the designer. The difference only appears in a received
 > mail, which is why this is written down rather than left to be noticed.
+
+**Subject:**
+
+```
+@{outputs('Compose')?['subject']}
+```
 
 **To:**
 
@@ -232,6 +263,12 @@ Inside the **"If no"** branch of step 5, add **Office 365 Outlook → Send an em
 @{join(body('Filter_CC'), ';')}
 ```
 
+> **To and CC come from the filters, not from `Compose`.** That is the whole point of
+> step 4: the filtered list is the one that was checked against your domain, and
+> reading `outputs('Compose')?['to']` here instead would send to the unfiltered list
+> while the `[NOT SENT]` warning still fired. Both would happen, and the warning
+> would read like the mail had been stopped.
+
 Now open **Advanced options** on the same card:
 
 | Field          | What to put                                                |
@@ -242,7 +279,7 @@ Now open **Advanced options** on the same card:
 **Importance** — read it from the file, and fall back to `Normal`:
 
 ```
-@{coalesce(body('Parse_JSON')?['importance'], 'Normal')}
+@{coalesce(outputs('Compose')?['importance'], 'Normal')}
 ```
 
 > **Why read it rather than compute it.** The ready file now carries `importance`
@@ -256,10 +293,10 @@ Now open **Advanced options** on the same card:
 > that a `Normal` mail instead of a failed action, which is the right outcome for a
 > field that only ever changes an icon.
 >
-> If your flow parses the trigger body with a **Compose** action rather than the
-> **Parse JSON** action this guide creates, the same expression is
-> `@{coalesce(outputs('Compose')?['importance'], 'Normal')}` — the field name is the
-> same either way; only the action you read it from changes.
+> If you built the flow with a **Parse JSON** action instead of the **Compose** of
+> step 3, every expression on this page is the same with `outputs('Compose')`
+> replaced by `body('Parse_JSON')`. The field names do not change; only the action
+> you read them from does.
 
 > **A plain-text fallback is also available.** `bodyText` carries the same report as
 > text, for a reader on a watch or a screen reader, or a gateway that strips HTML.
@@ -281,14 +318,14 @@ same branch:
 | **File Path**    | the expression below |
 
 ```
-@{concat(triggerOutputs()?['body/{Path}'], body('Parse_JSON')?['reportZipName'])}
+@{concat(triggerOutputs()?['body/{Path}'], outputs('Compose')?['reportZipName'])}
 ```
 
 Then on the send step:
 
 | Field                       | What to put                                         |
 | --------------------------- | --------------------------------------------------- |
-| **Attachments Name - 1**    | dynamic content **reportZipName**                   |
+| **Attachments Name - 1**    | `@{outputs('Compose')?['reportZipName']}`           |
 | **Attachments Content - 1** | **File Content** from _Get file content using path_ |
 
 Finally, wrap _Get file content using path_ and set the attachment fields only when
@@ -296,7 +333,7 @@ there is something to attach. Put both inside a **Condition** whose advanced-mod
 expression is:
 
 ```
-@and(not(equals(body('Parse_JSON')?['reportZipName'], null)), equals(body('Parse_JSON')?['reportZipTooLarge'], false))
+@and(not(equals(outputs('Compose')?['reportZipName'], null)), equals(outputs('Compose')?['reportZipTooLarge'], false))
 ```
 
 > **Why both halves.** `reportZipName` is `null` when no archive was written at all.
@@ -334,7 +371,7 @@ mail within a minute or two.
 | Flow never triggers                                               | The folder is not syncing, or the trigger's folder is the wrong one. Check the file appears in the SharePoint library **in the browser**, not just on your PC. |
 | Flow triggers twice per run                                       | The trigger condition is missing or misspelt. It fired for the `.zip` too.                                                                                     |
 | Mail arrives as HTML source                                       | **Is HTML** is not set to Yes on the send step.                                                                                                                |
-| Mail has an empty subject or no recipients                        | The Parse JSON schema is stale. Re-paste [`ready-schema.json`](ready-schema.json).                                                                             |
+| Mail has an empty subject or no recipients                        | `Compose` is not reading the file. Check its **Inputs** is `@{json(body('Get_file_content'))}` and that the action is still named `Compose`.                   |
 | Mail has no attachment                                            | Either there was no archive (`reportZipName` is null), or it was over 10 MB — the body says which.                                                             |
 | You get a `[NOT SENT]` mail                                       | A recipient is outside your domain. Re-run `pnpm notify:setup` with the right list.                                                                            |
 | `pnpm test` prints `notify: not configured`                       | Expected before setup. The line tells you the command to run.                                                                                                  |
@@ -381,7 +418,7 @@ the copy, change **four things only**:
 3. _Get file content using path_'s **Site Address**
 4. _Move file_'s two **Site Address** fields and its **Destination Folder**
 
-Everything else — the schema, the filters, the expressions — is identical, because
+Everything else — the `Compose`, the filters, the expressions — is identical, because
 the ready file has the same shape for every application.
 
 Turn the copy **On**. Run the suite once and check the mail arrives.
@@ -397,8 +434,14 @@ Said rather than left to be discovered:
 - **`artifacts/reports/` is not per-application.** Two applications' Playwright HTML
   reports share one directory, so the zip attached to a report is the newest one. For
   one application at a time — the normal case — this is invisible.
-- **Nobody has run this flow against a real tenant yet.** Every expression here was
-  written from the published connector documentation and the schema in this folder,
-  and the platform side is covered end to end by `tests/demo/notify-drop-e2e.spec.ts`.
-  The first person to build it should expect to correct a field name or two, and
-  should correct this page at the same time.
+- **This page was written from the connector documentation, then corrected against a
+  flow that exists.** The first build on a real tenant used a **Compose** action
+  rather than the **Parse JSON** this page originally described, so every expression
+  here now reads `outputs('Compose')`. Expect to correct a field name or two on the
+  next tenant, and correct this page at the same time — a guide nobody has followed
+  is a guide nobody has tested.
+- **What is checked here and what is not.** A unit test asserts that every field this
+  page tells you to read is a field the platform publishes, and that the ready file
+  matches [`ready-schema.json`](ready-schema.json). Nothing here can execute a Power
+  Automate expression, so a typo inside one is still found by building the flow —
+  which is the half of §AG this repo cannot close.

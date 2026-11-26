@@ -151,7 +151,21 @@ test.describe('Ecom create forms open and close @ecom @smoke @readonly', () => {
       const reLogged = await ensureSignedIn(page);
       if (reLogged) await module.open();
 
+      /**
+       * HOW LONG THE DRAWER TOOK, recorded rather than reasoned about.
+       *
+       * `openCreate` waits up to 20 s for the trigger and then for the drawer, so
+       * "the drawer is slow" and "the drawer never came" are the same red to a
+       * reader of the report. The number separates them, and it is the only thing
+       * that can say whether a future timeout change is warranted or a guess.
+       */
+      const requestedAt = Date.now();
       await module.openCreate();
+      const drawerMs = Date.now() - requestedAt;
+      testInfo.annotations.push({
+        type: 'drawer-open-ms',
+        description: `${entry.module}: ${drawerMs}`,
+      });
       expect(await module.drawer.isOpen(), 'the create drawer did not open').toBe(true);
 
       const form = module.form();

@@ -1,4 +1,10 @@
 import { test, expect } from '@playwright/test';
+import {
+  APP_ERROR_RELOAD,
+  appErrorBoundaryMessage,
+  classifyRender,
+  type RenderSignals,
+} from '../apps/ecom/components/app-render';
 import { isGlyphOnly, nameContains, namesMatch, readableName } from '../apps/ecom/components/names';
 import {
   DIALOG_ALLOWED,
@@ -207,5 +213,98 @@ test.describe('ecom write safety: the drawer refuses @unit', () => {
     }
     // And the two entry points are the same function, not two implementations.
     expect(mayClickInDialog).toBe(mayClickInDialogFromSafety);
+  });
+});
+
+/**
+ * WHAT THE PAGE TURNED OUT TO BE.
+ *
+ * The live half of this — waiting for one of four things to appear — needs a
+ * browser and, for the interesting case, an application that is crashing at the
+ * moment the test runs. The DECISION does not, so it is a pure function and this
+ * is where it is held to its precedence.
+ */
+test.describe('ecom render classification @unit', () => {
+  const NOTHING: RenderSignals = {
+    heading: false,
+    columnheader: false,
+    password: false,
+    errorBoundary: false,
+  };
+
+  test('R1: the application\'s error boundary is "app-error", not a missing element', () => {
+    // wrong: the verdict the suite gave for thirty seconds on 2026-11-24 — nothing
+    // matched, so `element(s) not found`. The two differ in what the reader does
+    // next, which is the only thing a verdict is for: one sends them to the
+    // locator, the other to the application.
+    expect(classifyRender({ ...NOTHING, errorBoundary: true })).toEqual({ kind: 'app-error' });
+  });
+
+  test('R2: a healthy page is NOT reported as an error boundary', () => {
+    // wrong: §W — a detector needs a case it stays SILENT about, and the silence is
+    // what the assertion is written against. A rule that answered "app-error" for
+    // every page would satisfy R1 perfectly and fail every run, which is rule 2
+    // reversed: a criterion satisfied without looking at the page.
+    expect(classifyRender({ ...NOTHING, heading: true })).toEqual({
+      kind: 'rendered',
+      via: 'heading',
+    });
+    expect(classifyRender({ ...NOTHING, columnheader: true })).toEqual({
+      kind: 'rendered',
+      via: 'columnheader',
+    });
+    expect(classifyRender({ ...NOTHING, password: true })).toEqual({ kind: 'login' });
+    expect(classifyRender(NOTHING)).toEqual({ kind: 'nothing' });
+  });
+
+  test('R3: the boundary OUTRANKS a surviving heading — the shell is not the module', () => {
+    // wrong: ranking the heading first. The top bar survives the boundary, so a
+    // crashed content region under an intact header would be reported as a page
+    // that rendered — a green test over an application that is visibly broken.
+    // This is the fixture that discriminates: heading AND boundary together, where
+    // either precedence gives a different answer.
+    expect(classifyRender({ ...NOTHING, heading: true, errorBoundary: true })).toEqual({
+      kind: 'app-error',
+    });
+    expect(classifyRender({ ...NOTHING, columnheader: true, errorBoundary: true })).toEqual({
+      kind: 'app-error',
+    });
+  });
+
+  test('R4: the boundary OUTRANKS the login screen, because ambiguity fails closed', () => {
+    // wrong: ranking login first. The two verdicts do opposite things — a login is
+    // handled silently by re-signing in, an app-error is a named failure — so the
+    // ambiguous screen decides whether a crash is reported or swallowed. §AC:
+    // ambiguity resolves toward the REFUSAL, never toward the reading that lets
+    // the run continue quietly.
+    expect(classifyRender({ ...NOTHING, password: true, errorBoundary: true })).toEqual({
+      kind: 'app-error',
+    });
+  });
+
+  test('R5: the boundary matcher is ANCHORED, so an ordinary refresh control is not a crash', () => {
+    // wrong: an unanchored /reload/i. A grid with its own "Reload" or "Reload
+    // data" button would make every list page report an application fault — the
+    // refusing-rule failure, which looks safe in review precisely because nothing
+    // wrong gets through. The names below are the ones that would collide.
+    expect(APP_ERROR_RELOAD.test('Reload page')).toBe(true);
+    expect(APP_ERROR_RELOAD.test('reload page')).toBe(true);
+    for (const innocent of ['Reload', 'Reload data', 'Reload page data', 'Page reload']) {
+      expect(APP_ERROR_RELOAD.test(innocent), `${innocent} must not read as a crash`).toBe(false);
+    }
+  });
+
+  test('R6: the message names the application AND forecloses the timeout reflex', () => {
+    // wrong: a message that says only "the page did not render". The reaction to
+    // that is to raise the timeout, which cannot help — the page is finished, not
+    // slow — and the next reader loses the same hour. The brief for this fix said
+    // "no blanket timeout bumps"; this is the sentence that stops the next one.
+    const message = appErrorBoundaryMessage('/admin/domains/Tax');
+    expect(message).toContain('/admin/domains/Tax');
+    expect(message).toContain('application fault');
+    expect(message).toContain('waiting longer cannot help');
+    // And it does NOT claim the suite is at fault, which is the thing a reader
+    // would otherwise go and look for.
+    expect(message).not.toMatch(/element\(s\) not found/);
   });
 });

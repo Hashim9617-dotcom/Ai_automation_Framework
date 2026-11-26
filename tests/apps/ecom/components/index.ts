@@ -1,7 +1,9 @@
 import { expect, type Locator, type Page } from '@playwright/test';
+import { APP_ERROR_RELOAD, appErrorBoundaryMessage, classifyRender } from './app-render';
 import { readableName } from './names';
 import { mayClickInDialog, mayClickOutsideDialog } from './write-safety';
 
+export * from './app-render';
 export * from './names';
 export * from './write-safety';
 
@@ -368,21 +370,40 @@ export class ModulePage {
    * waited found 1 heading, 9 rows and 6 headers on the same URL with the same
    * account. The credentials and the routes were never the problem.
    *
-   * It waits for ANY of three things, because all three are legitimate outcomes
-   * and waiting for only the first would turn the other two into a 30-second
-   * timeout with a misleading message:
+   * It waits for ANY of four things, because all four are real outcomes and
+   * waiting for only the first would turn the other three into a 30-second timeout
+   * with a misleading message:
    *   - a heading   — the page rendered
    *   - a column header — the grid rendered, for a page whose heading is absent
    *   - a password input — the session expired and this is the login screen, which
    *     `ensureSignedIn` handles and which must be reached QUICKLY, not after a
    *     timeout
+   *   - the application's own ERROR BOUNDARY — the application has already given
+   *     up on this page. Added 2026-11-24 after `TAX-001 Tax create form opens`
+   *     spent thirty seconds twice waiting for elements that a crashed page can
+   *     never produce, and then reported `element(s) not found`. The verdict and
+   *     the reasoning for its precedence are in `app-render.ts`.
+   *
+   * The boundary is a FAILURE, not a skip: the application breaking on a route is
+   * the single most worthwhile thing this suite can find. What changes is that it
+   * is named in a second rather than guessed at after thirty.
    */
   async waitForRendered(timeout = 30_000): Promise<void> {
-    const anything = this.page
-      .getByRole('heading')
-      .or(this.page.getByRole('columnheader'))
-      .or(this.page.locator('input[type="password"]'));
+    const heading = this.page.getByRole('heading');
+    const columnheader = this.page.getByRole('columnheader');
+    const password = this.page.locator('input[type="password"]');
+    const boundary = this.page.getByRole('button', { name: APP_ERROR_RELOAD });
+
+    const anything = heading.or(columnheader).or(password).or(boundary);
     await expect(anything.first()).toBeVisible({ timeout });
+
+    const verdict = classifyRender({
+      heading: await heading.first().isVisible(),
+      columnheader: await columnheader.first().isVisible(),
+      password: await password.first().isVisible(),
+      errorBoundary: await boundary.first().isVisible(),
+    });
+    if (verdict.kind === 'app-error') throw new Error(appErrorBoundaryMessage(this.path));
   }
 
   /**

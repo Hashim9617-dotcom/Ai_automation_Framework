@@ -21,12 +21,16 @@ import {
  *
  * ## Why this file exists at all
  *
- * `docs/notify/ready-schema.json` is not documentation — a human PASTES it into the
- * Power Automate flow's Parse JSON step, and every expression in that flow is
- * generated from it. So a field the code renames, drops or retypes does not fail
- * loudly in the flow: Parse JSON yields `null` for it, and the mail goes out with an
- * empty subject, or no recipients, or no body. That looks like a flow problem and is
- * not, and the person who has to diagnose it has no access to this repo.
+ * `docs/notify/ready-schema.json` is not documentation — it is the shape a human
+ * builds a Power Automate flow against, and every expression in that flow names a
+ * field from it. So a field the code renames, drops or retypes does not fail loudly
+ * in the flow: the read yields `null`, and the mail goes out with an empty subject,
+ * or no recipients, or no body. That looks like a flow problem and is not, and the
+ * person who has to diagnose it has no access to this repo.
+ *
+ * The real flow reads the file through a **Compose** action rather than Parse JSON,
+ * so nothing in the flow validates the shape at all — which makes this file the ONLY
+ * place the drift can be caught.
  *
  * The schema and the writer are therefore two statements of one fact, which is the
  * §AE shape with a verdict attached. This welds them.
@@ -307,9 +311,10 @@ test.describe('the published ready schema matches what the code writes @unit', (
 
   test('S6: the schema version in the file is the one the code writes', () => {
     // wrong: the code bumps READY_SCHEMA_VERSION and the published file keeps the old
-    // `const`, so every drop is rejected by the flow's Parse JSON — or the reverse,
-    // and the flow accepts a shape it was not written for. The two numbers are one
-    // fact in two places, which is the whole reason this file is welded.
+    // `const`, so a reader comparing a real drop against the published shape is told
+    // they disagree when they do not — or the reverse, and a shape change ships with
+    // the version that promised it had not. The two numbers are one fact in two
+    // places, which is the whole reason this file is welded.
     const schema = loadSchema();
     expect(schema.properties?.schemaVersion?.const).toBe(READY_SCHEMA_VERSION);
     expect(dropFor().schemaVersion).toBe(READY_SCHEMA_VERSION);
@@ -358,8 +363,65 @@ test.describe('the published ready schema matches what the code writes @unit', (
 
     // And the matcher OBJECTS to a field that does not exist, on synthetic source —
     // without this, an empty `unknown` could mean the regex stopped working.
-    const planted = read("@{body('Parse_JSON')?['notAFieldAnybodyWrites']}");
+    const planted = read("@{outputs('Compose')?['notAFieldAnybodyWrites']}");
     expect(planted).toEqual(['notAFieldAnybodyWrites']);
     expect(published.has(planted[0]!)).toBe(false);
+  });
+
+  test('S7b: every field read in the flow doc is read from an action the flow HAS', () => {
+    // wrong: S7 checks the field NAME and nothing else, so the doc could tell
+    // somebody to paste `body('Parse_JSON')?['importance']` into a flow built with a
+    // Compose action and S7 would be perfectly happy — every field name is real. The
+    // expression returns null, `coalesce` turns it into 'Normal', and the setting
+    // does nothing forever. That is the same quiet direction S7 exists for, one level
+    // up: right field, wrong action.
+    //
+    // §AC — the accessors are an ALLOWLIST. A denylist of "not Parse_JSON" would pass
+    // a doc that had drifted to `body('Compose')` or `outputs('Compose_2')`, neither
+    // of which resolves.
+    const ACTIONS_THE_FLOW_HAS = new Set(["outputs('Compose')", 'triggerOutputs()']);
+
+    const doc = readFileSync(path.join(ROOT, 'docs', 'notify', 'POWER-AUTOMATE-FLOW.md'), 'utf8');
+    const reads = (source: string): Array<{ action: string; field: string }> =>
+      [...source.matchAll(/([A-Za-z0-9_]+\((?:'[^']*')?\))\?\['([A-Za-z0-9_/{}]+)'\]/g)].map(
+        (match) => ({ action: match[1]!, field: match[2]! }),
+      );
+
+    const found = reads(doc);
+    // §T — the scan had a subject.
+    expect(found.length, 'no action-qualified field reads found in the flow doc').toBeGreaterThan(
+      5,
+    );
+
+    const wrong = found.filter((entry) => !ACTIONS_THE_FLOW_HAS.has(entry.action));
+    expect(
+      wrong.map((entry) => `${entry.action}?['${entry.field}']`).sort(),
+      'the flow doc reads fields from an action the documented flow does not create',
+    ).toEqual([]);
+
+    // The doc is actually on the Compose path, rather than merely free of a bad
+    // accessor — a doc with no expressions at all would satisfy the assertion above.
+    const composeReads = found.filter((entry) => entry.action === "outputs('Compose')");
+    expect(composeReads.length, 'the doc reads nothing from Compose').toBeGreaterThan(5);
+    for (const field of ['subject', 'bodyHtml', 'importance', 'to', 'cc'] as const) {
+      expect(
+        composeReads.some((entry) => entry.field === field),
+        `the doc never reads ${field} from Compose`,
+      ).toBe(true);
+    }
+
+    // §W — the detector needs a case it CATCHES as well as the silence above, and the
+    // caught case is what the assertion is written against. The old accessor is the
+    // realistic drift, because it is what this page said until the first real tenant
+    // was built.
+    const planted = reads("@{coalesce(body('Parse_JSON')?['importance'], 'Normal')}");
+    expect(planted).toEqual([{ action: "body('Parse_JSON')", field: 'importance' }]);
+    expect(ACTIONS_THE_FLOW_HAS.has(planted[0]!.action)).toBe(false);
+
+    // And a correct read on the same synthetic source is NOT flagged, so the rule is
+    // discriminating rather than refusing everything (the reversed form of rule 2).
+    const accepted = reads("@{coalesce(outputs('Compose')?['importance'], 'Normal')}");
+    expect(accepted).toEqual([{ action: "outputs('Compose')", field: 'importance' }]);
+    expect(ACTIONS_THE_FLOW_HAS.has(accepted[0]!.action)).toBe(true);
   });
 });

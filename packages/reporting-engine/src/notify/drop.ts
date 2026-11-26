@@ -136,10 +136,18 @@ export function subjectFor(input: {
   const date = Number.isNaN(started.getTime())
     ? input.startedAt
     : started.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  return (
-    `[${input.app.toUpperCase()}][${input.environment.toUpperCase()}] ${input.verdict} — ` +
-    `${input.passed}/${input.total} passed — ${date}`
-  );
+  /**
+   * ONE BRACKET WHEN THE TWO ARE THE SAME WORD.
+   *
+   * An application's only environment is routinely named after it, so the first
+   * real ecom subject read `[ECOM][ECOM] PASSED — …`. Two brackets are there to
+   * answer two questions; when they give the same answer the second one is noise
+   * in the most expensive characters on the line, the ones a phone shows.
+   */
+  const app = input.app.toUpperCase();
+  const environment = input.environment.toUpperCase();
+  const where = app === environment ? `[${app}]` : `[${app}][${environment}]`;
+  return `${where} ${input.verdict} — ` + `${input.passed}/${input.total} passed — ${date}`;
 }
 
 export interface BuildReadyDropInput {
@@ -224,6 +232,7 @@ export type NotifySkipReason =
   | 'no-entry-for-app'
   | 'folder-missing'
   | 'config-broken'
+  | 'no-tests'
   | 'failed';
 
 export interface NotifyOutcome {
@@ -314,6 +323,39 @@ export function notifyRun(input: NotifyRunInput): NotifyOutcome {
             ? 'notify: skipped — this is a fixture-only run (the platform testing itself), ' +
               'not a run against an application. Nothing was written, whatever is configured.'
             : 'notify: skipped (--no-notify / AITP_NO_NOTIFY).',
+      };
+    }
+
+    /**
+     * A RUN THAT EXECUTED NOTHING IS NOT A PASS.
+     *
+     * Found on 2026-11-26 by running `playwright test --list`, which builds a
+     * reporter, starts a run and ends it having executed nothing. The drop that
+     * landed in a real synced folder said:
+     *
+     *     [ECOM][ECOM] PASSED — 0/0 passed — 26 Nov 2026
+     *
+     * That is this repo's oldest shape — a criterion satisfied by knowing nothing —
+     * reaching an audience. Every count is zero, so `failed > 0` is false, so the
+     * verdict is PASSED and the importance is Normal, and a reader is told their
+     * application is healthy by a command that never opened a browser.
+     *
+     * The guard is on the COUNT rather than on the invocation, because `--list` is
+     * only the way it was found: a grep that matches nothing, a project with no
+     * collected specs and a run cancelled before its first test all arrive here the
+     * same way, and all of them mean the same thing to a reader. Three states, and
+     * "nothing ran" is not the one that gets mailed.
+     */
+    // `?? 0` rather than a check for absence: a run with NO summary at all is even
+    // less of a pass than one whose summary says zero, so both take this path.
+    if ((input.run.summary?.total ?? 0) === 0) {
+      return {
+        written: false,
+        skipped: 'no-tests',
+        message:
+          'notify: NOT SENT — this run executed no tests, and "nothing ran" is not ' +
+          '"everything passed". Nothing was written. If tests were expected, the ' +
+          'grep or the project selected none.',
       };
     }
 

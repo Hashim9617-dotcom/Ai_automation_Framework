@@ -201,6 +201,38 @@ test.describe('the notification drop @unit', () => {
     ).toContain('[DMS][APP] PASSED WITH FLAKY — 42/42 passed — ');
   });
 
+  test('D2b: an application whose environment shares its name gets ONE bracket', () => {
+    // wrong: `[ECOM][ECOM] PASSED — …`, which is what the first real ecom mail said.
+    // Two brackets exist to answer two questions; when the answers are the same word
+    // the second one spends the most expensive characters on the line — the ones a
+    // phone notification shows — saying nothing. The fixture discriminates because
+    // the pair differs only in whether the two strings match: D2 above keeps the
+    // both-brackets case, so this cannot be satisfied by collapsing them always.
+    expect(
+      subjectFor({
+        app: 'ecom',
+        environment: 'ecom',
+        verdict: 'PASSED',
+        passed: 66,
+        total: 66,
+        startedAt: '2026-11-24T06:15:00.000Z',
+      }),
+    ).toBe('[ECOM] PASSED — 66/66 passed — 24 Nov 2026');
+
+    // Case is not what makes them the same thing: both are upper-cased first, so a
+    // config written `Ecom` against an environment `ecom` still collapses.
+    expect(
+      subjectFor({
+        app: 'Ecom',
+        environment: 'ecom',
+        verdict: 'PASSED',
+        passed: 1,
+        total: 1,
+        startedAt: '2026-11-24T06:15:00.000Z',
+      }),
+    ).toContain('[ECOM] PASSED');
+  });
+
   test('D3: the ready file name is the RUN ID plus the suffix the flow matches', () => {
     // wrong: a fixed name like `ready.json`, so two runs finishing close together
     // overwrite each other and one report is silently lost — and the flow, which
@@ -303,6 +335,31 @@ test.describe('the notification drop @unit', () => {
     // AND IT IS NOT CREATED. A folder no flow watches would swallow every report
     // while each run reported success.
     expect(readdirSync(path.dirname(f.folder))).toEqual([]);
+  });
+
+  test('D6b: a run that executed NOTHING is not mailed as a pass', () => {
+    // wrong: the drop that actually landed in a real synced folder on 2026-11-26,
+    // from a `playwright test --list` that opened no browser:
+    //
+    //     [ECOM][ECOM] PASSED — 0/0 passed — 26 Nov 2026
+    //
+    // Every count is zero, so `failed > 0` is false, so the verdict is PASSED — a
+    // criterion satisfied by knowing nothing, reaching an audience. The fixture
+    // discriminates on the one thing that differs from D1: the same configuration,
+    // the same folder, an empty result list. D1 writes; this must not.
+    const f = fixture();
+    const outcome = notify(f, { run: runOf([]) });
+
+    expect(outcome.written).toBe(false);
+    expect(outcome.skipped).toBe('no-tests');
+    expect(outcome.message).toContain('"nothing ran" is not "everything passed"');
+    // And NOTHING was written — a reason without an empty drop beside it, because a
+    // zip with no ready file still clutters a folder somebody reads.
+    expect(readdirSync(f.folder)).toEqual([]);
+
+    // The gate is on the COUNT, not on the invocation: one real test and the same
+    // configuration writes, so this is not a rule that refuses everything.
+    expect(notify(f).written, 'a run with one test must still be written').toBe(true);
   });
 
   test('D7: a broken config is NOT reported as "not configured"', () => {
